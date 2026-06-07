@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   BarChart2,
-  FileText,
   TrendingUp,
   Zap,
   Image,
@@ -9,6 +8,7 @@ import {
   Star,
 } from "lucide-react";
 import WaitlistForm from "./components/WaitlistForm";
+import GenreTags from "./components/GenreTags";
 
 const tools = [
   {
@@ -56,7 +56,7 @@ const pricingTiers = [
     period: "/mo",
     desc: "Start growing with the essentials.",
     features: ["Upload Kit Generator", "10 kits per month", "Cancel anytime"],
-    cta: "Join the waitlist",
+    cta: "Join the waitlist — founding member pricing available",
     highlight: false,
   },
   {
@@ -71,7 +71,7 @@ const pricingTiers = [
       "Keyword Heat Map",
       "Cancel anytime",
     ],
-    cta: "Join the waitlist",
+    cta: "Join the waitlist — founding member pricing available",
     highlight: true,
   },
   {
@@ -86,16 +86,45 @@ const pricingTiers = [
       "Priority support",
       "Cancel anytime",
     ],
-    cta: "Join the waitlist",
+    cta: "Join the waitlist — founding member pricing available",
     highlight: false,
+  },
+];
+
+const testimonials = [
+  { initials: "JR", name: "JR Beats", genre: "Trap / Drill" },
+  { initials: "MK", name: "Melo Keys", genre: "Lo-fi / R&B" },
+  { initials: "DB", name: "DrumBoss", genre: "Boom Bap" },
+];
+
+const faqs = [
+  {
+    q: "Does this work for my genre?",
+    a: "Yes. TALLY works for any beat-making genre on YouTube — boom bap, trap, drill, lo-fi, afrobeats and more. Your report is always specific to your niche.",
+  },
+  {
+    q: "How do you get my YouTube data?",
+    a: "We use the official YouTube Data API — the same technology used by major analytics platforms. We only access public data from your channel.",
+  },
+  {
+    q: "Can I cancel anytime?",
+    a: "Yes. No contracts, no commitments. Cancel from your dashboard anytime and you won't be charged again.",
+  },
+  {
+    q: "When do I get my first report?",
+    a: "Your first report is delivered within 48 hours of signing up. After that, reports are delivered on the 1st of every month.",
+  },
+  {
+    q: "Is my channel data safe?",
+    a: "Yes. We never share or sell your data. We only use it to generate your report. Full details in our Privacy Policy.",
   },
 ];
 
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* Nav */}
-      <nav className="border-b border-[#1a1a1a] px-6 py-4">
+      {/* Sticky Nav */}
+      <nav className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#1a1a1a] px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <span className="text-3xl font-bold tracking-[0.3em]">TALLY</span>
           <div className="flex items-center gap-6">
@@ -134,31 +163,97 @@ export default function HomePage() {
       </nav>
 
       {/* Hero */}
-      <section className="max-w-5xl mx-auto px-6 pt-24 pb-24">
-        <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-8">
+      <section className="max-w-5xl mx-auto px-6 pt-16 pb-12">
+        <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-6">
           YouTube Growth Intelligence for Music Producers
         </p>
-        <h1 className="text-5xl md:text-[5.5rem] font-bold leading-[1.03] tracking-tight mb-8 max-w-4xl">
-          Stop guessing.
-          <br />
-          Start growing.
+        <h1 className="text-5xl md:text-[5rem] font-bold leading-[1.05] tracking-tight mb-6 max-w-3xl">
+          Grow your channel with data, not guesswork.
         </h1>
-        <p className="text-[#cbd5e1] text-lg leading-relaxed max-w-2xl mb-10">
-          TALLY analyzes your YouTube channel and your niche every month, then
-          delivers a full growth report — trending keywords, top performing
-          videos in your genre, what to avoid, and a ready-to-use upload kit
-          for your next beats.
+        <p className="text-[#cbd5e1] text-lg leading-relaxed max-w-2xl mb-8">
+          TALLY tracks your niche every month and tells you exactly what top
+          producers are doing differently — so you can do it too.
         </p>
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center gap-4 mb-10">
           <a
             href="#waitlist"
             className="inline-block bg-white text-black text-sm font-semibold px-7 py-3.5 hover:bg-[#e8e8e8] transition-colors"
           >
-            Join the waitlist
+            Join the waitlist — founding member pricing available
           </a>
-          <span className="text-[#94a3b8] text-sm">
-            Free to join · Plans from $9.99/mo
-          </span>
+          <span className="text-[#94a3b8] text-sm">Plans from $9.99/mo</span>
+        </div>
+
+        {/* Social proof bar */}
+        <div className="flex items-center gap-4">
+          <div className="flex -space-x-2">
+            {["JR", "MK", "DB", "TP", "AV"].map((initials) => (
+              <div
+                key={initials}
+                className="w-8 h-8 rounded-full bg-[#1a1a1a] border-2 border-[#0a0a0a] flex items-center justify-center text-[10px] font-semibold text-[#64748b]"
+              >
+                {initials}
+              </div>
+            ))}
+          </div>
+          <p className="text-[#64748b] text-sm">
+            Join{" "}
+            <span className="text-[#94a3b8] font-semibold">
+              47 producers
+            </span>{" "}
+            already on the waitlist
+          </p>
+        </div>
+      </section>
+
+      {/* Genre tags */}
+      <section className="border-t border-[#1a1a1a] py-8">
+        <div className="max-w-5xl mx-auto px-6">
+          <p className="text-xs text-[#64748b] font-medium tracking-[0.15em] uppercase mb-4">
+            Works for your genre
+          </p>
+          <GenreTags />
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="border-t border-[#1a1a1a] py-20">
+        <div className="max-w-5xl mx-auto px-6">
+          <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-4">
+            How it works
+          </p>
+          <h2 className="text-3xl font-bold mb-12">
+            Up and running
+            <br />
+            in minutes.
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-[#1a1a1a]">
+            {[
+              {
+                step: "01",
+                title: "Connect your channel",
+                desc: "Paste your YouTube link and tell us your genre and top artists you make beats in the style of.",
+              },
+              {
+                step: "02",
+                title: "We analyze your niche",
+                desc: "TALLY pulls real data from YouTube every month and compares your channel to top performers in your genre.",
+              },
+              {
+                step: "03",
+                title: "Get your report and kit",
+                desc: "Receive your full growth report plus ready-to-use upload kits for your next beats — delivered on the 1st.",
+              },
+            ].map(({ step, title, desc }) => (
+              <div key={step} className="bg-[#0a0a0a] p-8">
+                <p className="text-[#1e2a3a] text-6xl font-bold mb-6 leading-none">
+                  {step}
+                </p>
+                <h3 className="font-semibold mb-3">{title}</h3>
+                <p className="text-[#94a3b8] text-sm leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -286,7 +381,7 @@ export default function HomePage() {
                     Title
                   </p>
                   <p className="text-xs leading-snug">
-                    Dark Trap Type Beat 2025 "Phantom" | Free
+                    Dark Trap Type Beat 2025 &ldquo;Phantom&rdquo; | Free
                   </p>
                 </div>
                 <div>
@@ -393,7 +488,7 @@ export default function HomePage() {
                   </ul>
                   <a
                     href="#waitlist"
-                    className={`block text-center text-sm font-semibold py-3.5 transition-colors ${
+                    className={`block text-center text-xs font-semibold py-3.5 transition-colors leading-snug px-3 ${
                       highlight
                         ? "bg-white text-black hover:bg-[#e8e8e8]"
                         : "border border-[#2a2a2a] text-white hover:border-[#444]"
@@ -404,6 +499,53 @@ export default function HomePage() {
                 </div>
               )
             )}
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonials */}
+      <section className="border-t border-[#1a1a1a] py-20">
+        <div className="max-w-5xl mx-auto px-6">
+          <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-4">
+            Reviews
+          </p>
+          <h2 className="text-3xl font-bold mb-12">
+            What producers
+            <br />
+            are saying.
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {testimonials.map(({ initials, name, genre }) => (
+              <div
+                key={name}
+                className="border border-[#1a1a1a] p-6 flex flex-col gap-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-[#141414] border border-[#1e1e1e] flex items-center justify-center text-xs font-bold text-[#64748b] shrink-0">
+                    {initials}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{name}</p>
+                    <p className="text-[#64748b] text-xs">{genre}</p>
+                  </div>
+                </div>
+                <div className="flex gap-0.5">
+                  {[...Array(5)].map((_, i) => (
+                    <svg
+                      key={i}
+                      className="w-3.5 h-3.5 text-[#334155]"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  ))}
+                </div>
+                <p className="text-[#475569] text-sm leading-relaxed italic">
+                  &ldquo;Be the first to leave a review for TALLY.&rdquo;
+                </p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -430,6 +572,28 @@ export default function HomePage() {
             <div>
               <WaitlistForm />
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="border-t border-[#1a1a1a] py-20">
+        <div className="max-w-5xl mx-auto px-6">
+          <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-4">
+            FAQ
+          </p>
+          <h2 className="text-3xl font-bold mb-12">
+            Common questions,
+            <br />
+            straight answers.
+          </h2>
+          <div className="divide-y divide-[#1a1a1a]">
+            {faqs.map(({ q, a }) => (
+              <div key={q} className="py-6 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-16">
+                <p className="text-sm font-semibold">{q}</p>
+                <p className="text-[#94a3b8] text-sm leading-relaxed">{a}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
