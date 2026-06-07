@@ -16,6 +16,8 @@ const GENRES = [
   "Other",
 ];
 
+type Status = "idle" | "loading" | "success" | "error";
+
 interface FormState {
   name: string;
   email: string;
@@ -30,24 +32,49 @@ export default function WaitlistForm() {
     genre: "",
     channel: "",
   });
-  const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<Status>("idle");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    if (status === "error") setStatus("idle");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    await new Promise((res) => setTimeout(res, 700));
-    setLoading(false);
-    setSubmitted(true);
+    setStatus("loading");
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          genre: form.genre,
+          youtube_channel: form.channel,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus("error");
+        setErrorMessage(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      setStatus("success");
+    } catch {
+      setStatus("error");
+      setErrorMessage("Network error. Please check your connection and try again.");
+    }
   };
 
-  if (submitted) {
+  if (status === "success") {
     return (
       <div className="border border-[#1e1e1e] p-8">
         <div className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
@@ -140,13 +167,17 @@ export default function WaitlistForm() {
         />
       </div>
 
+      {status === "error" && (
+        <p className="text-red-400 text-sm">{errorMessage}</p>
+      )}
+
       <div className="pt-2">
         <button
           type="submit"
-          disabled={loading}
+          disabled={status === "loading"}
           className="w-full bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
         >
-          {loading ? "Submitting..." : "Join the waitlist"}
+          {status === "loading" ? "Submitting..." : "Join the waitlist"}
         </button>
       </div>
     </form>
