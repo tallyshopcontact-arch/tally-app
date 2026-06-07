@@ -163,46 +163,67 @@ export default function HomePage() {
       </nav>
 
       {/* Hero */}
-      <section className="max-w-5xl mx-auto px-6 pt-16 pb-12">
-        <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-6">
-          YouTube Growth Intelligence for Music Producers
-        </p>
-        <h1 className="text-5xl md:text-[5rem] font-bold leading-[1.05] tracking-tight mb-6 max-w-3xl">
-          Grow your channel with data, not guesswork.
-        </h1>
-        <p className="text-[#cbd5e1] text-lg leading-relaxed max-w-2xl mb-8">
-          TALLY tracks your niche every month and tells you exactly what top
-          producers are doing differently — so you can do it too.
-        </p>
-        <div className="flex flex-wrap items-center gap-4 mb-10">
-          <a
-            href="#waitlist"
-            className="inline-block bg-white text-black text-sm font-semibold px-7 py-3.5 hover:bg-[#e8e8e8] transition-colors"
-          >
-            Join the waitlist — founding member pricing available
-          </a>
-          <span className="text-[#94a3b8] text-sm">Plans from $9.99/mo</span>
-        </div>
+      <section className="relative overflow-hidden">
+        {/* Animated gradient background */}
+        <div className="hero-bg-gradient absolute inset-0" aria-hidden="true" />
+        {/* Dot matrix overlay */}
+        <div className="hero-bg-dots absolute inset-0 opacity-100" aria-hidden="true" />
+        {/* Glowing orbs */}
+        <div
+          className="hero-orb-1 absolute -top-24 -right-24 w-[560px] h-[560px] rounded-full bg-[#1e0850] blur-[140px] opacity-40 pointer-events-none"
+          aria-hidden="true"
+        />
+        <div
+          className="hero-orb-2 absolute -bottom-16 -left-20 w-[440px] h-[440px] rounded-full bg-[#2a0a40] blur-[120px] opacity-30 pointer-events-none"
+          aria-hidden="true"
+        />
+        <div
+          className="hero-orb-3 absolute top-[35%] right-[22%] w-[320px] h-[320px] rounded-full bg-[#06153a] blur-[100px] pointer-events-none"
+          aria-hidden="true"
+        />
 
-        {/* Social proof bar */}
-        <div className="flex items-center gap-4">
-          <div className="flex -space-x-2">
-            {["JR", "MK", "DB", "TP", "AV"].map((initials) => (
-              <div
-                key={initials}
-                className="w-8 h-8 rounded-full bg-[#1a1a1a] border-2 border-[#0a0a0a] flex items-center justify-center text-[10px] font-semibold text-[#64748b]"
-              >
-                {initials}
-              </div>
-            ))}
-          </div>
-          <p className="text-[#64748b] text-sm">
-            Join{" "}
-            <span className="text-[#94a3b8] font-semibold">
-              47 producers
-            </span>{" "}
-            already on the waitlist
+        {/* Content */}
+        <div className="relative z-10 max-w-5xl mx-auto px-6 pt-16 pb-12">
+          <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-6">
+            YouTube Growth Intelligence for Music Producers
           </p>
+          <h1 className="text-5xl md:text-[5rem] font-bold leading-[1.05] tracking-tight mb-6 max-w-3xl">
+            Grow your channel with data, not guesswork.
+          </h1>
+          <p className="text-[#cbd5e1] text-lg leading-relaxed max-w-2xl mb-8">
+            TALLY tracks your niche every month and tells you exactly what top
+            producers are doing differently — so you can do it too.
+          </p>
+          <div className="flex flex-wrap items-center gap-4 mb-10">
+            <a
+              href="#waitlist"
+              className="inline-block bg-white text-black text-sm font-semibold px-7 py-3.5 hover:bg-[#e8e8e8] transition-colors"
+            >
+              Join the waitlist — founding member pricing available
+            </a>
+            <span className="text-[#94a3b8] text-sm">Plans from $9.99/mo</span>
+          </div>
+
+          {/* Social proof bar */}
+          <div className="flex items-center gap-4">
+            <div className="flex -space-x-2">
+              {["JR", "MK", "DB", "TP", "AV"].map((initials) => (
+                <div
+                  key={initials}
+                  className="w-8 h-8 rounded-full bg-[#1a1a1a] border-2 border-[#0a0a0a] flex items-center justify-center text-[10px] font-semibold text-[#64748b]"
+                >
+                  {initials}
+                </div>
+              ))}
+            </div>
+            <p className="text-[#64748b] text-sm">
+              Join{" "}
+              <span className="text-[#94a3b8] font-semibold">
+                47 producers
+              </span>{" "}
+              already on the waitlist
+            </p>
+          </div>
         </div>
       </section>
 
