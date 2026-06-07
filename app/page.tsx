@@ -64,9 +64,9 @@ export default function HomePage() {
           YouTube Growth Intelligence for Music Producers
         </p>
         <h1 className="text-5xl md:text-[5.5rem] font-bold leading-[1.03] tracking-tight mb-8 max-w-4xl">
-          Know exactly what to
+          Stop guessing.
           <br />
-          upload next.
+          Start growing.
         </h1>
         <p className="text-[#cbd5e1] text-lg leading-relaxed max-w-2xl mb-10">
           TALLY analyzes your YouTube channel and your niche every month, then
