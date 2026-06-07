@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400" role="img" aria-label="TALLY">
+  <title>TALLY</title>
+  <rect width="400" height="400" fill="#0a0a0a"/>
+  <!--
+    TALLY wordmark centered in a 400×400 square.
+
+    font-size 72 with tracking-[0.3em] (the nav's letter-spacing):
+      0.3 × 72 = 21.6px per gap, 4 gaps = 86.4px spacing
+      base glyph width of TALLY ≈ 200px → total ≈ 286px
+    textLength="286" + lengthAdjust="spacing" reproduces that exact
+    tracking while keeping text-anchor="middle" reliable (no trailing
+    letter-spacing offset problem).
+    Padding: (400 - 286) / 2 = 57px each side.
+
+    dominant-baseline="central" vertically centers the em box at y=200.
+    For all-caps TALLY the visual center lands very close to y=200.
+  -->
+  <text
+    x="200"
+    y="200"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
+    font-size="72"
+    font-weight="700"
+    fill="white"
+    textLength="286"
+    lengthAdjust="spacing"
+  >TALLY</text>
+</svg>
