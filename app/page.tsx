@@ -220,11 +220,17 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t border-[#1a1a1a] py-8">
-        <div className="max-w-5xl mx-auto px-6 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="text-sm font-bold tracking-[0.25em]">TALLY</span>
-          <p className="text-[#64748b] text-xs">
-            © 2025 TALLY. Built for serious music producers.
-          </p>
+          <div className="flex items-center gap-6">
+            <Link href="/privacy" className="text-xs text-[#64748b] hover:text-[#94a3b8] transition-colors">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="text-xs text-[#64748b] hover:text-[#94a3b8] transition-colors">
+              Terms of Service
+            </Link>
+            <span className="text-[#64748b] text-xs">© 2026 TALLY. All rights reserved.</span>
+          </div>
         </div>
       </footer>
     </main>
