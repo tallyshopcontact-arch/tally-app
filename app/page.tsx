@@ -121,60 +121,63 @@ const faqs = [
   },
 ];
 
-async function getWaitlistCount(): Promise<number> {
+async function getWaitlistSignups(): Promise<{
+  initials: string[];
+  count: number;
+}> {
   try {
     const supabase = createServerClient();
-    const { count } = await supabase
+    const { data, count } = await supabase
       .from("waitlist")
-      .select("*", { count: "exact", head: true });
-    return count ?? 0;
+      .select("name", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    const initials = (data ?? []).map(({ name }: { name: string }) =>
+      name.trim().charAt(0).toUpperCase()
+    );
+    return { initials, count: count ?? 0 };
   } catch {
-    return 0;
+    return { initials: [], count: 0 };
   }
 }
 
 export default async function HomePage() {
-  const waitlistCount = await getWaitlistCount();
+  const signups = await getWaitlistSignups();
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Sticky Nav */}
-      <nav className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#1a1a1a] px-6 py-3">
+      <nav className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#1a1a1a] px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <img
-            src="/tally-logo-dark.svg"
-            alt="TALLY"
-            width={160}
-            height={36}
-            className="h-9 w-auto"
-          />
+          <span className="text-3xl font-bold tracking-[0.3em]">TALLY</span>
           <div className="flex items-center gap-6">
             <a
               href="#tools"
-              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
             >
               Tools
             </a>
             <a
               href="#membership"
-              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
             >
               Membership
             </a>
             <Link
               href="/privacy"
-              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
             >
               Privacy Policy
             </Link>
             <Link
               href="/terms"
-              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
             >
               Terms of Service
             </Link>
             <Link
               href="/login"
-              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
             >
               Login
             </Link>
@@ -187,7 +190,7 @@ export default async function HomePage() {
         {/* Animated gradient background */}
         <div className="hero-bg-gradient absolute inset-0" aria-hidden="true" />
         {/* Dot matrix overlay */}
-        <div className="hero-bg-dots absolute inset-0 opacity-100" aria-hidden="true" />
+        <div className="hero-bg-dots absolute inset-0" aria-hidden="true" />
         {/* Glowing orbs */}
         <div
           className="hero-orb-1 absolute -top-24 -right-24 w-[560px] h-[560px] rounded-full bg-[#1e0850] blur-[140px] opacity-40 pointer-events-none"
@@ -217,7 +220,7 @@ export default async function HomePage() {
           <div className="flex flex-wrap items-center gap-4 mb-10">
             <a
               href="#waitlist"
-              className="inline-block bg-[#8B5CF6] text-white text-sm font-semibold px-7 py-3.5 hover:bg-[#7c3aed] transition-colors"
+              className="inline-block bg-white text-black text-sm font-semibold px-7 py-3.5 hover:bg-[#e8e8e8] transition-colors"
             >
               Join the waitlist — founding member pricing available
             </a>
@@ -226,24 +229,27 @@ export default async function HomePage() {
 
           {/* Social proof bar */}
           <div className="flex items-center gap-4">
-            <div className="flex -space-x-2">
-              {["JR", "MK", "DB", "TP", "AV"].map((initials) => (
-                <div
-                  key={initials}
-                  className="w-8 h-8 rounded-full bg-[#1a1a1a] border-2 border-[#0a0a0a] flex items-center justify-center text-[10px] font-semibold text-[#64748b]"
-                >
-                  {initials}
-                </div>
-              ))}
-            </div>
+            {signups.initials.length > 0 && (
+              <div className="flex -space-x-2">
+                {signups.initials.map((initial, i) => (
+                  <div
+                    key={i}
+                    className="w-8 h-8 rounded-full bg-[#1a1a1a] border-2 border-[#0a0a0a] flex items-center justify-center text-[10px] font-semibold text-[#94a3b8]"
+                  >
+                    {initial}
+                  </div>
+                ))}
+              </div>
+            )}
             <p className="text-[#64748b] text-sm">
-              {waitlistCount <= 1 ? (
-                "Be the first to join"
+              {signups.count === 0 ? (
+                "Be the first to join the waitlist"
               ) : (
                 <>
                   Join{" "}
-                  <span className="text-[#8B5CF6] font-semibold">
-                    {waitlistCount} producers
+                  <span className="text-white font-semibold">
+                    {signups.count}{" "}
+                    {signups.count === 1 ? "producer" : "producers"}
                   </span>{" "}
                   already on the waitlist
                 </>
@@ -373,7 +379,7 @@ export default async function HomePage() {
                     </div>
                     <div className="h-1 bg-[#1a1a1a] rounded-full">
                       <div
-                        className="h-1 bg-[#8B5CF6] rounded-full opacity-60"
+                        className="h-1 bg-[#64748b] rounded-full"
                         style={{ width: w }}
                       />
                     </div>
@@ -401,7 +407,7 @@ export default async function HomePage() {
                   "Post Friday 6–8pm EST",
                 ].map((item, i) => (
                   <div key={item} className="flex items-start gap-2.5">
-                    <span className="text-[#8B5CF6]/40 text-xs font-bold mt-px shrink-0">
+                    <span className="text-[#334155] text-xs font-bold mt-px shrink-0">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <span className="text-[#94a3b8] text-xs leading-snug">
@@ -501,18 +507,12 @@ export default async function HomePage() {
               ({ name, price, period, desc, features, cta, highlight }) => (
                 <div
                   key={name}
-                  className={`p-8 flex flex-col relative ${
+                  className={`p-8 flex flex-col ${
                     highlight ? "bg-[#0f0f0f]" : "bg-[#0a0a0a]"
                   }`}
                 >
                   {highlight && (
-                    <div
-                      className="absolute inset-x-0 top-0 h-px bg-[#8B5CF6]"
-                      aria-hidden="true"
-                    />
-                  )}
-                  {highlight && (
-                    <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#8B5CF6] mb-4">
+                    <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#94a3b8] mb-4">
                       Most popular
                     </p>
                   )}
@@ -543,8 +543,8 @@ export default async function HomePage() {
                     href="#waitlist"
                     className={`block text-center text-xs font-semibold py-3.5 transition-colors leading-snug px-3 ${
                       highlight
-                        ? "bg-[#8B5CF6] text-white hover:bg-[#7c3aed]"
-                        : "border border-[#8B5CF6]/25 text-white hover:border-[#8B5CF6]/60 hover:bg-[#8B5CF6]/5"
+                        ? "bg-white text-black hover:bg-[#e8e8e8]"
+                        : "border border-[#2a2a2a] text-white hover:border-[#444]"
                     }`}
                   >
                     {cta}
@@ -642,7 +642,10 @@ export default async function HomePage() {
           </h2>
           <div className="divide-y divide-[#1a1a1a]">
             {faqs.map(({ q, a }) => (
-              <div key={q} className="py-6 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-16">
+              <div
+                key={q}
+                className="py-6 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-16"
+              >
                 <p className="text-sm font-semibold">{q}</p>
                 <p className="text-[#94a3b8] text-sm leading-relaxed">{a}</p>
               </div>
@@ -654,23 +657,17 @@ export default async function HomePage() {
       {/* Footer */}
       <footer className="border-t border-[#1a1a1a] py-8">
         <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <img
-            src="/tally-logo-dark.svg"
-            alt="TALLY"
-            width={120}
-            height={27}
-            className="h-7 w-auto opacity-70"
-          />
+          <span className="text-sm font-bold tracking-[0.25em]">TALLY</span>
           <div className="flex items-center gap-6">
             <Link
               href="/privacy"
-              className="text-xs text-[#64748b] hover:text-[#8B5CF6] transition-colors"
+              className="text-xs text-[#64748b] hover:text-[#94a3b8] transition-colors"
             >
               Privacy Policy
             </Link>
             <Link
               href="/terms"
-              className="text-xs text-[#64748b] hover:text-[#8B5CF6] transition-colors"
+              className="text-xs text-[#64748b] hover:text-[#94a3b8] transition-colors"
             >
               Terms of Service
             </Link>
