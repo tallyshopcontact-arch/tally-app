@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import WaitlistForm from "./components/WaitlistForm";
 import GenreTags from "./components/GenreTags";
+import { createServerClient } from "@/lib/supabase";
 
 const tools = [
   {
@@ -120,7 +121,20 @@ const faqs = [
   },
 ];
 
-export default function HomePage() {
+async function getWaitlistCount(): Promise<number> {
+  try {
+    const supabase = createServerClient();
+    const { count } = await supabase
+      .from("waitlist")
+      .select("*", { count: "exact", head: true });
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export default async function HomePage() {
+  const waitlistCount = await getWaitlistCount();
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Sticky Nav */}
@@ -217,11 +231,17 @@ export default function HomePage() {
               ))}
             </div>
             <p className="text-[#64748b] text-sm">
-              Join{" "}
-              <span className="text-[#94a3b8] font-semibold">
-                47 producers
-              </span>{" "}
-              already on the waitlist
+              {waitlistCount <= 1 ? (
+                "Be the first to join"
+              ) : (
+                <>
+                  Join{" "}
+                  <span className="text-[#94a3b8] font-semibold">
+                    {waitlistCount} producers
+                  </span>{" "}
+                  already on the waitlist
+                </>
+              )}
             </p>
           </div>
         </div>
