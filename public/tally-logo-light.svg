@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 72" width="320" height="72" role="img" aria-label="TALLY">
+  <title>TALLY</title>
+
+  <!-- Transparent background — drop onto any light surface -->
+
+  <!--
+    Icon mark — same geometry as dark version, filled #0a0a0a for light backgrounds.
+  -->
+  <rect x="20" y="45" width="5" height="7"  rx="1.5" fill="#0a0a0a"/>
+  <rect x="28" y="41" width="5" height="11" rx="1.5" fill="#0a0a0a"/>
+  <rect x="36" y="34" width="5" height="18" rx="1.5" fill="#0a0a0a"/>
+  <rect x="44" y="25" width="5" height="27" rx="1.5" fill="#0a0a0a"/>
+  <rect x="52" y="16" width="5" height="36" rx="1.5" fill="#0a0a0a"/>
+
+  <line x1="66" y1="20" x2="66" y2="52" stroke="#cccccc" stroke-width="1"/>
+
+  <text
+    x="78"
+    y="52"
+    font-family="'Helvetica Neue', Helvetica, 'Arial', sans-serif"
+    font-size="38"
+    font-weight="700"
+    letter-spacing="10"
+    fill="#0a0a0a"
+  >TALLY</text>
+</svg>

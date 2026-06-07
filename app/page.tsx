@@ -138,9 +138,15 @@ export default async function HomePage() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Sticky Nav */}
-      <nav className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#1a1a1a] px-6 py-4">
+      <nav className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#1a1a1a] px-6 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <span className="text-3xl font-bold tracking-[0.3em]">TALLY</span>
+          <img
+            src="/tally-logo-dark.svg"
+            alt="TALLY"
+            width={160}
+            height={36}
+            className="h-9 w-auto"
+          />
           <div className="flex items-center gap-6">
             <a
               href="#tools"
@@ -642,7 +648,13 @@ export default async function HomePage() {
       {/* Footer */}
       <footer className="border-t border-[#1a1a1a] py-8">
         <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-sm font-bold tracking-[0.25em]">TALLY</span>
+          <img
+            src="/tally-logo-dark.svg"
+            alt="TALLY"
+            width={120}
+            height={27}
+            className="h-7 w-auto opacity-70"
+          />
           <div className="flex items-center gap-6">
             <Link
               href="/privacy"
