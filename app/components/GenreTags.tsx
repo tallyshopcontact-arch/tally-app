@@ -28,7 +28,7 @@ export default function GenreTags() {
       {genres.map((genre) => (
         <span
           key={genre}
-          className="text-xs text-[#94a3b8] border border-[#1e1e1e] bg-[#0f0f0f] px-3 py-1.5 rounded-full"
+          className="text-xs text-[#94a3b8] border border-[#1e1e1e] bg-[#0f0f0f] px-3 py-1.5 rounded-full hover:border-[#8B5CF6]/40 hover:text-white transition-colors"
         >
           {genre}
         </span>
@@ -36,7 +36,7 @@ export default function GenreTags() {
       {!showInput ? (
         <button
           onClick={() => setShowInput(true)}
-          className="text-xs text-[#64748b] border border-[#1e1e1e] bg-[#0f0f0f] px-3 py-1.5 rounded-full hover:border-[#333] hover:text-[#94a3b8] transition-colors cursor-pointer"
+          className="text-xs text-[#64748b] border border-[#1e1e1e] bg-[#0f0f0f] px-3 py-1.5 rounded-full hover:border-[#8B5CF6]/50 hover:text-[#8B5CF6] transition-colors cursor-pointer"
         >
           Other +
         </button>
@@ -47,7 +47,7 @@ export default function GenreTags() {
           value={customGenre}
           onChange={(e) => setCustomGenre(e.target.value)}
           placeholder="Your genre…"
-          className="text-xs text-white bg-[#0f0f0f] border border-[#333] px-3 py-1.5 rounded-full outline-none focus:border-[#555] w-32 transition-colors placeholder:text-[#475569]"
+          className="text-xs text-white bg-[#0f0f0f] border border-[#8B5CF6]/40 px-3 py-1.5 rounded-full outline-none focus:border-[#8B5CF6]/70 w-32 transition-colors placeholder:text-[#475569]"
         />
       )}
     </div>

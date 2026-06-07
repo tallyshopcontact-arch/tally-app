@@ -150,31 +150,31 @@ export default async function HomePage() {
           <div className="flex items-center gap-6">
             <a
               href="#tools"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
             >
               Tools
             </a>
             <a
               href="#membership"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
             >
               Membership
             </a>
             <Link
               href="/privacy"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
             >
               Privacy Policy
             </Link>
             <Link
               href="/terms"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
             >
               Terms of Service
             </Link>
             <Link
               href="/login"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
+              className="text-sm text-[#94a3b8] hover:text-[#8B5CF6] transition-colors"
             >
               Login
             </Link>
@@ -217,7 +217,7 @@ export default async function HomePage() {
           <div className="flex flex-wrap items-center gap-4 mb-10">
             <a
               href="#waitlist"
-              className="inline-block bg-white text-black text-sm font-semibold px-7 py-3.5 hover:bg-[#e8e8e8] transition-colors"
+              className="inline-block bg-[#8B5CF6] text-white text-sm font-semibold px-7 py-3.5 hover:bg-[#7c3aed] transition-colors"
             >
               Join the waitlist — founding member pricing available
             </a>
@@ -242,7 +242,7 @@ export default async function HomePage() {
               ) : (
                 <>
                   Join{" "}
-                  <span className="text-[#94a3b8] font-semibold">
+                  <span className="text-[#8B5CF6] font-semibold">
                     {waitlistCount} producers
                   </span>{" "}
                   already on the waitlist
@@ -373,7 +373,7 @@ export default async function HomePage() {
                     </div>
                     <div className="h-1 bg-[#1a1a1a] rounded-full">
                       <div
-                        className="h-1 bg-[#64748b] rounded-full"
+                        className="h-1 bg-[#8B5CF6] rounded-full opacity-60"
                         style={{ width: w }}
                       />
                     </div>
@@ -401,7 +401,7 @@ export default async function HomePage() {
                   "Post Friday 6–8pm EST",
                 ].map((item, i) => (
                   <div key={item} className="flex items-start gap-2.5">
-                    <span className="text-[#334155] text-xs font-bold mt-px shrink-0">
+                    <span className="text-[#8B5CF6]/40 text-xs font-bold mt-px shrink-0">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <span className="text-[#94a3b8] text-xs leading-snug">
@@ -501,12 +501,18 @@ export default async function HomePage() {
               ({ name, price, period, desc, features, cta, highlight }) => (
                 <div
                   key={name}
-                  className={`p-8 flex flex-col ${
+                  className={`p-8 flex flex-col relative ${
                     highlight ? "bg-[#0f0f0f]" : "bg-[#0a0a0a]"
                   }`}
                 >
                   {highlight && (
-                    <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#94a3b8] mb-4">
+                    <div
+                      className="absolute inset-x-0 top-0 h-px bg-[#8B5CF6]"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {highlight && (
+                    <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#8B5CF6] mb-4">
                       Most popular
                     </p>
                   )}
@@ -537,8 +543,8 @@ export default async function HomePage() {
                     href="#waitlist"
                     className={`block text-center text-xs font-semibold py-3.5 transition-colors leading-snug px-3 ${
                       highlight
-                        ? "bg-white text-black hover:bg-[#e8e8e8]"
-                        : "border border-[#2a2a2a] text-white hover:border-[#444]"
+                        ? "bg-[#8B5CF6] text-white hover:bg-[#7c3aed]"
+                        : "border border-[#8B5CF6]/25 text-white hover:border-[#8B5CF6]/60 hover:bg-[#8B5CF6]/5"
                     }`}
                   >
                     {cta}
@@ -658,13 +664,13 @@ export default async function HomePage() {
           <div className="flex items-center gap-6">
             <Link
               href="/privacy"
-              className="text-xs text-[#64748b] hover:text-[#94a3b8] transition-colors"
+              className="text-xs text-[#64748b] hover:text-[#8B5CF6] transition-colors"
             >
               Privacy Policy
             </Link>
             <Link
               href="/terms"
-              className="text-xs text-[#64748b] hover:text-[#94a3b8] transition-colors"
+              className="text-xs text-[#64748b] hover:text-[#8B5CF6] transition-colors"
             >
               Terms of Service
             </Link>

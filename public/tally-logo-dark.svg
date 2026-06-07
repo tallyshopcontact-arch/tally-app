@@ -4,34 +4,29 @@
   <rect width="320" height="72" fill="#0a0a0a"/>
 
   <!--
-    Icon mark — scaled from the 400×400 standalone icon.
-    Scale factor: 36/200 = 0.18. Bar width 5px, gap 3px.
-    All bars share baseline y=52. Canvas height 72px.
+    Icon mark — bars in brand purple #8B5CF6.
+    Scale factor 36/200 = 0.18. Bar width 5px, gap 3px. Baseline y=52.
   -->
-  <rect x="20" y="45" width="5" height="7"  rx="1.5" fill="white"/>
-  <rect x="28" y="41" width="5" height="11" rx="1.5" fill="white"/>
-  <rect x="36" y="34" width="5" height="18" rx="1.5" fill="white"/>
-  <rect x="44" y="25" width="5" height="27" rx="1.5" fill="white"/>
-  <rect x="52" y="16" width="5" height="36" rx="1.5" fill="white"/>
+  <rect x="20" y="45" width="5" height="7"  rx="1.5" fill="#8B5CF6"/>
+  <rect x="28" y="41" width="5" height="11" rx="1.5" fill="#8B5CF6"/>
+  <rect x="36" y="34" width="5" height="18" rx="1.5" fill="#8B5CF6"/>
+  <rect x="44" y="25" width="5" height="27" rx="1.5" fill="#8B5CF6"/>
+  <rect x="52" y="16" width="5" height="36" rx="1.5" fill="#8B5CF6"/>
 
-  <!--
-    Thin vertical separator between icon and wordmark.
-    Sits between x=64 and x=68.
-  -->
+  <!-- Thin separator -->
   <line x1="66" y1="20" x2="66" y2="52" stroke="#222222" stroke-width="1"/>
 
   <!--
-    TALLY wordmark. Font stack matches the site's geometric sans-serif.
-    Baseline at y=52 aligns with the bottom of the tallest bar.
-    letter-spacing="10" gives the premium wide tracking of the brand.
+    Wordmark. The T is purple to create a visual anchor — it ties the
+    first letter to the mark and gives the eye a landing point.
+    ALLY follows in white at the same weight and size.
   -->
   <text
     x="78"
     y="52"
-    font-family="'Helvetica Neue', Helvetica, 'Arial', sans-serif"
+    font-family="'Helvetica Neue', Helvetica, Arial, sans-serif"
     font-size="38"
     font-weight="700"
     letter-spacing="10"
-    fill="white"
-  >TALLY</text>
+  ><tspan fill="#8B5CF6">T</tspan><tspan fill="white">ALLY</tspan></text>
 </svg>

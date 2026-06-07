@@ -90,7 +90,7 @@ export default function WaitlistForm() {
   }
 
   const inputClass =
-    "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors";
+    "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#8B5CF6]/50 transition-colors";
   const labelClass =
     "block text-xs text-[#94a3b8] uppercase tracking-widest mb-2";
 
@@ -175,7 +175,7 @@ export default function WaitlistForm() {
         <button
           type="submit"
           disabled={status === "loading"}
-          className="w-full bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
+          className="w-full bg-[#8B5CF6] text-white text-sm font-semibold py-3.5 hover:bg-[#7c3aed] disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
         >
           {status === "loading" ? "Submitting..." : "Join the waitlist"}
         </button>
