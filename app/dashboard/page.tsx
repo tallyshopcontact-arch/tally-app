@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { extractKeywords, getTopNicheVideos } from "@/lib/keywords";
+import type { NicheVideo } from "@/lib/keywords";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -23,62 +25,6 @@ import {
 } from "lucide-react";
 
 // ── Data ─────────────────────────────────────────────────────────────────────
-
-const stats = [
-  { label: "Views this month", value: "61,430", delta: "+18%", sub: "vs last month" },
-  { label: "New subscribers",  value: "+487",   delta: "+14%", sub: "vs last month" },
-  { label: "Avg views / video",value: "20,477", delta: "Top 11%", sub: "in boom bap" },
-  { label: "Watch time",       value: "3,920 hrs", delta: "+22%", sub: "vs last month" },
-];
-
-const keywords = [
-  { keyword: "jazz boom bap type beat",    searches: "19,200", competition: "Low",    growth: "+73%",  opportunity: "High"   },
-  { keyword: "sample flip beat free",      searches: "13,400", competition: "Low",    growth: "+94%",  opportunity: "High"   },
-  { keyword: "dusty loop beat",            searches: "7,100",  competition: "Low",    growth: "+118%", opportunity: "High"   },
-  { keyword: "boom bap beat with hook",    searches: "8,900",  competition: "Low",    growth: "+47%",  opportunity: "High"   },
-  { keyword: "boom bap type beat 2026",    searches: "34,500", competition: "Medium", growth: "+38%",  opportunity: "Medium" },
-  { keyword: "underground rap beat",       searches: "26,200", competition: "Medium", growth: "+17%",  opportunity: "Medium" },
-  { keyword: "boom bap for rappers",       searches: "30,100", competition: "Medium", growth: "+29%",  opportunity: "Medium" },
-  { keyword: "90s hip hop beat free",      searches: "47,300", competition: "High",   growth: "+4%",   opportunity: "Low"    },
-];
-
-const topVideos = [
-  {
-    title: 'FREE | "Foundation" | Jazz Boom Bap Type Beat 2026',
-    channel: "NinetyFlip",
-    views: "261K",
-    growth: "+94%",
-    why: 'Jazz instrumentation + clean "FREE | Title | Genre Year" format. Mood-specific keyword drives search traffic.',
-  },
-  {
-    title: '[FREE] "Smoky Room" | Jazz Boom Bap Instrumental',
-    channel: "Vinyl Era Beats",
-    views: "194K",
-    growth: "+152%",
-    why: "Mood-first title with strong jazz niche targeting. Minimal high-contrast thumbnail doubled CTR.",
-  },
-  {
-    title: 'Grimy Boom Bap Beat "No Surrender" | FREE USE',
-    channel: "BoomBap Society",
-    views: "173K",
-    growth: "+71%",
-    why: '"FREE USE" outperforms plain "free" — signals broader licensing. Emotional, underground-coded title.',
-  },
-  {
-    title: '"Sample Season" Boom Bap Instrumental | FREE',
-    channel: "Dusty Crates",
-    views: "109K",
-    growth: "+38%",
-    why: "Sample-focused branding aligns with the trending 'sample flip' search behavior this month.",
-  },
-  {
-    title: '90s Boom Bap Beat "Concrete Jungle" [FREE]',
-    channel: "Classic Mode Beats",
-    views: "92K",
-    growth: "+21%",
-    why: "Nostalgic framing + era-specific keyword. Consistent 3×/week upload cadence amplifies reach.",
-  },
-];
 
 const avoidItems = [
   {
@@ -373,18 +319,6 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-const compBadge: Record<string, string> = {
-  Low:    "bg-[#0a1f12] text-[#4ade80]",
-  Medium: "bg-[#1f1800] text-[#fbbf24]",
-  High:   "bg-[#1f0a0a] text-[#f87171]",
-};
-
-const oppColor: Record<string, string> = {
-  "Very High": "text-[#4ade80] font-semibold",
-  High:        "text-[#4ade80]",
-  Medium:      "text-[#94a3b8]",
-  Low:         "text-[#475569]",
-};
 
 const scoreColor = (s: number) =>
   s >= 80 ? "text-[#4ade80]" : s >= 60 ? "text-[#fbbf24]" : "text-[#f87171]";
@@ -392,7 +326,7 @@ const scoreColor = (s: number) =>
 const scoreBarColor = (s: number) =>
   s >= 80 ? "bg-[#4ade80]" : s >= 60 ? "bg-[#fbbf24]" : "bg-[#f87171]";
 
-// ── Profile type ──────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface UserProfile {
   name: string | null;
@@ -400,17 +334,92 @@ interface UserProfile {
   youtube_channel_url: string | null;
 }
 
+interface ChannelData {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  subscriber_count: number;
+  total_views: number;
+  video_count: number;
+  monthly_views: number;
+  monthly_subscribers: number;
+  monthly_videos: number;
+  monthly_likes: number;
+  best_video_title: string | null;
+  best_video_views: number | null;
+  best_video_id: string | null;
+  niche_data: NicheVideo[];
+  month: number;
+  year: number;
+  pulled_at: string;
+}
+
+function formatNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
 // ── Tab components ────────────────────────────────────────────────────────────
 
-function OverviewTab({ profile }: { profile: UserProfile | null }) {
+function OverviewTab({
+  profile,
+  channelData,
+}: {
+  profile: UserProfile | null;
+  channelData: ChannelData | null;
+}) {
   const displayName = profile?.name || "Producer";
-  const displayGenre = profile?.genre || "Boom Bap";
+  const displayGenre = profile?.genre || "";
   const initials = displayName
     .split(" ")
     .map((w) => w[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  const now = new Date();
+  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
+
+  const avgViews =
+    channelData && channelData.monthly_videos > 0
+      ? Math.round(channelData.monthly_views / channelData.monthly_videos)
+      : null;
+
+  const snapshotStats = channelData
+    ? [
+        {
+          label: "Videos this month",
+          value: channelData.monthly_videos.toString(),
+          sub: "uploaded",
+        },
+        {
+          label: "Views this month",
+          value: formatNum(channelData.monthly_views),
+          sub: "total views",
+        },
+        {
+          label: "Avg views / video",
+          value: avgViews !== null ? formatNum(avgViews) : "—",
+          sub: "across uploads",
+        },
+        {
+          label: "Likes this month",
+          value: formatNum(channelData.monthly_likes),
+          sub: "across uploads",
+        },
+        {
+          label: "Watch time",
+          value: "Coming soon",
+          sub: "not available via API",
+        },
+        {
+          label: "New subscribers",
+          value: "Coming soon",
+          sub: "requires Analytics API",
+        },
+      ]
+    : null;
 
   return (
     <div className="space-y-8">
@@ -420,10 +429,14 @@ function OverviewTab({ profile }: { profile: UserProfile | null }) {
         </div>
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h2 className="text-xl font-bold">{displayName}</h2>
-            <span className="text-xs text-[#94a3b8] border border-[#2a2a2a] px-2 py-0.5">
-              {displayGenre}
-            </span>
+            <h2 className="text-xl font-bold">
+              {channelData?.channel_name || displayName}
+            </h2>
+            {displayGenre && (
+              <span className="text-xs text-[#94a3b8] border border-[#2a2a2a] px-2 py-0.5">
+                {displayGenre}
+              </span>
+            )}
           </div>
           {profile?.youtube_channel_url ? (
             <p className="text-[#94a3b8] text-sm truncate max-w-sm">
@@ -431,160 +444,259 @@ function OverviewTab({ profile }: { profile: UserProfile | null }) {
             </p>
           ) : (
             <p className="text-[#475569] text-sm italic">
-              Your first report is being generated — check back soon.
+              No channel URL set — complete your profile.
             </p>
           )}
         </div>
       </div>
 
-      {!profile?.youtube_channel_url ? (
-        <div className="border border-[#1a1a1a] p-8 text-center">
-          <div className="text-2xl mb-3">📊</div>
-          <h3 className="text-lg font-semibold mb-2">Generating your first report</h3>
-          <p className="text-[#94a3b8] text-sm leading-relaxed max-w-md mx-auto">
-            We&apos;re pulling your channel data and analyzing your niche. Your first full report will be ready within 24 hours.
-          </p>
-        </div>
-      ) : (
+      {channelData && snapshotStats ? (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#1a1a1a]">
-            {stats.map(({ label, value, delta, sub }) => (
-              <div key={label} className="bg-[#0a0a0a] p-6">
-                <p className="text-[#94a3b8] text-xs uppercase tracking-widest mb-4">{label}</p>
-                <p className="text-3xl font-bold mb-1">{value}</p>
-                <p className="text-xs">
-                  <span className="text-[#4ade80]">{delta}</span>
-                  <span className="text-[#475569] ml-1">{sub}</span>
-                </p>
-              </div>
-            ))}
+          <div>
+            <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
+              {monthLabel} Snapshot
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-[#1a1a1a]">
+              {snapshotStats.map(({ label, value, sub }) => (
+                <div key={label} className="bg-[#0a0a0a] p-6">
+                  <p className="text-[#94a3b8] text-xs uppercase tracking-widest mb-4">
+                    {label}
+                  </p>
+                  <p className="text-3xl font-bold mb-1">{value}</p>
+                  <p className="text-xs text-[#475569]">{sub}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {channelData.best_video_id && (
             <div className="border border-[#1a1a1a] p-6">
               <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
-                May 2026 Summary
+                Best Performing Video — {monthLabel}
               </p>
-              <p className="text-sm text-[#cbd5e1] leading-relaxed">
-                Jazz-influenced boom bap is at its highest point in 18 months.
-                Sample flip content is outperforming standard boom bap by{" "}
-                <span className="text-white font-semibold">94%</span> in your niche
-                — this is the single most important trend to act on now.
+              <p className="text-white font-medium leading-snug mb-3">
+                {channelData.best_video_title}
               </p>
-              <p className="text-sm text-[#94a3b8] leading-relaxed mt-3">
-                Your watch time growth (+22%) outpaces subscriber growth (+14%),
-                signaling strong content quality but room to improve discovery.
-                Better title and tag optimization is the highest-leverage fix.
-              </p>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl font-bold">
+                  {formatNum(channelData.best_video_views ?? 0)}
+                </span>
+                <span className="text-[#475569] text-sm">views</span>
+                <a
+                  href={`https://www.youtube.com/watch?v=${channelData.best_video_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ml-auto flex items-center gap-1 text-xs text-[#4ade80] hover:underline"
+                >
+                  Watch on YouTube
+                  <ArrowUpRight className="w-3 h-3" />
+                </a>
+              </div>
             </div>
-            <div className="border border-[#1a1a1a] p-6">
-              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
-                Key Opportunities
-              </p>
-              <ul className="space-y-4">
-                {[
-                  '"Jazz boom bap" is underserved — high search volume, low competition.',
-                  "Sample flip content averages 2.4× more views than standard boom bap uploads.",
-                  "Thursday/Friday uploads in your genre get 34% higher first-week view counts.",
-                ].map((item, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <ArrowUpRight className="w-4 h-4 text-[#4ade80] shrink-0 mt-0.5" />
-                    <span className="text-sm text-[#cbd5e1]">{item}</span>
-                  </li>
-                ))}
-              </ul>
+          )}
+
+          <div className="border border-[#1a1a1a] p-6">
+            <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
+              Channel Totals
+            </p>
+            <div className="flex flex-wrap gap-8">
+              <div>
+                <p className="text-2xl font-bold">
+                  {formatNum(channelData.subscriber_count)}
+                </p>
+                <p className="text-xs text-[#475569] mt-1">subscribers</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">
+                  {formatNum(channelData.total_views)}
+                </p>
+                <p className="text-xs text-[#475569] mt-1">total views</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">
+                  {formatNum(channelData.video_count)}
+                </p>
+                <p className="text-xs text-[#475569] mt-1">videos</p>
+              </div>
             </div>
           </div>
         </>
+      ) : (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">
+            Channel data will appear here once your report is ready.
+          </p>
+        </div>
       )}
     </div>
   );
 }
 
-function KeywordsTab() {
+const badgeStyle: Record<string, string> = {
+  hot:     "bg-[#1f0a0a] text-[#f87171]",
+  stable:  "bg-[#1f1800] text-[#fbbf24]",
+  rising:  "bg-[#0a1020] text-[#60a5fa]",
+};
+
+function KeywordsTab({ channelData }: { channelData: ChannelData | null }) {
+  const now = new Date();
+  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
+  const genre = channelData ? channelData.channel_name : "your genre";
+
+  const keywords =
+    channelData && channelData.niche_data?.length
+      ? extractKeywords(channelData.niche_data)
+      : [];
+
   return (
     <div>
       <div className="mb-8">
-        <h2 className="text-xl font-bold mb-1">Trending in Boom Bap — May 2026</h2>
+        <h2 className="text-xl font-bold mb-1">
+          Keyword Heat Map — {monthLabel}
+        </h2>
         <p className="text-[#94a3b8] text-sm">
-          8 keywords with strong search volume and growth in your genre.
+          Tags appearing most frequently across top-performing videos in your niche.
+          {channelData && ` Extracted from ${channelData.niche_data?.length ?? 0} niche videos.`}
         </p>
       </div>
-      <div className="border border-[#1a1a1a] overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
-          <thead>
-            <tr className="border-b border-[#1a1a1a]">
-              {["Keyword", "Monthly Searches", "Competition", "MoM Growth", "Opportunity"].map(
-                (h) => (
+
+      {!channelData ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">
+            Keywords will appear here once your channel data is pulled.
+          </p>
+        </div>
+      ) : keywords.length === 0 ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">
+            No tagged videos found in your niche for the last 30 days.
+          </p>
+        </div>
+      ) : (
+        <div className="border border-[#1a1a1a] overflow-x-auto">
+          <table className="w-full text-sm min-w-[480px]">
+            <thead>
+              <tr className="border-b border-[#1a1a1a]">
+                {["#", "Keyword / Tag", `Videos in ${genre}`, "Heat"].map((h) => (
                   <th
                     key={h}
                     className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-5 py-4 font-medium"
                   >
                     {h}
                   </th>
-                )
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {keywords.map((row, i) => (
-              <tr
-                key={i}
-                className="border-b border-[#1a1a1a] last:border-0 hover:bg-[#111] transition-colors"
-              >
-                <td className="px-5 py-4 text-white font-medium">{row.keyword}</td>
-                <td className="px-5 py-4 text-[#94a3b8]">{row.searches}</td>
-                <td className="px-5 py-4">
-                  <span className={`text-xs px-2 py-1 ${compBadge[row.competition]}`}>
-                    {row.competition}
-                  </span>
-                </td>
-                <td className="px-5 py-4 text-[#4ade80] font-medium">{row.growth}</td>
-                <td className={`px-5 py-4 font-medium ${oppColor[row.opportunity]}`}>
-                  {row.opportunity}
-                </td>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {keywords.map((row, i) => (
+                <tr
+                  key={i}
+                  className="border-b border-[#1a1a1a] last:border-0 hover:bg-[#111] transition-colors"
+                >
+                  <td className="px-5 py-4 text-[#475569] text-xs font-bold w-10">
+                    {i + 1}
+                  </td>
+                  <td className="px-5 py-4 text-white font-medium">{row.tag}</td>
+                  <td className="px-5 py-4 text-[#94a3b8]">{row.count}</td>
+                  <td className="px-5 py-4">
+                    <span
+                      className={`text-xs px-2 py-1 capitalize ${badgeStyle[row.badge]}`}
+                    >
+                      {row.badge}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-function TopVideosTab() {
+function TopVideosTab({ channelData }: { channelData: ChannelData | null }) {
+  const now = new Date();
+  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
+
+  const topVideos =
+    channelData && channelData.niche_data?.length
+      ? getTopNicheVideos(channelData.niche_data)
+      : [];
+
   return (
     <div>
       <div className="mb-8">
-        <h2 className="text-xl font-bold mb-1">Top Performing Videos in Your Genre</h2>
+        <h2 className="text-xl font-bold mb-1">
+          Trending in Your Niche — {monthLabel}
+        </h2>
         <p className="text-[#94a3b8] text-sm">
-          Highest-growth boom bap videos uploaded in the last 30 days.
+          Top 3 videos by view count from the last 30 days in your genre.
         </p>
       </div>
-      <div className="space-y-px bg-[#1a1a1a]">
-        {topVideos.map((video, i) => (
-          <div
-            key={i}
-            className="bg-[#0a0a0a] p-6 flex flex-col md:flex-row md:items-start gap-5"
-          >
-            <div className="w-8 h-8 bg-[#1a1a1a] flex items-center justify-center text-[#475569] text-xs font-bold shrink-0">
-              {i + 1}
+
+      {!channelData ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">
+            Trending videos will appear here once your channel data is pulled.
+          </p>
+        </div>
+      ) : topVideos.length === 0 ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">
+            No niche videos found for the last 30 days.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-px bg-[#1a1a1a]">
+          {topVideos.map((video, i) => (
+            <div
+              key={video.videoId}
+              className="bg-[#0a0a0a] p-6 flex flex-col md:flex-row md:items-start gap-5"
+            >
+              <div className="w-8 h-8 bg-[#1a1a1a] flex items-center justify-center text-[#475569] text-xs font-bold shrink-0">
+                {i + 1}
+              </div>
+              <div className="flex-1 min-w-0">
+                <a
+                  href={video.videoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white font-medium mb-1 leading-snug hover:underline inline-flex items-start gap-1 group"
+                >
+                  {video.title}
+                  <ArrowUpRight className="w-3 h-3 shrink-0 mt-1 text-[#475569] group-hover:text-white transition-colors" />
+                </a>
+                <p className="text-[#94a3b8] text-xs mt-1 mb-3">{video.channelName}</p>
+                {video.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {video.tags.slice(0, 6).map((tag) => (
+                      <span
+                        key={tag}
+                        className="text-xs text-[#475569] bg-[#111] border border-[#1e1e1e] px-2 py-0.5"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="shrink-0 md:text-right">
+                <p className="text-white font-bold text-xl">
+                  {formatNum(video.viewCount)}
+                </p>
+                <p className="text-[#475569] text-xs mt-0.5">views</p>
+                <p className="text-[#475569] text-xs mt-2">
+                  {new Date(video.publishedAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white font-medium mb-1 leading-snug">{video.title}</p>
-              <p className="text-[#94a3b8] text-xs mb-3">{video.channel}</p>
-              <p className="text-[#64748b] text-xs leading-relaxed">
-                <span className="text-[#94a3b8] font-medium">Why it works: </span>
-                {video.why}
-              </p>
-            </div>
-            <div className="shrink-0 md:text-right">
-              <p className="text-white font-bold text-xl">{video.views}</p>
-              <p className="text-[#4ade80] text-xs">{video.growth} MoM</p>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1074,6 +1186,24 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
+  const [channelData, setChannelData] = useState<ChannelData | null>(null);
+  const [pulling, setPulling] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+
+  const triggerPull = useCallback(async () => {
+    setPulling(true);
+    setPullError(null);
+    try {
+      const res = await fetch("/api/youtube/pull", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Pull failed");
+      setChannelData(json as ChannelData);
+    } catch (err: unknown) {
+      setPullError(err instanceof Error ? err.message : "Failed to pull channel data");
+    } finally {
+      setPulling(false);
+    }
+  }, []);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -1090,12 +1220,44 @@ export default function DashboardPage() {
         .select("name, genre, youtube_channel_url")
         .eq("id", user.id)
         .single()
-        .then(({ data }) => {
+        .then(async ({ data }) => {
           if (data) setProfile(data as UserProfile);
           setLoadingUser(false);
+
+          if (!data?.youtube_channel_url) return;
+
+          // Check for this month's channel data
+          const now = new Date();
+          const { data: existing } = await supabase
+            .from("channel_data")
+            .select("*")
+            .eq("producer_id", user.id)
+            .eq("month", now.getMonth() + 1)
+            .eq("year", now.getFullYear())
+            .single();
+
+          if (existing) {
+            setChannelData(existing as ChannelData);
+          } else {
+            // No data for this month — pull it now
+            setPulling(true);
+            setPullError(null);
+            try {
+              const res = await fetch("/api/youtube/pull", { method: "POST" });
+              const json = await res.json();
+              if (!res.ok) throw new Error(json.error ?? "Pull failed");
+              setChannelData(json as ChannelData);
+            } catch (err: unknown) {
+              setPullError(
+                err instanceof Error ? err.message : "Failed to pull channel data"
+              );
+            } finally {
+              setPulling(false);
+            }
+          }
         });
     });
-  }, [router]);
+  }, [router, triggerPull]);
 
   const handleSignOut = async () => {
     const supabase = createSupabaseBrowserClient();
@@ -1151,9 +1313,29 @@ export default function DashboardPage() {
       </div>
 
       <main className="max-w-6xl mx-auto px-6 py-10">
-        {tab === "overview"        && <OverviewTab profile={profile} />}
-        {tab === "keywords"        && <KeywordsTab />}
-        {tab === "top-videos"      && <TopVideosTab />}
+        {pulling && (
+          <div className="flex items-center gap-3 text-[#94a3b8] text-sm mb-8 border border-[#1a1a1a] px-5 py-4">
+            <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin shrink-0" />
+            Pulling your channel data from YouTube...
+          </div>
+        )}
+        {pullError && !pulling && (
+          <div className="flex items-start gap-3 mb-8 border border-[#f87171]/30 px-5 py-4">
+            <AlertTriangle className="w-4 h-4 text-[#f87171] shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[#f87171] text-sm">{pullError}</p>
+              <button
+                onClick={triggerPull}
+                className="text-xs text-white underline underline-offset-2 mt-2 cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+        {tab === "overview"        && <OverviewTab profile={profile} channelData={channelData} />}
+        {tab === "keywords"        && <KeywordsTab channelData={channelData} />}
+        {tab === "top-videos"      && <TopVideosTab channelData={channelData} />}
         {tab === "avoid"           && <AvoidTab />}
         {tab === "upload-kit"      && <UploadKitTab />}
         {tab === "competitors"     && <CompetitorsTab />}
