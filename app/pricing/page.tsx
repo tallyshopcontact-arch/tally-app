@@ -107,7 +107,7 @@ export default function PricingPage() {
                 <span className="text-4xl font-bold tracking-tight">{price}</span>
                 <span className="text-[#94a3b8] text-sm">{period}</span>
               </div>
-              <p className="text-[#64748b] text-xs mb-8">{desc}</p>
+              <p className="text-[#94a3b8] text-xs mb-8">{desc}</p>
               <ul className="space-y-3 mb-8 flex-1">
                 {features.map((item) => (
                   <li key={item} className="flex items-start gap-3 text-sm text-[#94a3b8]">
@@ -130,7 +130,7 @@ export default function PricingPage() {
           ))}
         </div>
 
-        <p className="text-center text-xs text-[#475569] mt-8">
+        <p className="text-center text-xs text-[#94a3b8] mt-8">
           All plans billed monthly. Cancel anytime from your dashboard.
         </p>
       </section>

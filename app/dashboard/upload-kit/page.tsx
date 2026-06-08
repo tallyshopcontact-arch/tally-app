@@ -16,7 +16,8 @@ interface TitleOption {
 interface ThumbnailConcept {
   style: string;
   background: string;
-  text: string;
+  text_treatment: string;
+  color_palette: string;
   why_it_works: string;
 }
 
@@ -81,7 +82,7 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
       {/* Beat name suggestion */}
       {kit.beat_name_suggestion && (
         <div className="border border-[#2a2a2a] bg-[#111] p-5">
-          <p className="text-xs text-[#475569] uppercase tracking-widest mb-2">Suggested Beat Name</p>
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Suggested Beat Name</p>
           <div className="flex items-center justify-between gap-3">
             <p className="text-2xl font-bold">&ldquo;{kit.beat_name_suggestion}&rdquo;</p>
             <CopyBtn text={kit.beat_name_suggestion} />
@@ -91,7 +92,7 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
 
       {/* Titles */}
       <div>
-        <p className="text-xs text-[#475569] uppercase tracking-widest mb-3">3 Title Options</p>
+        <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">3 Title Options</p>
         <div className="space-y-3">
           {kit.titles.map((t, i) => (
             <div key={i} className={`border p-5 ${i === 0 ? "border-white/20" : "border-[#1a1a1a]"}`}>
@@ -106,7 +107,7 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
                 </div>
                 <CopyBtn text={t.title} />
               </div>
-              <p className="text-[#64748b] text-xs leading-relaxed">{t.reason}</p>
+              <p className="text-[#94a3b8] text-xs leading-relaxed">{t.reason}</p>
             </div>
           ))}
         </div>
@@ -116,8 +117,8 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
       <div className="border border-[#1a1a1a] p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <p className="text-xs text-[#475569] uppercase tracking-widest">Description</p>
-            <span className="text-[#2a2a2a] text-xs">{kit.description.length} chars</span>
+            <p className="text-xs text-[#94a3b8] uppercase tracking-widest">Description</p>
+            <span className="text-[#475569] text-xs">{kit.description.length} chars</span>
           </div>
           <CopyBtn text={kit.description} label="Copy description" />
         </div>
@@ -129,7 +130,7 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
       {/* Tags */}
       <div className="border border-[#1a1a1a] p-5">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-xs text-[#475569] uppercase tracking-widest">Tags ({kit.tags.length})</p>
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest">Tags ({kit.tags.length})</p>
           <CopyBtn text={kit.tags.join(", ")} label="Copy all tags" />
         </div>
         <div className="flex flex-wrap gap-2">
@@ -147,7 +148,7 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
 
       {/* Thumbnail concepts */}
       <div>
-        <p className="text-xs text-[#475569] uppercase tracking-widest mb-3">Thumbnail Concepts</p>
+        <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Thumbnail Concepts</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {kit.thumbnail_concepts.map((tc, i) => (
             <div key={i} className="border border-[#1a1a1a] overflow-hidden">
@@ -167,13 +168,16 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
                   }}
                 />
                 <p className="text-white text-xs font-bold leading-tight relative z-10 line-clamp-3">
-                  {tc.text}
+                  {tc.text_treatment}
                 </p>
               </div>
               <div className="p-4">
                 <p className="text-white text-xs font-semibold mb-1">{tc.style}</p>
-                <p className="text-[#475569] text-xs leading-relaxed mb-2">{tc.background}</p>
-                <p className="text-[#64748b] text-xs italic leading-relaxed">{tc.why_it_works}</p>
+                <p className="text-[#94a3b8] text-xs leading-relaxed mb-2">{tc.background}</p>
+                {tc.color_palette && (
+                  <p className="text-[#64748b] text-xs mb-2">{tc.color_palette}</p>
+                )}
+                <p className="text-[#94a3b8] text-xs italic leading-relaxed">{tc.why_it_works}</p>
               </div>
             </div>
           ))}
@@ -184,11 +188,11 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
       <div className="border border-[#1a1a1a] p-5 flex items-start gap-4">
         <Clock className="w-4 h-4 text-[#60a5fa] shrink-0 mt-0.5" />
         <div>
-          <p className="text-xs text-[#475569] uppercase tracking-widest mb-2">Best Upload Time</p>
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Best Upload Time</p>
           <p className="text-white font-bold text-lg mb-1">
             {kit.best_upload_time.day} · {kit.best_upload_time.time}
           </p>
-          <p className="text-[#64748b] text-xs leading-relaxed">{kit.best_upload_time.reason}</p>
+          <p className="text-[#94a3b8] text-xs leading-relaxed">{kit.best_upload_time.reason}</p>
         </div>
       </div>
 
@@ -279,28 +283,28 @@ export default function UploadKitPage() {
     }
   };
 
-  const inputCls = "w-full bg-[#0d0d0d] border border-[#1e1e1e] text-white text-sm px-4 py-2.5 focus:outline-none focus:border-[#333] placeholder-[#2a2a2a]";
-  const labelCls = "block text-xs text-[#64748b] uppercase tracking-widest mb-2";
+  const inputCls = "w-full bg-[#0d0d0d] border border-[#1e1e1e] text-white text-sm px-4 py-2.5 focus:outline-none focus:border-[#333] placeholder:text-[#475569]";
+  const labelCls = "block text-xs text-[#94a3b8] uppercase tracking-widest mb-2";
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Header */}
       <nav className="h-14 border-b border-[#1a1a1a] px-6 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="flex items-center gap-1.5 text-[#475569] hover:text-[#94a3b8] transition-colors text-xs">
+          <Link href="/dashboard" className="flex items-center gap-1.5 text-[#94a3b8] hover:text-white transition-colors text-xs">
             <ArrowLeft className="w-3.5 h-3.5" />
             Dashboard
           </Link>
           <span className="text-[#1e1e1e]">|</span>
           <Link href="/dashboard" className="text-sm font-bold tracking-[0.25em]">TALLY</Link>
           <span className="text-[#2a2a2a] hidden sm:block">|</span>
-          <span className="text-xs text-[#475569] hidden sm:block">Upload Kit Generator</span>
+          <span className="text-xs text-[#64748b] hidden sm:block">Upload Kit Generator</span>
         </div>
         <div className="flex items-center gap-4">
-          <Link href="/dashboard/report" className="text-xs text-[#475569] hover:text-[#94a3b8] transition-colors hidden sm:block">
+          <Link href="/dashboard/report" className="text-xs text-[#94a3b8] hover:text-white transition-colors hidden sm:block">
             Monthly Report
           </Link>
-          <Link href="/settings" className="text-xs text-[#475569] hover:text-[#94a3b8] transition-colors hidden sm:block">
+          <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors hidden sm:block">
             Settings
           </Link>
         </div>
@@ -309,7 +313,7 @@ export default function UploadKitPage() {
       {/* Page title */}
       <div className="border-b border-[#1a1a1a] px-6 py-6">
         <h1 className="text-xl font-bold mb-1">Upload Kit Generator</h1>
-        <p className="text-[#475569] text-sm">Fill in your beat details. TALLY generates your optimized YouTube package in seconds.</p>
+        <p className="text-[#94a3b8] text-sm">Fill in your beat details. TALLY generates your optimized YouTube package in seconds.</p>
       </div>
 
       {/* Two-column layout */}
@@ -318,7 +322,7 @@ export default function UploadKitPage() {
         <div className="space-y-6">
           {/* Beat Name */}
           <div>
-            <label className={labelCls}>Beat Name <span className="text-[#2a2a2a] normal-case tracking-normal">(optional — TALLY will suggest one)</span></label>
+            <label className={labelCls}>Beat Name <span className="text-[#475569] normal-case tracking-normal">(optional — TALLY will suggest one)</span></label>
             <input
               type="text"
               value={beatName}
@@ -342,7 +346,7 @@ export default function UploadKitPage() {
 
           {/* Vibe pills */}
           <div>
-            <label className={labelCls}>Beat Type / Vibe <span className="text-[#2a2a2a] normal-case tracking-normal">(select all that apply)</span></label>
+            <label className={labelCls}>Beat Type / Vibe <span className="text-[#475569] normal-case tracking-normal">(select all that apply)</span></label>
             <div className="flex flex-wrap gap-2">
               {VIBES.map((v) => (
                 <button
@@ -363,7 +367,7 @@ export default function UploadKitPage() {
 
           {/* Artists */}
           <div>
-            <label className={labelCls}>Artists they can hear on it</label>
+            <label className={labelCls}>Artists you can hear on it</label>
             <div className="space-y-2">
               {[
                 { label: "Artist 1", value: artist1, set: setArtist1 },
@@ -385,7 +389,7 @@ export default function UploadKitPage() {
           {/* BPM + Key */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>BPM <span className="text-[#2a2a2a] normal-case tracking-normal">(optional)</span></label>
+              <label className={labelCls}>BPM <span className="text-[#475569] normal-case tracking-normal">(optional)</span></label>
               <input
                 type="number"
                 value={bpm}
@@ -397,7 +401,7 @@ export default function UploadKitPage() {
               />
             </div>
             <div>
-              <label className={labelCls}>Key <span className="text-[#2a2a2a] normal-case tracking-normal">(optional)</span></label>
+              <label className={labelCls}>Key <span className="text-[#475569] normal-case tracking-normal">(optional)</span></label>
               <select
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
@@ -411,7 +415,7 @@ export default function UploadKitPage() {
 
           {/* Notes */}
           <div>
-            <label className={labelCls}>Additional Notes <span className="text-[#2a2a2a] normal-case tracking-normal">(optional)</span></label>
+            <label className={labelCls}>Additional Notes <span className="text-[#475569] normal-case tracking-normal">(optional)</span></label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -447,7 +451,7 @@ export default function UploadKitPage() {
           {/* Recent kits */}
           {!loadingHistory && recentKits.length > 0 && (
             <div className="pt-4 border-t border-[#1a1a1a]">
-              <p className="text-xs text-[#475569] uppercase tracking-widest mb-3">Recent Kits</p>
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Recent Kits</p>
               <div className="space-y-2">
                 {recentKits.map((rk) => (
                   <button
@@ -457,9 +461,9 @@ export default function UploadKitPage() {
                   >
                     <div>
                       <p className="text-white text-xs font-medium">&ldquo;{rk.beat_name}&rdquo;</p>
-                      <p className="text-[#475569] text-xs mt-0.5">{rk.genre}</p>
+                      <p className="text-[#94a3b8] text-xs mt-0.5">{rk.genre}</p>
                     </div>
-                    <span className="text-[#2a2a2a] text-xs shrink-0">
+                    <span className="text-[#475569] text-xs shrink-0">
                       {new Date(rk.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                     </span>
                   </button>
@@ -476,10 +480,10 @@ export default function UploadKitPage() {
           ) : (
             <div className="border border-dashed border-[#1a1a1a] p-12 text-center lg:sticky lg:top-8">
               <div className="w-12 h-12 bg-[#0d0d0d] border border-[#1a1a1a] flex items-center justify-center mx-auto mb-4">
-                <ArrowRight className="w-5 h-5 text-[#2a2a2a]" />
+                <ArrowRight className="w-5 h-5 text-[#333]" />
               </div>
               <p className="text-white font-medium mb-2">Your upload kit will appear here</p>
-              <p className="text-[#2a2a2a] text-sm leading-relaxed max-w-xs mx-auto">
+              <p className="text-[#475569] text-sm leading-relaxed max-w-xs mx-auto">
                 Fill in the beat details on the left and click &ldquo;Generate My Upload Kit&rdquo;.
               </p>
             </div>

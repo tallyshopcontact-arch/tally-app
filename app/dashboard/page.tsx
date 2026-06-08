@@ -105,12 +105,12 @@ export default function DashboardHome() {
         <Link href="/" className="text-sm font-bold tracking-[0.25em]">TALLY</Link>
         <div className="flex items-center gap-5">
           {!loading && (
-            <span className="text-xs text-[#475569] hidden sm:block">
+            <span className="text-xs text-[#94a3b8] hidden sm:block">
               {displayName}{profile?.genre ? ` · ${profile.genre}` : ""}
             </span>
           )}
-          <Link href="/settings" className="text-xs text-[#475569] hover:text-white transition-colors hidden sm:block">Settings</Link>
-          <button onClick={handleSignOut} className="text-xs text-[#475569] hover:text-white transition-colors cursor-pointer">
+          <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors hidden sm:block">Settings</Link>
+          <button onClick={handleSignOut} className="text-xs text-[#94a3b8] hover:text-white transition-colors cursor-pointer">
             Sign out
           </button>
         </div>
@@ -119,7 +119,7 @@ export default function DashboardHome() {
       <div className="max-w-4xl mx-auto px-6 py-12">
         {/* Welcome */}
         <div className="mb-10">
-          <p className="text-xs text-[#475569] uppercase tracking-widest mb-2">{monthLabel}</p>
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">{monthLabel}</p>
           <h1 className="text-3xl font-bold">
             Welcome back, {loading ? "..." : displayName}
           </h1>
@@ -135,7 +135,7 @@ export default function DashboardHome() {
               </div>
               <div>
                 <p className="font-semibold text-sm">Monthly Report</p>
-                <p className="text-[#475569] text-xs mt-0.5">
+                <p className="text-[#94a3b8] text-xs mt-0.5">
                   {report ? `${monthLabel} report is ready` : loading ? "Loading..." : "Generating..."}
                 </p>
               </div>
@@ -143,7 +143,7 @@ export default function DashboardHome() {
 
             {report && report.tally_score > 0 ? (
               <div className="mb-6">
-                <p className="text-xs text-[#475569] uppercase tracking-widest mb-1">TALLY Score</p>
+                <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">TALLY Score</p>
                 <p className={`text-5xl font-bold ${scoreColor(report.tally_score)}`}>
                   {report.tally_score}
                   <span className="text-xl text-[#1e1e1e]">/100</span>
@@ -151,8 +151,8 @@ export default function DashboardHome() {
               </div>
             ) : (
               <div className="mb-6 flex items-center gap-2">
-                <RefreshCw className="w-3.5 h-3.5 text-[#2a2a2a] animate-spin" />
-                <p className="text-[#2a2a2a] text-xs">Generating your report...</p>
+                <RefreshCw className="w-3.5 h-3.5 text-[#475569] animate-spin" />
+                <p className="text-[#475569] text-xs">Generating your report...</p>
               </div>
             )}
 
@@ -175,7 +175,7 @@ export default function DashboardHome() {
               </div>
               <div>
                 <p className="font-semibold text-sm">Upload Kit Generator</p>
-                <p className="text-[#475569] text-xs mt-0.5">Generate your YouTube package for any beat</p>
+                <p className="text-[#94a3b8] text-xs mt-0.5">Generate your YouTube package for any beat</p>
               </div>
             </div>
 
@@ -183,7 +183,7 @@ export default function DashboardHome() {
               <p className={`text-5xl font-bold ${kitsThisMonth > 0 ? "text-white" : "text-[#1e1e1e]"}`}>
                 {loading ? "..." : kitsThisMonth}
               </p>
-              <p className="text-[#475569] text-xs mt-1">kits generated this month</p>
+              <p className="text-[#94a3b8] text-xs mt-1">kits generated this month</p>
             </div>
 
             <div className="mt-auto">
@@ -202,7 +202,7 @@ export default function DashboardHome() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#1a1a1a]">
           {statsRow.map(({ label, value, color }) => (
             <div key={label} className="bg-[#0a0a0a] px-5 py-5">
-              <p className="text-xs text-[#475569] uppercase tracking-widest mb-2">{label}</p>
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">{label}</p>
               <p className={`text-2xl font-bold ${color ?? ""}`}>{value}</p>
             </div>
           ))}
@@ -210,13 +210,13 @@ export default function DashboardHome() {
 
         {/* Quick links */}
         <div className="mt-8 flex flex-wrap gap-4">
-          <Link href="/dashboard/upload-kit" className="text-xs text-[#475569] hover:text-white transition-colors">
+          <Link href="/dashboard/upload-kit" className="text-xs text-[#94a3b8] hover:text-white transition-colors">
             → Upload Kit Generator
           </Link>
-          <Link href="/dashboard/report" className="text-xs text-[#475569] hover:text-white transition-colors">
+          <Link href="/dashboard/report" className="text-xs text-[#94a3b8] hover:text-white transition-colors">
             → Monthly Report
           </Link>
-          <Link href="/settings" className="text-xs text-[#475569] hover:text-white transition-colors">
+          <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors">
             → Settings
           </Link>
         </div>

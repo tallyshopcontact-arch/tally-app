@@ -67,7 +67,17 @@ export async function POST(req: NextRequest) {
     ? topKeywords.join(", ")
     : `${resolvedGenre} type beat, free type beat`;
 
-  const prompt = `You are a YouTube SEO expert for beat producers. Generate a complete upload kit for the following beat.
+  // Top niche videos for pattern analysis
+  const topNicheVideos = [...nicheData]
+    .sort((a, b) => b.viewCount - a.viewCount)
+    .slice(0, 8);
+  const nicheVideoContext = topNicheVideos.length
+    ? topNicheVideos
+        .map((v) => `- "${v.title}" (${(v.viewCount / 1000).toFixed(0)}K views) — tags: ${v.tags.slice(0, 6).join(", ")}`)
+        .join("\n")
+    : "- No niche video data available";
+
+  const prompt = `You are an expert YouTube strategist who has studied thousands of beat producer channels. Generate a complete upload kit for the following beat.
 
 Beat details:
 - Beat name: ${beatNameStr || "(not provided — suggest one)"}
@@ -77,38 +87,55 @@ Beat details:
 - ${bpmStr}, ${keyStr}
 - Additional notes: ${notesStr}
 
-Real niche keywords from this producer's YouTube heat map (use these in titles, description, and tags):
+Top-performing videos in this producer's niche (real data — study these titles and tag patterns):
+${nicheVideoContext}
+
+Hot niche keywords from this producer's heat map (top 12 by frequency across niche):
 ${keywordsStr}
 
-Generate a complete upload kit. Respond with ONLY valid JSON. No markdown, no code blocks.
+DESCRIPTION INSTRUCTIONS: Study the top-performing niche video titles above. Mirror their structure and keyword density. A great beat producer description:
+1. Opens with a punchy 1-line hook naming the vibe and artist references (e.g. "Dark cinematic trap beat in the style of [Artist]")
+2. Second paragraph: beat specs (BPM if known, key if known, vibe adjectives) + download/license CTA with [LINK] placeholder
+3. Third paragraph: 4-6 of the niche keywords woven in naturally as searchable phrases (not just listed)
+4. Closes with licensing terms line + copyright
+Write 160-200 words. Sound like a real producer, not a template.
+
+THUMBNAIL INSTRUCTIONS: Analyze the genre "${resolvedGenre}" specifically. Different genres have different thumbnail meta:
+- Boom Bap / Lo-fi: atmospheric, minimal text, dark moody visuals, single color accent, film grain aesthetic
+- Trap / Drill: bold high-contrast text, face/silhouette, aggressive color (red/white on black), text takes 40%+ of frame
+- Melodic Rap / R&B: gradient backgrounds, clean sans-serif text, warmer palette (purple/gold)
+- Afrobeats / Jersey Club: bright colors, energetic composition, artist name prominent
+Generate 3 concepts that reflect what ACTUALLY works in ${resolvedGenre} right now — not generic placeholder concepts.
+
+Respond with ONLY valid JSON. No markdown, no code blocks.
 
 {
   "beat_name_suggestion": "string (ONLY include if beat name was not provided; otherwise omit this field)",
   "titles": [
-    {"title": "9-12 word YouTube title with beat name in quotes, artist reference, year 2026", "reason": "1 sentence explaining why this title works for SEO and clicks"},
+    {"title": "9-12 word YouTube title with beat name in quotes, artist reference, year 2026", "reason": "1 sentence on why this title works for SEO and clicks in this niche"},
     {"title": "alternative title option", "reason": "reason"},
     {"title": "third title option", "reason": "reason"}
   ],
-  "description": "Full 180-word YouTube description. Include: beat vibe description, licensing info, download link placeholder [LINK], at least 6 of the niche keywords, artist names, genre. End with copyright notice.",
+  "description": "Full 160-200 word YouTube description following the structure above. Sound authentic, not templated.",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12"],
   "thumbnail_concepts": [
-    {"style": "concept name", "background": "background description", "text": "what text appears on thumbnail", "why_it_works": "1 sentence on why this drives clicks"},
-    {"style": "concept name", "background": "background description", "text": "what text appears on thumbnail", "why_it_works": "reason"},
-    {"style": "concept name", "background": "background description", "text": "what text appears on thumbnail", "why_it_works": "reason"}
+    {"style": "concept name (e.g. Dark Minimal, Bold Text, Atmospheric)", "background": "specific visual description — colors, textures, imagery", "text_treatment": "exactly what text appears and how it's styled (size, weight, position)", "color_palette": "3-4 specific colors e.g. #0a0a0a, #e8e8e8, #c0392b", "why_it_works": "1 sentence on why this drives clicks specifically in ${resolvedGenre}"},
+    {"style": "concept name", "background": "background description", "text_treatment": "text details", "color_palette": "3-4 specific colors", "why_it_works": "reason"},
+    {"style": "concept name", "background": "background description", "text_treatment": "text details", "color_palette": "3-4 specific colors", "why_it_works": "reason"}
   ],
   "best_upload_time": {
     "day": "day of week",
     "time": "time with timezone e.g. 6pm EST",
     "reason": "1 sentence reason based on beat producer audience engagement patterns"
   },
-  "niche_tip": "One specific, actionable tip based on the niche keywords provided above — what is working right now in this exact niche"
+  "niche_tip": "One specific, actionable tip based on the niche data above — what is working right now in this exact niche"
 }`;
 
   let generatedKit: Record<string, unknown>;
   try {
     const msg = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 2000,
+      max_tokens: 2500,
       system: "You are a YouTube SEO expert for beat producers. Output only valid JSON with no markdown or code blocks.",
       messages: [{ role: "user", content: prompt }],
     });

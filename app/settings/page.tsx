@@ -242,7 +242,7 @@ export default function SettingsPage() {
           <div className="border border-[#1a1a1a] p-6 flex items-start justify-between gap-6">
             <div>
               <p className="text-sm font-medium mb-1">Google Account</p>
-              <p className="text-[#475569] text-xs">
+              <p className="text-[#94a3b8] text-xs">
                 Connect Google to unlock watch time, monthly subscriber gains, and audience data.
               </p>
               <p className="text-[#f87171] text-xs mt-2 font-medium">Not connected</p>
@@ -278,7 +278,7 @@ export default function SettingsPage() {
                   {planLabel[profile.subscription_tier] ?? profile.subscription_tier}
                 </span>
               </p>
-              <p className="text-[#475569] text-xs">
+              <p className="text-[#94a3b8] text-xs">
                 {profile.subscription_tier === "free"
                   ? "You're on the free trial. Upgrade to unlock more features."
                   : "Manage your billing and plan details below."}

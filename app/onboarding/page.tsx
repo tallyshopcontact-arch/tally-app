@@ -172,7 +172,7 @@ export default function OnboardingPage() {
                 autoFocus
                 className={inputClass}
               />
-              <p className="text-[#475569] text-xs mt-2">
+              <p className="text-[#94a3b8] text-xs mt-2">
                 Paste your full YouTube channel URL e.g. youtube.com/c/yourchannel
               </p>
             </div>
@@ -274,7 +274,7 @@ export default function OnboardingPage() {
                   />
                 </div>
               ))}
-              <p className="text-[#475569] text-xs">
+              <p className="text-[#94a3b8] text-xs">
                 e.g. Nas, Kendrick Lamar, J Cole
               </p>
             </div>
@@ -387,7 +387,7 @@ export default function OnboardingPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-semibold">{name}</p>
-                      <p className="text-[#475569] text-xs mt-0.5">{price}</p>
+                      <p className="text-[#94a3b8] text-xs mt-0.5">{price}</p>
                     </div>
                     {highlight && (
                       <span className="text-[10px] font-semibold tracking-[0.15em] uppercase text-[#94a3b8] border border-[#2a2a2a] px-2 py-0.5">
@@ -414,8 +414,8 @@ export default function OnboardingPage() {
             >
               Start with Basic — free for 30 days →
             </button>
-            <p className="text-center text-xs text-[#475569]">
-              <Link href="/pricing" className="hover:text-[#94a3b8] transition-colors underline underline-offset-2">
+            <p className="text-center text-xs text-[#94a3b8]">
+              <Link href="/pricing" className="hover:text-white transition-colors underline underline-offset-2">
                 View all plans
               </Link>
               {" "}· Stripe integration coming soon

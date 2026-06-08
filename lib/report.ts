@@ -450,21 +450,27 @@ Producer's genre: ${profile.genre ?? "hip hop"}
 Top 10 keywords from their niche's keyword heat map (real data from YouTube API):
 ${top10Keywords.join(", ")}
 
-Top 5 highest-performing titles in their niche this month:
+Top 5 highest-performing titles in their niche this month (study the structure and keyword patterns):
 ${topTitles}
 
-Each kit must use the producer's actual genre and artist references — not generic placeholders. Every tag array must include keywords from the heat map above.
+DESCRIPTION RULES: Mirror the keyword density and structure of top-performing videos in this niche. Each description must:
+1. Open with a punchy 1-line hook naming the vibe + artist reference
+2. Second paragraph: beat specs + download/license CTA with [LINK] placeholder
+3. Third paragraph: weave in 4-5 of the niche keywords naturally as searchable phrases (not just listed)
+4. End with licensing terms + copyright line
+Write 160-200 words per description. Sound like a real producer, not a template.
 
-Each kit needs:
-- title: 9-12 words, unique beat name in quotes, one of their target artists, year 2026
-- description: full 180-word description with licensing info, download link placeholder, and at least 5 of the top keywords
-- tags: array of 8-10 tags drawn from the keyword heat map above plus the target artist names
-- thumbnail_brief: one sentence visual concept for the thumbnail
+THUMBNAIL RULES: Genre "${profile.genre ?? "hip hop"}" specific — analyze what top producers in this genre actually use:
+- Boom Bap / Lo-fi: dark atmospheric, minimal text, film grain, single accent color
+- Trap / Drill: high-contrast, bold text fills 40%+ of frame, red/white on black
+- Melodic / R&B: gradients, warm palette (purple/gold), clean sans-serif
+- Afrobeats / Jersey: bright colors, energetic, artist name prominent
+Each thumbnail_brief should describe a genre-accurate visual concept in 1-2 sentences.
 
 Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
 Schema (exactly 3 items):
 [{"title":"...","description":"...","tags":["tag1","tag2"],"thumbnail_brief":"..."}]`,
-    1200
+    1500
   );
 
   console.log("[TALLY:report] generateUploadKit raw:", raw.slice(0, 400));
