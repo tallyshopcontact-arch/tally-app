@@ -1,4 +1,5 @@
 import { anthropic } from "./anthropic";
+import { extractKeywords } from "./keywords";
 import type { NicheVideo } from "./keywords";
 
 // ── System prompt ─────────────────────────────────────────────────────────────
@@ -221,14 +222,16 @@ export async function generateRisingArtists(
     .join("\n");
 
   const raw = await ask(
-    `Based on recent niche performance, identify 2-3 beat producers who are rising. For each, explain what they are doing well.
+    `These are real YouTube channels appearing in top-performing beat videos from the last 30 days, pulled directly from the YouTube API. Identify 2-3 of them who are rising based on their view counts and video frequency.
 
-Channel data (last 30 days):
+Real channel data from YouTube search results (last 30 days):
 ${summary}
+
+For each selected channel, explain specifically what is working for them based on their view count performance. Pick the channels with the strongest combination of avg views and video count.
 
 Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
 Schema (2-3 items):
-[{"name":"Channel Name","growth":"e.g. 2 videos, 45K avg views","why":"2 sentences on why they are rising and what specifically is working","youtube_url":"https://www.youtube.com/results?search_query=CHANNEL+NAME+type+beat"}]
+[{"name":"Channel Name","growth":"e.g. 2 videos, 45K avg views","why":"2 sentences on why they are rising based on their actual numbers","youtube_url":"https://www.youtube.com/results?search_query=CHANNEL+NAME+type+beat"}]
 For youtube_url, replace CHANNEL+NAME with the actual channel name URL-encoded (spaces as +).`,
     600
   );
@@ -258,20 +261,27 @@ export async function generateWhatToAvoid(
   nicheData: NicheVideo[]
 ): Promise<AvoidPattern[]> {
   const sorted = [...nicheData].sort((a, b) => a.viewCount - b.viewCount);
-  const bottom = sorted.slice(0, Math.min(20, sorted.length));
-  const lowTitles = bottom
-    .map((v) => `"${v.title}" (${v.viewCount.toLocaleString()} views)`)
-    .join("\n");
+  const bottom5 = sorted.slice(0, Math.min(5, sorted.length));
+  const lowVideoData = bottom5
+    .map(
+      (v) =>
+        `Title: "${v.title}"\nViews: ${v.viewCount.toLocaleString()}\nTags: ${
+          v.tags.slice(0, 10).join(", ") || "none"
+        }`
+    )
+    .join("\n\n");
 
   const raw = await ask(
-    `Analyze the lowest-performing videos in this niche and identify 3 patterns hurting their view counts.
+    `These are the 5 lowest-performing beat videos from this producer's niche this month, with their actual titles, view counts, and tags pulled from the YouTube API.
 
 Lowest-performing videos:
-${lowTitles}
+${lowVideoData}
+
+Analyze what these 5 videos have in common that is hurting their performance. Look at title structure, tag quality, and keyword patterns. Identify 3 specific, actionable patterns the producer should avoid.
 
 Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
 Schema (exactly 3 items):
-[{"pattern":"Short pattern name (3-6 words)","explanation":"1 sentence on why this hurts performance","fix":"1-2 sentence specific fix the producer should apply"}]`,
+[{"pattern":"Short pattern name (3-6 words)","explanation":"1 sentence on why this hurts performance, referencing the actual video data","fix":"1-2 sentence specific fix the producer should apply"}]`,
     600
   );
 
@@ -309,33 +319,56 @@ export async function generateActionPlan(
   nicheData: NicheVideo[],
   profile: ProducerProfile
 ): Promise<ActionItem[]> {
+  const top10 = [...nicheData].sort((a, b) => b.viewCount - a.viewCount).slice(0, 10);
   const nicheAvg =
     nicheData.length > 0
       ? Math.round(nicheData.reduce((s, v) => s + v.viewCount, 0) / nicheData.length)
+      : 0;
+  const top10AvgViews =
+    top10.length > 0
+      ? Math.round(top10.reduce((s, v) => s + v.viewCount, 0) / top10.length)
+      : 0;
+  const top10AvgTitleWords =
+    top10.length > 0
+      ? Math.round(top10.reduce((s, v) => s + v.title.split(" ").length, 0) / top10.length)
+      : 0;
+  const top10AvgTags =
+    top10.length > 0
+      ? Math.round(top10.reduce((s, v) => s + v.tags.length, 0) / top10.length)
       : 0;
   const producerAvg =
     channelData.monthly_videos > 0
       ? Math.round(channelData.monthly_views / channelData.monthly_videos)
       : 0;
-  const topVideo = [...nicheData].sort((a, b) => b.viewCount - a.viewCount)[0];
+  const producerTitleWords = channelData.best_video_title?.split(" ").length ?? 0;
+  const topVideo = top10[0];
   const artists = [profile.top_artist_1, profile.top_artist_2, profile.top_artist_3]
     .filter(Boolean)
     .join(", ") || "not specified";
 
   const raw = await ask(
-    `Generate 7 specific prioritized actions for ${profile.name ?? "this producer"} to take next month.
+    `Generate 7 specific prioritized actions for ${profile.name ?? "this producer"} to take next month. Base every action on the real performance gaps shown in the data below.
 
-Data:
+Producer stats vs niche top-10 benchmarks (real YouTube API data):
+| Metric               | This Producer        | Niche Top-10 Avg     |
+|----------------------|----------------------|----------------------|
+| Avg views/video      | ${producerAvg.toLocaleString()}          | ${top10AvgViews.toLocaleString()}           |
+| Upload frequency     | ${channelData.monthly_videos} videos/month    | N/A (benchmark only) |
+| Title word count     | ${producerTitleWords} words              | ${top10AvgTitleWords} words               |
+| Tags per video       | (own channel unknown)| ${top10AvgTags} tags avg              |
+
+Additional context:
 - Channel: ${channelData.channel_name} (${profile.genre ?? "hip hop"} beats)
-- Monthly videos: ${channelData.monthly_videos}, views: ${channelData.monthly_views.toLocaleString()}
-- Producer avg views/video: ${producerAvg.toLocaleString()} vs niche avg: ${nicheAvg.toLocaleString()}
+- Target artists: ${artists}
 - Best video this month: "${channelData.best_video_title ?? "N/A"}"
 - Top niche video: "${topVideo?.title ?? "N/A"}" (${(topVideo?.viewCount ?? 0).toLocaleString()} views)
-- Target artists: ${artists}
+- Niche overall avg views: ${nicheAvg.toLocaleString()}
+
+Each action must directly address a specific gap from the table above or a specific opportunity from the context. Do not give generic advice.
 
 Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
 Schema (exactly 7 items, High-priority items first):
-[{"action":"5-12 word specific action","priority":"High","why":"1-2 sentences on what to do exactly and why, tied to their specific numbers"}]
+[{"action":"5-12 word specific action","priority":"High","why":"1-2 sentences on what to do exactly and why, citing their specific numbers"}]
 priority must be exactly "High", "Medium", or "Low".`,
     800
   );
@@ -393,40 +426,39 @@ export async function generateUploadKit(
   profile: ProducerProfile,
   nicheData: NicheVideo[]
 ): Promise<UploadKit[]> {
-  const tagFreq = new Map<string, number>();
-  for (const v of nicheData) {
-    for (const tag of v.tags ?? []) {
-      tagFreq.set(tag, (tagFreq.get(tag) ?? 0) + 1);
-    }
-  }
-  const topTags = [...tagFreq.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 15)
-    .map(([t]) => t)
-    .join(", ");
+  const top10Keywords = extractKeywords(nicheData)
+    .slice(0, 10)
+    .map((k) => k.tag);
 
   const topTitles = [...nicheData]
     .sort((a, b) => b.viewCount - a.viewCount)
     .slice(0, 5)
-    .map((v) => v.title)
-    .join("\n- ");
+    .map((v) => `"${v.title}" (${v.viewCount.toLocaleString()} views)`)
+    .join("\n");
 
   const artists = [profile.top_artist_1, profile.top_artist_2, profile.top_artist_3]
-    .filter(Boolean)
-    .join(", ") || "various artists";
+    .filter(Boolean);
+  const artistList = artists.join(", ") || "various artists";
+  const primaryArtist = artists[0] ?? "Drake";
 
   const raw = await ask(
-    `Generate 3 ready-to-use upload kits for a ${profile.genre ?? "hip hop"} beat producer whose top artists are ${artists}.
+    `Generate 3 ready-to-use upload kits for a ${profile.genre ?? "hip hop"} beat producer.
 
-Top performing titles in their niche:
-- ${topTitles}
+Producer's actual target artists (from their profile): ${artistList}
+Producer's genre: ${profile.genre ?? "hip hop"}
 
-Most-used tags in top niche videos: ${topTags}
+Top 10 keywords from their niche's keyword heat map (real data from YouTube API):
+${top10Keywords.join(", ")}
+
+Top 5 highest-performing titles in their niche this month:
+${topTitles}
+
+Each kit must use the producer's actual genre and artist references — not generic placeholders. Every tag array must include keywords from the heat map above.
 
 Each kit needs:
-- title: 9-12 words, beat name in quotes, artist pairing, year 2026
-- description: full 180-word description with licensing info, download link placeholder, and top keywords
-- tags: array of 8-10 SEO-optimized strings
+- title: 9-12 words, unique beat name in quotes, one of their target artists, year 2026
+- description: full 180-word description with licensing info, download link placeholder, and at least 5 of the top keywords
+- tags: array of 8-10 tags drawn from the keyword heat map above plus the target artist names
 - thumbnail_brief: one sentence visual concept for the thumbnail
 
 Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
@@ -445,24 +477,25 @@ Schema (exactly 3 items):
   } catch {
     console.error("[TALLY:report] generateUploadKit parse failed. raw:", raw);
     const genre = profile.genre ?? "hip hop";
-    const artist = profile.top_artist_1 ?? "Drake";
+    const artist = primaryArtist;
+    const kw = top10Keywords.slice(0, 4).join(", ") || `${genre} type beat`;
     return [
       {
         title: `"Ghost Walk" | ${artist} Type Beat 2026 | ${genre}`,
-        description: `"Ghost Walk" is a hard-hitting ${genre} type beat produced for artists in the style of ${artist}. This instrumental features melodic hooks, punchy 808s, and a cinematic vibe perfect for mixtapes and commercial releases.\n\n🎵 Free for non-profit use with credit. For commercial use, visit the link below.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: ${genre} type beat, ${artist} type beat 2026, free type beat, instrumental, trap beat, melodic type beat, ${genre} instrumental 2026\n\n© All rights reserved. Unauthorized monetization prohibited.`,
-        tags: [`${genre} type beat`, `${artist} type beat`, "type beat 2026", "free type beat", `${genre} instrumental`, "trap beat", "melodic type beat", "beat producer"],
+        description: `"Ghost Walk" is a hard-hitting ${genre} type beat produced for artists in the style of ${artist}. This instrumental features melodic hooks, punchy 808s, and a cinematic vibe perfect for mixtapes and commercial releases.\n\n🎵 Free for non-profit use with credit. For commercial use, visit the link below.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: ${kw}, ${genre} type beat 2026, free type beat, instrumental\n\n© All rights reserved. Unauthorized monetization prohibited.`,
+        tags: top10Keywords.slice(0, 6).concat([`${artist} type beat`, "type beat 2026"]),
         thumbnail_brief: `Dark gradient background with the beat name in bold white text and a glowing waveform graphic centered below it.`,
       },
       {
         title: `"Neon Keys" | ${artist} Type Beat 2026 | Melodic ${genre}`,
-        description: `"Neon Keys" blends smooth piano melodies with hard-hitting trap drums — a versatile ${genre} type beat for artists inspired by ${artist}. Ideal for singles, albums, and content creators.\n\n🎵 Free for non-profit use with credit. Commercial licenses available.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: melodic ${genre} type beat, ${artist} type beat 2026, piano type beat, trap instrumental, free melodic beat, ${genre} beats 2026\n\n© All rights reserved.`,
-        tags: [`melodic ${genre} beat`, `${artist} type beat 2026`, "piano type beat", "trap instrumental", "free beat", "melodic trap", `${genre} beat 2026`, "type beat"],
+        description: `"Neon Keys" blends smooth piano melodies with hard-hitting trap drums — a versatile ${genre} type beat for artists inspired by ${artist}. Ideal for singles, albums, and content creators.\n\n🎵 Free for non-profit use with credit. Commercial licenses available.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: ${kw}, melodic ${genre} type beat 2026, piano type beat\n\n© All rights reserved.`,
+        tags: top10Keywords.slice(0, 6).concat([`melodic ${genre} beat`, `${artist} type beat 2026`]),
         thumbnail_brief: `Neon blue and purple tones with a piano keys graphic and the beat title overlaid in clean sans-serif font.`,
       },
       {
         title: `"Dark Matter" | ${artist} Type Beat 2026 | Hard ${genre}`,
-        description: `"Dark Matter" is an aggressive, atmospheric ${genre} instrumental built for hard-hitting verses. Inspired by the sound of ${artist}, this beat features layered synths, deep bass, and snapping hi-hats.\n\n🎵 Free for non-profit with credit. Exclusive and non-exclusive licenses available.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: hard ${genre} type beat, ${artist} type beat, dark type beat 2026, aggressive trap beat, ${genre} instrumental, exclusive type beat\n\n© All rights reserved.`,
-        tags: [`hard ${genre} type beat`, `${artist} type beat`, "dark type beat", "aggressive trap beat", `${genre} instrumental 2026`, "exclusive type beat", "trap beat", "dark instrumental"],
+        description: `"Dark Matter" is an aggressive, atmospheric ${genre} instrumental built for hard-hitting verses. Inspired by the sound of ${artist}, this beat features layered synths, deep bass, and snapping hi-hats.\n\n🎵 Free for non-profit with credit. Exclusive and non-exclusive licenses available.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: ${kw}, hard ${genre} type beat 2026, aggressive trap beat\n\n© All rights reserved.`,
+        tags: top10Keywords.slice(0, 6).concat([`hard ${genre} type beat`, `${artist} type beat`]),
         thumbnail_brief: `Black background with deep red and smoke visual effects, beat title in large bold white letters with a subtle glow.`,
       },
     ];

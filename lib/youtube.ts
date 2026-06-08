@@ -202,7 +202,7 @@ export async function searchNicheVideos(
       const q = encodeURIComponent(`${term} type beat`);
       const res = await fetch(
         `${YT}/search?part=id&type=video&q=${q}&order=viewCount` +
-          `&publishedAfter=${publishedAfter}&maxResults=20&key=${KEY}`
+          `&publishedAfter=${publishedAfter}&maxResults=50&key=${KEY}`
       );
       const data = await res.json();
       return (data.items ?? []).map(
@@ -281,7 +281,7 @@ export async function searchNicheVideos(
 
   return results
     .sort((a, b) => b.viewCount - a.viewCount)
-    .slice(0, 20)
+    .slice(0, 50)
     .map(toNicheVideo);
 }
 
