@@ -13,7 +13,6 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [checkEmail, setCheckEmail] = useState(false);
 
   const inputClass =
     "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors";
@@ -34,55 +33,49 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+      // Step 1: Create the confirmed user via the server-side admin API route.
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, name }),
+      });
 
-      if (!supabaseUrl) console.warn("[signup] NEXT_PUBLIC_SUPABASE_URL is not defined");
-      if (!supabaseKey) console.warn("[signup] NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is not defined");
+      const json = await res.json();
 
+      if (!res.ok) {
+        setError(json.error || "Signup failed — please try again.");
+        return;
+      }
+
+      // Step 2: Sign in immediately (user is already confirmed, no email needed).
       const supabase = createSupabaseBrowserClient();
 
-      const { data, error: authError } = await supabase.auth.signUp({
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
-        options: {
-          data: { name },
-          emailRedirectTo: "https://tallyagc.com/auth/callback",
-        },
       });
 
-      if (authError) {
-        if (authError.message.toLowerCase().includes("already")) {
-          setError("An account with this email already exists. Try signing in.");
-        } else {
-          setError(authError.message);
+      if (signInError) {
+        console.error("[signup] signInWithPassword error:", signInError.message);
+        setError("Account created but sign-in failed — please go to the login page.");
+        return;
+      }
+
+      // Step 3: Insert the profile row now that we have a valid session.
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user) {
+        const { error: profileError } = await supabase.from("profiles").insert({
+          id: user.id,
+          email: user.email,
+          name,
+          subscription_tier: "free",
+          onboarding_complete: false,
+        });
+        if (profileError) {
+          console.error("[signup] Profile insert error:", profileError.message);
+          // Non-blocking — onboarding will upsert the profile.
         }
-        return;
-      }
-
-      if (!data.user) {
-        setError("Signup failed — please try again.");
-        return;
-      }
-
-      if (!data.session) {
-        // Supabase email confirmation is enabled — user must verify before logging in.
-        setCheckEmail(true);
-        return;
-      }
-
-      // Session exists (email confirmation disabled) — insert profile and proceed.
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: data.user.id,
-        email: data.user.email,
-        name,
-        subscription_tier: "free",
-        onboarding_complete: false,
-      });
-
-      if (profileError) {
-        console.error("Profile insert error:", profileError.message);
-        // Don't block signup — profile can be upserted during onboarding.
       }
 
       router.push("/onboarding");
@@ -95,28 +88,6 @@ export default function SignupPage() {
       setLoading(false);
     }
   };
-
-  if (checkEmail) {
-    return (
-      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
-        <div className="w-full max-w-sm">
-          <Link href="/" className="block text-sm font-bold tracking-[0.25em] mb-12 hover:text-[#94a3b8] transition-colors">
-            TALLY
-          </Link>
-          <h1 className="text-2xl font-bold mb-2">Check your email</h1>
-          <p className="text-[#94a3b8] text-sm mb-6">
-            We sent a confirmation link to <span className="text-white">{email}</span>. Click it to activate your account, then come back to sign in.
-          </p>
-          <Link
-            href="/login"
-            className="block w-full text-center bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] transition-colors"
-          >
-            Go to sign in
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
