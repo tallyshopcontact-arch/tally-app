@@ -13,6 +13,7 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkEmail, setCheckEmail] = useState(false);
 
   const inputClass =
     "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors";
@@ -31,40 +32,81 @@ export default function SignupPage() {
     }
 
     setLoading(true);
-    const supabase = createSupabaseBrowserClient();
 
-    const { data, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name } },
-    });
+    try {
+      const supabase = createSupabaseBrowserClient();
 
-    if (authError) {
-      if (authError.message.toLowerCase().includes("already")) {
-        setError("An account with this email already exists. Try signing in.");
-      } else {
-        setError(authError.message);
+      const { data, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { name } },
+      });
+
+      if (authError) {
+        if (authError.message.toLowerCase().includes("already")) {
+          setError("An account with this email already exists. Try signing in.");
+        } else {
+          setError(authError.message);
+        }
+        return;
       }
-      setLoading(false);
-      return;
-    }
 
-    // Create the profile row using the authenticated session.
-    // If email confirmation is required, data.session will be null —
-    // in that case skip the insert (profile will be created after confirmation).
-    if (data.user && data.session) {
-      await supabase.from("profiles").insert({
+      if (!data.user) {
+        setError("Signup failed — please try again.");
+        return;
+      }
+
+      if (!data.session) {
+        // Supabase email confirmation is enabled — user must verify before logging in.
+        setCheckEmail(true);
+        return;
+      }
+
+      // Session exists (email confirmation disabled) — insert profile and proceed.
+      const { error: profileError } = await supabase.from("profiles").insert({
         id: data.user.id,
         email: data.user.email,
         name,
         subscription_tier: "free",
         onboarding_complete: false,
       });
-    }
 
-    router.push("/onboarding");
-    router.refresh();
+      if (profileError) {
+        console.error("Profile insert error:", profileError.message);
+        // Don't block signup — profile can be upserted during onboarding.
+      }
+
+      router.push("/onboarding");
+      router.refresh();
+    } catch (err) {
+      console.error("Signup error:", err);
+      setError("Something went wrong. Please check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (checkEmail) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
+        <div className="w-full max-w-sm">
+          <Link href="/" className="block text-sm font-bold tracking-[0.25em] mb-12 hover:text-[#94a3b8] transition-colors">
+            TALLY
+          </Link>
+          <h1 className="text-2xl font-bold mb-2">Check your email</h1>
+          <p className="text-[#94a3b8] text-sm mb-6">
+            We sent a confirmation link to <span className="text-white">{email}</span>. Click it to activate your account, then come back to sign in.
+          </p>
+          <Link
+            href="/login"
+            className="block w-full text-center bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] transition-colors"
+          >
+            Go to sign in
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
