@@ -154,7 +154,34 @@ export async function getMonthlyStats(
 
 // ── Niche search ──────────────────────────────────────────────────────────────
 
-const BEAT_KEYWORDS = ["type beat", "instrumental", "beat", "prod by"];
+// Titles containing any of these are immediately disqualified.
+const BLOCKLIST = [
+  "reaction", "review", "tutorial", "how to", "vlog", "podcast",
+  "interview", "freestyle", "cypher", "cipher", "official video",
+  "music video", " mv ", "lyrics", "lyric video", "challenge",
+  "documentary", "behind the scenes", "studio session",
+];
+
+// Titles must contain at least one of these to qualify.
+const ALLOWLIST = [
+  "type beat", "type-beat", "instrumental", "beat for", "prod by",
+  "free beat", "trap beat", "boom bap beat", "drill beat", "lo-fi beat",
+];
+
+// Single beats are roughly 1–20 minutes; outside that range is a short clip
+// or a long compilation.
+const MIN_SECS = 60;
+const MAX_SECS = 1200;
+
+function parseDurationSecs(iso: string): number {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return (
+    parseInt(m[1] ?? "0") * 3600 +
+    parseInt(m[2] ?? "0") * 60 +
+    parseInt(m[3] ?? "0")
+  );
+}
 
 export async function searchNicheVideos(
   genre: string,
@@ -188,7 +215,7 @@ export async function searchNicheVideos(
   const uniqueIds = [...new Set(idLists.flat())];
   if (!uniqueIds.length) return [];
 
-  // Fetch full snippet (tags) + statistics in chunks of 50.
+  // Fetch snippet (tags), statistics, and contentDetails (duration) in chunks of 50.
   const chunks: string[][] = [];
   for (let i = 0; i < uniqueIds.length; i += 50) {
     chunks.push(uniqueIds.slice(i, i + 50));
@@ -198,7 +225,7 @@ export async function searchNicheVideos(
     await Promise.all(
       chunks.map(async (chunk) => {
         const res = await fetch(
-          `${YT}/videos?part=snippet,statistics&id=${chunk.join(",")}&key=${KEY}`
+          `${YT}/videos?part=snippet,statistics,contentDetails&id=${chunk.join(",")}&key=${KEY}`
         );
         const data = await res.json();
         return data.items ?? [];
@@ -207,24 +234,55 @@ export async function searchNicheVideos(
   ).flat();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (rawItems as any[])
-    .map((v) => ({
-      videoId: v.id as string,
-      title: v.snippet.title as string,
-      channelName: v.snippet.channelTitle as string,
-      viewCount: parseInt(v.statistics?.viewCount ?? "0"),
-      tags: (v.snippet.tags ?? []) as string[],
-      publishedAt: v.snippet.publishedAt as string,
-      thumbnailUrl: (v.snippet.thumbnails?.high?.url ??
-        v.snippet.thumbnails?.default?.url ??
-        "") as string,
-    }))
-    .filter((v) => {
-      const t = v.title.toLowerCase();
-      return BEAT_KEYWORDS.some((kw) => t.includes(kw)) && v.viewCount >= 1000;
-    })
+  const mapped = (rawItems as any[]).map((v) => ({
+    videoId: v.id as string,
+    title: v.snippet.title as string,
+    channelName: v.snippet.channelTitle as string,
+    viewCount: parseInt(v.statistics?.viewCount ?? "0"),
+    tags: (v.snippet.tags ?? []) as string[],
+    publishedAt: v.snippet.publishedAt as string,
+    thumbnailUrl: (v.snippet.thumbnails?.high?.url ??
+      v.snippet.thumbnails?.default?.url ??
+      "") as string,
+    durationSecs: parseDurationSecs(v.contentDetails?.duration ?? ""),
+  }));
+
+  const isBeatContent = (title: string) => {
+    const t = title.toLowerCase();
+    return (
+      ALLOWLIST.some((kw) => t.includes(kw)) &&
+      !BLOCKLIST.some((kw) => t.includes(kw))
+    );
+  };
+
+  const inDurationRange = (secs: number) => secs >= MIN_SECS && secs <= MAX_SECS;
+
+  const toNicheVideo = (v: typeof mapped[number]): NicheVideo => ({
+    videoId: v.videoId,
+    title: v.title,
+    channelName: v.channelName,
+    viewCount: v.viewCount,
+    tags: v.tags,
+    publishedAt: v.publishedAt,
+    thumbnailUrl: v.thumbnailUrl,
+  });
+
+  // Primary filter: beat content + duration range + 1k views.
+  let results = mapped.filter(
+    (v) => isBeatContent(v.title) && inDurationRange(v.durationSecs) && v.viewCount >= 1000
+  );
+
+  // Fallback: relax view floor to 500 if fewer than 3 survive primary filter.
+  if (results.length < 3) {
+    results = mapped.filter(
+      (v) => isBeatContent(v.title) && inDurationRange(v.durationSecs) && v.viewCount >= 500
+    );
+  }
+
+  return results
     .sort((a, b) => b.viewCount - a.viewCount)
-    .slice(0, 20);
+    .slice(0, 20)
+    .map(toNicheVideo);
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
