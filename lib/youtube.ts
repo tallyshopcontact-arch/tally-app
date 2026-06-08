@@ -154,42 +154,77 @@ export async function getMonthlyStats(
 
 // ── Niche search ──────────────────────────────────────────────────────────────
 
+const BEAT_KEYWORDS = ["type beat", "instrumental", "beat", "prod by"];
+
 export async function searchNicheVideos(
   genre: string,
-  maxResults: number
+  artists: string[]
 ): Promise<NicheVideo[]> {
+  // 90-day window gives enough volume to filter down to 20 quality results.
   const publishedAfter = new Date(
-    Date.now() - 30 * 24 * 60 * 60 * 1000
+    Date.now() - 90 * 24 * 60 * 60 * 1000
   ).toISOString();
-  const q = encodeURIComponent(`${genre} type beat`);
 
-  const searchRes = await fetch(
-    `${YT}/search?part=snippet&type=video&q=${q}&order=viewCount` +
-      `&publishedAfter=${publishedAfter}&maxResults=${Math.min(maxResults, 50)}&key=${KEY}`
-  );
-  const searchData = await searchRes.json();
-  const items: { id: { videoId: string } }[] = searchData.items ?? [];
-  if (!items.length) return [];
+  // One search per term: genre + up to 3 artists (cap at 4 to protect quota).
+  const terms = [genre, ...artists.filter(Boolean)].slice(0, 4);
 
-  const ids = items.map((i) => i.id.videoId).join(",");
-  const videosRes = await fetch(
-    `${YT}/videos?part=snippet,statistics&id=${ids}&key=${KEY}`
+  // Run all searches in parallel. part=id only to minimize per-item payload;
+  // full details are fetched below via videos.list.
+  const idLists = await Promise.all(
+    terms.map(async (term) => {
+      const q = encodeURIComponent(`${term} type beat`);
+      const res = await fetch(
+        `${YT}/search?part=id&type=video&q=${q}&order=viewCount` +
+          `&publishedAfter=${publishedAfter}&maxResults=20&key=${KEY}`
+      );
+      const data = await res.json();
+      return (data.items ?? []).map(
+        (i: { id: { videoId: string } }) => i.id.videoId
+      ) as string[];
+    })
   );
-  const videosData = await videosRes.json();
+
+  // Deduplicate across all search results.
+  const uniqueIds = [...new Set(idLists.flat())];
+  if (!uniqueIds.length) return [];
+
+  // Fetch full snippet (tags) + statistics in chunks of 50.
+  const chunks: string[][] = [];
+  for (let i = 0; i < uniqueIds.length; i += 50) {
+    chunks.push(uniqueIds.slice(i, i + 50));
+  }
+
+  const rawItems = (
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        const res = await fetch(
+          `${YT}/videos?part=snippet,statistics&id=${chunk.join(",")}&key=${KEY}`
+        );
+        const data = await res.json();
+        return data.items ?? [];
+      })
+    )
+  ).flat();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (videosData.items ?? []).map((v: any) => ({
-    videoId: v.id,
-    title: v.snippet.title,
-    channelName: v.snippet.channelTitle,
-    viewCount: parseInt(v.statistics.viewCount ?? "0"),
-    tags: v.snippet.tags ?? [],
-    publishedAt: v.snippet.publishedAt,
-    thumbnailUrl:
-      v.snippet.thumbnails?.high?.url ??
-      v.snippet.thumbnails?.default?.url ??
-      "",
-  }));
+  return (rawItems as any[])
+    .map((v) => ({
+      videoId: v.id as string,
+      title: v.snippet.title as string,
+      channelName: v.snippet.channelTitle as string,
+      viewCount: parseInt(v.statistics?.viewCount ?? "0"),
+      tags: (v.snippet.tags ?? []) as string[],
+      publishedAt: v.snippet.publishedAt as string,
+      thumbnailUrl: (v.snippet.thumbnails?.high?.url ??
+        v.snippet.thumbnails?.default?.url ??
+        "") as string,
+    }))
+    .filter((v) => {
+      const t = v.title.toLowerCase();
+      return BEAT_KEYWORDS.some((kw) => t.includes(kw)) && v.viewCount >= 1000;
+    })
+    .sort((a, b) => b.viewCount - a.viewCount)
+    .slice(0, 20);
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

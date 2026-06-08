@@ -19,7 +19,7 @@ export async function POST(_req: NextRequest) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("youtube_channel_url, genre")
+    .select("youtube_channel_url, genre, top_artist_1, top_artist_2, top_artist_3")
     .eq("id", user.id)
     .single();
 
@@ -40,7 +40,10 @@ export async function POST(_req: NextRequest) {
     const [channelStats, monthlyStats, nicheVideos] = await Promise.all([
       getChannelStats(channelId),
       getMonthlyStats(channelId, year, month),
-      searchNicheVideos(profile.genre ?? "hip hop", 50),
+      searchNicheVideos(
+        profile.genre ?? "hip hop",
+        [profile.top_artist_1, profile.top_artist_2, profile.top_artist_3].filter(Boolean) as string[]
+      ),
     ]);
 
     const monthlyLikes = monthlyStats.videosPosted.reduce(
