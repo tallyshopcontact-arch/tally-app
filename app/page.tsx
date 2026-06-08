@@ -13,40 +13,46 @@ import { createServerClient } from "@/lib/supabase";
 
 const tools = [
   {
+    icon: Zap,
+    title: "Upload Kit Generator",
+    desc: "Paste your beat details. Get an optimized title, description, tags, and thumbnail concept built from real niche data — in seconds.",
+    pro: false,
+    featured: true,
+  },
+  {
     icon: BarChart2,
     title: "Monthly Growth Report",
     desc: "Full channel analysis every month — what's working, what's not, and where your next opportunity is.",
     pro: false,
-  },
-  {
-    icon: Zap,
-    title: "Upload Kit Generator",
-    desc: "AI-generated titles, tags, and descriptions crafted around each beat you upload.",
-    pro: false,
+    featured: false,
   },
   {
     icon: TrendingUp,
     title: "Keyword Heat Map",
     desc: "Top 20 trending tags in your niche each month, ranked by search volume and competition.",
     pro: false,
+    featured: false,
   },
   {
     icon: Image,
     title: "Thumbnail Generator",
     desc: "On-brand thumbnail templates designed to stop the scroll.",
     pro: true,
+    featured: false,
   },
   {
     icon: Calendar,
     title: "Upload Scheduler",
     desc: "Best days and times to post in your niche, updated monthly based on real engagement data.",
     pro: true,
+    featured: false,
   },
   {
     icon: Star,
     title: "Channel Score",
     desc: "Track your growth score month over month — one number that tells you if you're improving.",
     pro: false,
+    featured: false,
   },
 ];
 
@@ -161,36 +167,11 @@ export default async function HomePage() {
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <span className="text-3xl font-bold tracking-[0.3em]">TALLY</span>
           <div className="flex items-center gap-6">
-            <a
-              href="#tools"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
-            >
-              Tools
-            </a>
-            <a
-              href="#membership"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
-            >
-              Membership
-            </a>
-            <Link
-              href="/privacy"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
-            >
-              Privacy Policy
-            </Link>
-            <Link
-              href="/terms"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
-            >
-              Terms of Service
-            </Link>
-            <Link
-              href="/login"
-              className="text-sm text-[#94a3b8] hover:text-white transition-colors"
-            >
-              Login
-            </Link>
+            <a href="#tools" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Tools</a>
+            <Link href="/dashboard/upload-kit" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Upload Kit</Link>
+            <Link href="/dashboard/report" className="text-sm text-[#94a3b8] hover:text-white transition-colors hidden md:block">Monthly Report</Link>
+            <a href="#membership" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Membership</a>
+            <Link href="/login" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Login</Link>
           </div>
         </div>
       </nav>
@@ -221,11 +202,10 @@ export default async function HomePage() {
             YouTube Growth Intelligence for Music Producers
           </p>
           <h1 className="text-5xl md:text-[5rem] font-bold leading-[1.05] tracking-tight mb-6 max-w-3xl">
-            Grow your channel with data, not guesswork.
+            Generate your perfect YouTube package in seconds.
           </h1>
           <p className="text-[#cbd5e1] text-lg leading-relaxed max-w-2xl mb-8">
-            TALLY tracks your niche every month and tells you exactly what top
-            producers are doing differently — so you can do it too.
+            Paste in your beat details. TALLY gives you an optimized title, description, tags, and thumbnail ideas based on what&apos;s actually working in your niche right now.
           </p>
           <div className="flex flex-wrap items-center gap-4 mb-10">
             <a
@@ -238,7 +218,7 @@ export default async function HomePage() {
           </div>
 
           {/* Social proof bar */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 mb-12">
             {signups.initials.length > 0 && (
               <div className="flex -space-x-2">
                 {signups.initials.map((initial, i) => (
@@ -265,6 +245,71 @@ export default async function HomePage() {
                 </>
               )}
             </p>
+          </div>
+
+          {/* Product mockup */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-[#1a1a1a] border border-[#1a1a1a]">
+            {/* Left — Input form mockup */}
+            <div className="bg-[#0d0d0d] p-6 space-y-4">
+              <p className="text-[#475569] text-[10px] uppercase tracking-widest mb-4">Beat Details</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[#2a2a2a] text-[10px] uppercase tracking-widest mb-1">Beat Name</p>
+                  <div className="border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2 text-xs text-[#475569]">&ldquo;Phantom&rdquo;</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[#2a2a2a] text-[10px] uppercase tracking-widest mb-1">Genre</p>
+                    <div className="border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2 text-xs text-[#475569]">Trap</div>
+                  </div>
+                  <div>
+                    <p className="text-[#2a2a2a] text-[10px] uppercase tracking-widest mb-1">Vibe</p>
+                    <div className="flex gap-1 flex-wrap">
+                      {["Dark", "Hard", "Cinematic"].map((v) => (
+                        <span key={v} className="text-[9px] border border-[#333] text-[#94a3b8] px-2 py-0.5">{v}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[#2a2a2a] text-[10px] uppercase tracking-widest mb-1">Sounds Like</p>
+                  <div className="border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2 text-xs text-[#475569]">Travis Scott, Future, Metro Boomin</div>
+                </div>
+              </div>
+              <div className="bg-white text-black text-[10px] font-bold text-center py-2 mt-2">
+                Generate My Upload Kit →
+              </div>
+            </div>
+
+            {/* Right — Output mockup */}
+            <div className="bg-[#0a0a0a] p-6 space-y-4">
+              <p className="text-[#475569] text-[10px] uppercase tracking-widest mb-4">Generated Kit</p>
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-[#2a2a2a] text-[10px] uppercase tracking-widest">Best Title</p>
+                  <span className="text-[8px] text-[#4ade80] border border-[#1a3a1a] px-1.5 py-0.5">Best pick</span>
+                </div>
+                <p className="text-white text-xs font-medium leading-snug">&ldquo;Phantom&rdquo; | Travis Scott Type Beat 2026 | Dark Trap</p>
+              </div>
+              <div>
+                <p className="text-[#2a2a2a] text-[10px] uppercase tracking-widest mb-1">Description Preview</p>
+                <p className="text-[#475569] text-[10px] leading-relaxed line-clamp-3">
+                  &ldquo;Phantom&rdquo; is a dark, cinematic trap instrumental produced in the style of Travis Scott and Metro Boomin. Hard 808s, eerie melodies, and punchy hi-hats...
+                </p>
+              </div>
+              <div>
+                <p className="text-[#2a2a2a] text-[10px] uppercase tracking-widest mb-2">Tags</p>
+                <div className="flex flex-wrap gap-1">
+                  {["travis scott type beat", "dark trap beat 2026", "free trap beat", "type beat", "cinematic trap"].map((t) => (
+                    <span key={t} className="text-[8px] bg-[#0d0d0d] border border-[#1a1a1a] text-[#475569] px-2 py-0.5">{t}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="border-t border-[#1a1a1a] pt-3 flex items-center gap-2">
+                <span className="text-[#fbbf24] text-[10px]">💡</span>
+                <p className="text-[#475569] text-[10px] leading-relaxed">Tip: Post Friday 6–8pm EST — peak search time for your niche</p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -482,17 +527,19 @@ export default async function HomePage() {
             to grow on YouTube.
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-[#1a1a1a]">
-            {tools.map(({ icon: Icon, title, desc, pro }) => (
-              <div key={title} className="bg-[#0a0a0a] p-8 relative">
-                {pro && (
+            {tools.map(({ icon: Icon, title, desc, pro, featured }) => (
+              <div key={title} className={`p-8 relative ${featured ? "bg-[#0d0d0d]" : "bg-[#0a0a0a]"}`}>
+                {featured && (
+                  <span className="absolute top-5 right-5 text-[10px] font-semibold tracking-[0.15em] uppercase text-[#4ade80] border border-[#1a3a1a] bg-[#0a1a0a] px-2 py-0.5">
+                    New
+                  </span>
+                )}
+                {pro && !featured && (
                   <span className="absolute top-5 right-5 text-[10px] font-semibold tracking-[0.15em] uppercase text-[#64748b] border border-[#1e1e1e] px-2 py-0.5">
                     Pro
                   </span>
                 )}
-                <Icon
-                  className="w-4 h-4 text-[#64748b] mb-6"
-                  strokeWidth={1.5}
-                />
+                <Icon className={`w-4 h-4 mb-6 ${featured ? "text-[#4ade80]" : "text-[#64748b]"}`} strokeWidth={1.5} />
                 <h3 className="text-sm font-semibold mb-3">{title}</h3>
                 <p className="text-[#94a3b8] text-sm leading-relaxed">{desc}</p>
               </div>
