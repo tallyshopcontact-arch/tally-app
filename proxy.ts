@@ -1,35 +1,43 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
-  // We must return a response that carries any updated auth cookies forward.
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-  // getUser() validates the session server-side — do not use getSession() here.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  if (!supabaseUrl || !supabaseKey) {
+    return supabaseResponse;
+  }
+
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) =>
+          request.cookies.set(name, value)
+        );
+        supabaseResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options)
+        );
+      },
+    },
+  });
+
+  let user = null;
+  try {
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    user = authUser;
+  } catch {
+    // If auth check fails, treat as unauthenticated and allow the request
+    return supabaseResponse;
+  }
 
   const { pathname } = request.nextUrl;
 
@@ -40,13 +48,10 @@ export async function middleware(request: NextRequest) {
   const isAuthPage = pathname === "/login" || pathname === "/signup";
   const isOnboarding = pathname === "/onboarding";
 
-  // Unauthenticated user hitting a protected route → /login
   if (isProtected && !user) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  // Authenticated user who hasn't finished onboarding → /onboarding
-  // (only for /dashboard, not /admin which has its own password gate)
   if (
     pathname.startsWith("/dashboard") &&
     user &&
@@ -55,7 +60,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/onboarding", request.url));
   }
 
-  // Authenticated user hitting /login or /signup → redirect away
   if (isAuthPage && user) {
     if (!user.user_metadata?.onboarding_complete) {
       return NextResponse.redirect(new URL("/onboarding", request.url));
@@ -63,7 +67,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // Unauthenticated user hitting /onboarding → /login
   if (isOnboarding && !user) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
