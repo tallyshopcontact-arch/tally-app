@@ -569,8 +569,6 @@ const badgeStyle: Record<string, string> = {
 function KeywordsTab({ channelData }: { channelData: ChannelData | null }) {
   const now = new Date();
   const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
-  const genre = channelData ? channelData.channel_name : "your genre";
-
   const keywords =
     channelData && channelData.niche_data?.length
       ? extractKeywords(channelData.niche_data)
@@ -605,7 +603,7 @@ function KeywordsTab({ channelData }: { channelData: ChannelData | null }) {
           <table className="w-full text-sm min-w-[480px]">
             <thead>
               <tr className="border-b border-[#1a1a1a]">
-                {["#", "Keyword / Tag", `Videos in ${genre}`, "Heat"].map((h) => (
+                {["#", "Keyword / Tag", "Niche frequency", "Heat"].map((h) => (
                   <th
                     key={h}
                     className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-5 py-4 font-medium"
