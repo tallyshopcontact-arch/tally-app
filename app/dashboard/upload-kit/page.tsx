@@ -21,6 +21,18 @@ interface ThumbnailConcept {
   why_it_works: string;
 }
 
+interface NicheThumbnail {
+  videoId: string;
+  title: string;
+  viewCount: number;
+  thumbnailUrl: string;
+}
+
+interface ThumbnailAnalysis {
+  notes: { videoId: string; note: string }[];
+  recommendation: string;
+}
+
 interface GeneratedKit {
   id?: string;
   created_at?: string;
@@ -31,6 +43,8 @@ interface GeneratedKit {
   thumbnail_concepts: ThumbnailConcept[];
   best_upload_time: { day: string; time: string; reason: string };
   niche_tip: string;
+  niche_thumbnails?: NicheThumbnail[];
+  thumbnail_analysis?: ThumbnailAnalysis;
 }
 
 interface RecentKit {
@@ -71,6 +85,64 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
       {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
       {copied ? "Copied" : (label ?? "Copy")}
     </button>
+  );
+}
+
+// ── Thumbnail inspiration ─────────────────────────────────────────────────────
+
+function ThumbnailInspiration({
+  thumbnails,
+  analysis,
+}: {
+  thumbnails: NicheThumbnail[];
+  analysis: ThumbnailAnalysis | undefined;
+}) {
+  const noteMap = new Map(analysis?.notes.map((n) => [n.videoId, n.note]) ?? []);
+
+  return (
+    <div className="border border-[#1a1a1a] p-5">
+      <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">Thumbnail Inspiration</p>
+      <p className="text-[#475569] text-xs mb-4">
+        What&apos;s working in your niche right now — click any to view on YouTube
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+        {thumbnails.map((t) => (
+          <a
+            key={t.videoId}
+            href={`https://www.youtube.com/watch?v=${t.videoId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group block"
+          >
+            <div className="relative overflow-hidden border border-[#1e1e1e] group-hover:border-[#333] transition-colors">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={t.thumbnailUrl}
+                alt={t.title}
+                className="w-full aspect-video object-cover block"
+              />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+            </div>
+            <div className="mt-2">
+              <p className="text-[#94a3b8] text-[11px] leading-relaxed line-clamp-2 mb-1">
+                {noteMap.get(t.videoId) ?? t.title}
+              </p>
+              <p className="text-[#475569] text-[10px]">
+                {t.viewCount >= 1_000_000
+                  ? `${(t.viewCount / 1_000_000).toFixed(1)}M views`
+                  : `${(t.viewCount / 1000).toFixed(0)}K views`}
+              </p>
+            </div>
+          </a>
+        ))}
+      </div>
+      {analysis?.recommendation && (
+        <div className="border-t border-[#1a1a1a] pt-4">
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">TALLY Recommendation</p>
+          <p className="text-white text-sm leading-relaxed">{analysis.recommendation}</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -183,6 +255,14 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
           ))}
         </div>
       </div>
+
+      {/* Thumbnail inspiration from niche */}
+      {kit.niche_thumbnails && kit.niche_thumbnails.length > 0 && (
+        <ThumbnailInspiration
+          thumbnails={kit.niche_thumbnails}
+          analysis={kit.thumbnail_analysis}
+        />
+      )}
 
       {/* Best upload time */}
       <div className="border border-[#1a1a1a] p-5 flex items-start gap-4">
