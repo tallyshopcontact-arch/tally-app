@@ -45,7 +45,10 @@ export default function SignupPage() {
       const { data, error: authError } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { name } },
+        options: {
+          data: { name },
+          emailRedirectTo: "https://tallyagc.com/auth/callback",
+        },
       });
 
       if (authError) {
