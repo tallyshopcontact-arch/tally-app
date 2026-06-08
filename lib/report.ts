@@ -190,8 +190,9 @@ export async function generateRisingArtists(
     channelMap.set(v.channelName, arr);
   }
 
+  // Include all channels (even with 1 video) — requiring >= 2 filtered out
+  // most results since niche videos come from many different channels.
   const channels = [...channelMap.entries()]
-    .filter(([, views]) => views.length >= 2)
     .map(([name, views]) => ({
       name,
       avgViews: Math.round(views.reduce((a, b) => a + b, 0) / views.length),

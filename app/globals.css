@@ -72,3 +72,12 @@ select option {
 .hero-orb-1 { animation: orb-drift-1 28s ease-in-out infinite; }
 .hero-orb-2 { animation: orb-drift-2 34s ease-in-out infinite; }
 .hero-orb-3 { animation: orb-drift-3 22s ease-in-out infinite; }
+
+/* ── Dashboard tab transition ────────────────────────────── */
+@keyframes tab-fade-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tab-content {
+  animation: tab-fade-in 0.15s ease-out;
+}
