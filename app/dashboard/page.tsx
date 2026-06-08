@@ -13,6 +13,7 @@ import {
   Clock,
   Copy,
   Lock,
+  RefreshCw,
   TrendingUp,
   TrendingDown,
   Users,
@@ -1212,10 +1213,37 @@ export default function DashboardPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [channelData, setChannelData] = useState<ChannelData | null>(null);
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
+
+  const handleRefresh = useCallback(async () => {
+    if (!userId) return;
+    setPulling(true);
+    setPullError(null);
+    // Delete the existing row for this month so the pull creates a fresh one.
+    const supabase = createSupabaseBrowserClient();
+    const now = new Date();
+    await supabase
+      .from("channel_data")
+      .delete()
+      .eq("producer_id", userId)
+      .eq("month", now.getMonth() + 1)
+      .eq("year", now.getFullYear());
+    // triggerPull is called below after this callback is defined.
+    try {
+      const res = await fetch("/api/youtube/pull", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Pull failed");
+      setChannelData(json as ChannelData);
+    } catch (err: unknown) {
+      setPullError(err instanceof Error ? err.message : "Failed to pull channel data");
+    } finally {
+      setPulling(false);
+    }
+  }, [userId]);
 
   const triggerPull = useCallback(async () => {
     setPulling(true);
@@ -1241,6 +1269,7 @@ export default function DashboardPage() {
         return;
       }
       setUserEmail(user.email ?? null);
+      setUserId(user.id);
 
       supabase
         .from("profiles")
@@ -1310,6 +1339,15 @@ export default function DashboardPage() {
                   {profile?.genre ? ` · ${profile.genre}` : ""}
                 </span>
               )}
+              <button
+                onClick={handleRefresh}
+                disabled={pulling || loadingUser}
+                title="Delete this month's data and re-pull from YouTube"
+                className="flex items-center gap-1.5 text-xs text-[#94a3b8] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${pulling ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">{pulling ? "Refreshing…" : "Refresh data"}</span>
+              </button>
               <span className="hidden sm:flex items-center gap-2 text-xs border border-[#1e1e1e] px-2.5 py-1">
                 <span className="text-[#475569]">Free Trial</span>
                 <Link
