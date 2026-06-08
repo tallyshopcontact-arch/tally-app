@@ -356,6 +356,25 @@ interface ChannelData {
   pulled_at: string;
 }
 
+interface ScoreCategory {
+  category: string;
+  score: number;
+  max: number;
+}
+
+interface ReportData {
+  id: string;
+  channel_summary: string;
+  benchmark_insights: string;
+  trending_breakdowns: Array<{ videoId: string; breakdown: string }>;
+  rising_artists: Array<{ name: string; channel: string; explanation: string }>;
+  what_to_avoid: Array<{ pattern: string; impact: string; fix: string }>;
+  action_plan: Array<{ action: string; priority: "High" | "Medium" | "Low"; detail: string }>;
+  upload_kits: Array<{ title: string; description: string; tags: string[]; thumbnail: string }>;
+  tally_score: number;
+  score_breakdown: { categories: ScoreCategory[]; tip: string };
+}
+
 function formatNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -367,9 +386,13 @@ function formatNum(n: number): string {
 function OverviewTab({
   profile,
   channelData,
+  report,
+  nicheRank,
 }: {
   profile: UserProfile | null;
   channelData: ChannelData | null;
+  report: ReportData | null;
+  nicheRank: { rank: number; total: number } | null;
 }) {
   const displayName = profile?.name || "Producer";
   const displayGenre = profile?.genre || "";
@@ -453,6 +476,57 @@ function OverviewTab({
           )}
         </div>
       </div>
+
+      {report?.channel_summary && (
+        <p className="text-[#94a3b8] text-sm leading-relaxed -mt-2">
+          {report.channel_summary}
+        </p>
+      )}
+
+      {report && report.tally_score > 0 && (
+        <div className="border border-[#1a1a1a] p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+            <div className="shrink-0 text-center sm:text-left">
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">TALLY Score</p>
+              <p className={`text-6xl font-bold ${scoreColor(report.tally_score)}`}>
+                {report.tally_score}
+                <span className="text-2xl text-[#475569]">/100</span>
+              </p>
+              {nicheRank && (
+                <p className="text-xs text-[#475569] mt-2">
+                  Rank{" "}
+                  <span className="text-white font-semibold">#{nicheRank.rank}</span>
+                  {" "}of {nicheRank.total} in your genre
+                </p>
+              )}
+            </div>
+            <div className="flex-1 space-y-2.5">
+              {report.score_breakdown?.categories?.map((cat) => (
+                <div key={cat.category}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-[#94a3b8]">{cat.category}</span>
+                    <span className={scoreColor(Math.round((cat.score / cat.max) * 100))}>
+                      {cat.score}/{cat.max}
+                    </span>
+                  </div>
+                  <div className="h-1 bg-[#1a1a1a]">
+                    <div
+                      className={`h-full ${scoreBarColor(Math.round((cat.score / cat.max) * 100))}`}
+                      style={{ width: `${(cat.score / cat.max) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+              {report.score_breakdown?.tip && (
+                <p className="text-xs text-[#475569] pt-1">
+                  <span className="text-[#fbbf24]">Tip: </span>
+                  {report.score_breakdown.tip}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {channelData && snapshotStats ? (
         <>
@@ -641,7 +715,13 @@ function KeywordsTab({ channelData }: { channelData: ChannelData | null }) {
   );
 }
 
-function TopVideosTab({ channelData }: { channelData: ChannelData | null }) {
+function TopVideosTab({
+  channelData,
+  report,
+}: {
+  channelData: ChannelData | null;
+  report: ReportData | null;
+}) {
   const now = new Date();
   const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
 
@@ -649,6 +729,9 @@ function TopVideosTab({ channelData }: { channelData: ChannelData | null }) {
     channelData && channelData.niche_data?.length
       ? getTopNicheVideos(channelData.niche_data)
       : [];
+
+  const getBreakdown = (videoId: string) =>
+    report?.trending_breakdowns?.find((b) => b.videoId === videoId)?.breakdown ?? null;
 
   return (
     <div>
@@ -695,7 +778,7 @@ function TopVideosTab({ channelData }: { channelData: ChannelData | null }) {
                 </a>
                 <p className="text-[#94a3b8] text-xs mt-1 mb-3">{video.channelName}</p>
                 {video.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5 mb-3">
                     {video.tags.slice(0, 6).map((tag) => (
                       <span
                         key={tag}
@@ -705,6 +788,11 @@ function TopVideosTab({ channelData }: { channelData: ChannelData | null }) {
                       </span>
                     ))}
                   </div>
+                )}
+                {getBreakdown(video.videoId) && (
+                  <p className="text-[#64748b] text-xs leading-relaxed border-l-2 border-[#1e1e1e] pl-3">
+                    {getBreakdown(video.videoId)}
+                  </p>
                 )}
               </div>
               <div className="shrink-0 md:text-right">
@@ -727,17 +815,22 @@ function TopVideosTab({ channelData }: { channelData: ChannelData | null }) {
   );
 }
 
-function AvoidTab() {
+function AvoidTab({ report }: { report: ReportData | null }) {
+  const items = report?.what_to_avoid?.length
+    ? report.what_to_avoid.map((p) => ({ title: p.pattern, impact: p.impact, detail: p.fix }))
+    : avoidItems;
+
   return (
     <div>
       <div className="mb-8">
         <h2 className="text-xl font-bold mb-1">What to Avoid This Month</h2>
         <p className="text-[#94a3b8] text-sm">
           Patterns pulling down performance in your genre right now.
+          {report?.what_to_avoid?.length ? " AI-analyzed from your niche data." : ""}
         </p>
       </div>
       <div className="space-y-px bg-[#1a1a1a]">
-        {avoidItems.map((item, i) => (
+        {items.map((item, i) => (
           <div key={i} className="bg-[#0a0a0a] p-6 flex gap-5">
             <AlertTriangle className="w-4 h-4 text-[#f87171] shrink-0 mt-0.5" />
             <div className="flex-1">
@@ -756,11 +849,70 @@ function AvoidTab() {
   );
 }
 
-function UploadKitTab() {
+function UploadKitTab({ report }: { report: ReportData | null }) {
+  const now = new Date();
+  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
+  const kits = report?.upload_kits?.length ? report.upload_kits : null;
+
+  if (kits) {
+    return (
+      <div>
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-1">Upload Kit — {monthLabel}</h2>
+          <p className="text-[#94a3b8] text-sm">
+            3 AI-generated ready-to-use upload packages built from this month&apos;s niche data.
+          </p>
+        </div>
+        <div className="space-y-8">
+          {kits.map((kit, i) => (
+            <div key={i} className="space-y-3">
+              <p className="text-xs text-[#475569] uppercase tracking-widest">Kit {i + 1}</p>
+              <div className="border border-[#1a1a1a] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest">Title</p>
+                  <CopyButton text={kit.title} />
+                </div>
+                <p className="text-white font-medium">{kit.title}</p>
+              </div>
+              <div className="border border-[#1a1a1a] p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest">Description</p>
+                  <CopyButton text={kit.description} />
+                </div>
+                <pre className="text-[#cbd5e1] text-sm leading-relaxed whitespace-pre-wrap font-sans">
+                  {kit.description}
+                </pre>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="border border-[#1a1a1a] p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-[#94a3b8] uppercase tracking-widest">Tags</p>
+                    <CopyButton text={kit.tags.join(", ")} />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {kit.tags.map((tag) => (
+                      <span key={tag} className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-3 py-1.5">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="border border-[#1a1a1a] p-5">
+                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Thumbnail Concept</p>
+                  <p className="text-[#cbd5e1] text-sm leading-relaxed">{kit.thumbnail}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="mb-8">
-        <h2 className="text-xl font-bold mb-1">Upload Kit — May 2026</h2>
+        <h2 className="text-xl font-bold mb-1">Upload Kit — {monthLabel}</h2>
         <p className="text-[#94a3b8] text-sm">
           Your ready-to-use package for your next upload, built from this month&apos;s report.
         </p>
@@ -794,10 +946,7 @@ function UploadKitTab() {
           </div>
           <div className="flex flex-wrap gap-2">
             {uploadKit.tags.map((tag) => (
-              <span
-                key={tag}
-                className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-3 py-1.5"
-              >
+              <span key={tag} className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-3 py-1.5">
                 {tag}
               </span>
             ))}
@@ -806,15 +955,11 @@ function UploadKitTab() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="border border-[#1a1a1a] p-6">
-            <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">
-              Thumbnail Concept
-            </p>
+            <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Thumbnail Concept</p>
             <p className="text-[#cbd5e1] text-sm leading-relaxed">{uploadKit.thumbnail}</p>
           </div>
           <div className="border border-[#1a1a1a] p-6">
-            <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">
-              Best Time to Upload
-            </p>
+            <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Best Time to Upload</p>
             <div className="flex items-center gap-2 mb-3">
               <Clock className="w-4 h-4 text-[#4ade80]" />
               <p className="text-white font-semibold">{uploadKit.uploadTime}</p>
@@ -823,6 +968,177 @@ function UploadKitTab() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BenchmarkTab({
+  channelData,
+  report,
+}: {
+  channelData: ChannelData | null;
+  report: ReportData | null;
+}) {
+  const now = new Date();
+  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
+  const nicheVideos = channelData?.niche_data ?? [];
+  const nicheAvg =
+    nicheVideos.length > 0
+      ? Math.round(nicheVideos.reduce((s, v) => s + v.viewCount, 0) / nicheVideos.length)
+      : 0;
+  const top10 = [...nicheVideos].sort((a, b) => b.viewCount - a.viewCount).slice(0, 10);
+  const top10Avg =
+    top10.length > 0
+      ? Math.round(top10.reduce((s, v) => s + v.viewCount, 0) / top10.length)
+      : 0;
+  const producerAvg =
+    channelData && channelData.monthly_videos > 0
+      ? Math.round(channelData.monthly_views / channelData.monthly_videos)
+      : 0;
+  const maxVal = Math.max(producerAvg, nicheAvg, top10Avg, 1);
+
+  const bars = [
+    { label: channelData?.channel_name ?? "You", value: producerAvg, color: "bg-white" },
+    { label: "Niche Average", value: nicheAvg, color: "bg-[#60a5fa]" },
+    { label: "Top 10 Average", value: top10Avg, color: "bg-[#4ade80]" },
+  ];
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h2 className="text-xl font-bold mb-1">Benchmark — {monthLabel}</h2>
+        <p className="text-[#94a3b8] text-sm">
+          How your avg views per video compares to your niche right now.
+        </p>
+      </div>
+
+      {!channelData ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">Benchmark will appear once data is loaded.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div className="border border-[#1a1a1a] p-6 space-y-5">
+            {bars.map((bar) => (
+              <div key={bar.label}>
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-[#94a3b8]">{bar.label}</span>
+                  <span className="text-white font-semibold">{formatNum(bar.value)} views/video</span>
+                </div>
+                <div className="h-2 bg-[#1a1a1a]">
+                  <div
+                    className={`h-full ${bar.color}`}
+                    style={{ width: `${(bar.value / maxVal) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {report?.benchmark_insights && (
+            <div className="border border-[#1a1a1a] p-6">
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">AI Insights</p>
+              <p className="text-[#cbd5e1] text-sm leading-relaxed">{report.benchmark_insights}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RisingArtistsTab({ report }: { report: ReportData | null }) {
+  const now = new Date();
+  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
+  const artists = report?.rising_artists ?? [];
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h2 className="text-xl font-bold mb-1">Rising Artists — {monthLabel}</h2>
+        <p className="text-[#94a3b8] text-sm">
+          Beat producers gaining momentum in your niche right now.
+        </p>
+      </div>
+      {!report ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">Rising artists will appear once the AI report is generated.</p>
+        </div>
+      ) : artists.length === 0 ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">No rising artists identified this month.</p>
+        </div>
+      ) : (
+        <div className="space-y-px bg-[#1a1a1a]">
+          {artists.map((artist, i) => (
+            <div key={i} className="bg-[#0a0a0a] p-6 flex gap-5">
+              <div className="w-8 h-8 bg-[#1a1a1a] flex items-center justify-center text-[#475569] text-xs font-bold shrink-0">
+                {i + 1}
+              </div>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center gap-3 mb-1">
+                  <p className="text-white font-semibold">{artist.name}</p>
+                  {artist.channel && (
+                    <span className="text-[#475569] text-xs">{artist.channel}</span>
+                  )}
+                </div>
+                <p className="text-[#94a3b8] text-sm leading-relaxed">{artist.explanation}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const priorityStyle: Record<string, string> = {
+  High:   "text-[#f87171] bg-[#1f0a0a]",
+  Medium: "text-[#fbbf24] bg-[#1f1800]",
+  Low:    "text-[#60a5fa] bg-[#0a1020]",
+};
+
+function ActionPlanTab({ report }: { report: ReportData | null }) {
+  const now = new Date();
+  const monthLabel = now.toLocaleString("default", { month: "long", year: "numeric" });
+  const actions = report?.action_plan ?? [];
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h2 className="text-xl font-bold mb-1">Action Plan — {monthLabel}</h2>
+        <p className="text-[#94a3b8] text-sm">
+          Prioritized steps to grow your channel this month, tailored to your data.
+        </p>
+      </div>
+      {!report ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">Action plan will appear once the AI report is generated.</p>
+        </div>
+      ) : actions.length === 0 ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#475569] text-sm">No actions generated this month.</p>
+        </div>
+      ) : (
+        <div className="space-y-px bg-[#1a1a1a]">
+          {actions.map((item, i) => (
+            <div key={i} className="bg-[#0a0a0a] p-6 flex gap-5">
+              <div className="w-8 h-8 bg-[#1a1a1a] flex items-center justify-center text-[#475569] text-xs font-bold shrink-0">
+                {i + 1}
+              </div>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+                  <p className="text-white font-semibold">{item.action}</p>
+                  <span className={`shrink-0 text-xs px-2 py-0.5 ${priorityStyle[item.priority] ?? ""}`}>
+                    {item.priority}
+                  </span>
+                </div>
+                <p className="text-[#94a3b8] text-sm leading-relaxed">{item.detail}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1183,6 +1499,9 @@ type Tab =
   | "overview"
   | "keywords"
   | "top-videos"
+  | "benchmark"
+  | "rising-artists"
+  | "action-plan"
   | "avoid"
   | "upload-kit"
   | "competitors"
@@ -1192,16 +1511,19 @@ type Tab =
   | "growth-forecast";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "overview",        label: "Overview"       },
-  { id: "keywords",        label: "Keywords"       },
-  { id: "top-videos",      label: "Top Videos"     },
-  { id: "avoid",           label: "What to Avoid"  },
-  { id: "upload-kit",      label: "Upload Kit"     },
-  { id: "competitors",     label: "Competitors"    },
-  { id: "audience",        label: "Audience"       },
-  { id: "content-gaps",    label: "Content Gaps"   },
-  { id: "seo-audit",       label: "SEO Audit"      },
-  { id: "growth-forecast", label: "Growth Forecast"},
+  { id: "overview",        label: "Overview"        },
+  { id: "keywords",        label: "Keywords"        },
+  { id: "top-videos",      label: "Top Videos"      },
+  { id: "benchmark",       label: "Benchmark"       },
+  { id: "rising-artists",  label: "Rising Artists"  },
+  { id: "action-plan",     label: "Action Plan"     },
+  { id: "avoid",           label: "What to Avoid"   },
+  { id: "upload-kit",      label: "Upload Kit"      },
+  { id: "competitors",     label: "Competitors"     },
+  { id: "audience",        label: "Audience"        },
+  { id: "content-gaps",    label: "Content Gaps"    },
+  { id: "seo-audit",       label: "SEO Audit"       },
+  { id: "growth-forecast", label: "Growth Forecast" },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -1216,32 +1538,56 @@ export default function DashboardPage() {
   const [channelData, setChannelData] = useState<ChannelData | null>(null);
   const [pulling, setPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
+  const [report, setReport] = useState<ReportData | null>(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [nicheRank, setNicheRank] = useState<{ rank: number; total: number } | null>(null);
+
+  const generateReport = useCallback(async () => {
+    setGeneratingReport(true);
+    try {
+      const res = await fetch("/api/report/generate", { method: "POST" });
+      const json = await res.json();
+      if (res.ok) setReport(json as ReportData);
+    } catch {
+      // Silent fail — report sections show placeholder content
+    } finally {
+      setGeneratingReport(false);
+    }
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     if (!userId) return;
     setPulling(true);
     setPullError(null);
-    // Delete the existing row for this month so the pull creates a fresh one.
+    setReport(null);
     const supabase = createSupabaseBrowserClient();
     const now = new Date();
-    await supabase
-      .from("channel_data")
-      .delete()
-      .eq("producer_id", userId)
-      .eq("month", now.getMonth() + 1)
-      .eq("year", now.getFullYear());
-    // triggerPull is called below after this callback is defined.
+    await Promise.all([
+      supabase
+        .from("channel_data")
+        .delete()
+        .eq("producer_id", userId)
+        .eq("month", now.getMonth() + 1)
+        .eq("year", now.getFullYear()),
+      supabase
+        .from("reports")
+        .delete()
+        .eq("producer_id", userId)
+        .eq("month", now.getMonth() + 1)
+        .eq("year", now.getFullYear()),
+    ]);
     try {
       const res = await fetch("/api/youtube/pull", { method: "POST" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Pull failed");
       setChannelData(json as ChannelData);
+      generateReport();
     } catch (err: unknown) {
       setPullError(err instanceof Error ? err.message : "Failed to pull channel data");
     } finally {
       setPulling(false);
     }
-  }, [userId]);
+  }, [userId, generateReport]);
 
   const triggerPull = useCallback(async () => {
     setPulling(true);
@@ -1292,6 +1638,19 @@ export default function DashboardPage() {
 
           if (existing) {
             setChannelData(existing as ChannelData);
+            // Check for a cached report for this month
+            const { data: cachedReport } = await supabase
+              .from("reports")
+              .select("*")
+              .eq("producer_id", user.id)
+              .eq("month", now.getMonth() + 1)
+              .eq("year", now.getFullYear())
+              .single();
+            if (cachedReport) {
+              setReport(cachedReport as ReportData);
+            } else {
+              generateReport();
+            }
           } else {
             // No data for this month — pull it now
             setPulling(true);
@@ -1301,6 +1660,7 @@ export default function DashboardPage() {
               const json = await res.json();
               if (!res.ok) throw new Error(json.error ?? "Pull failed");
               setChannelData(json as ChannelData);
+              generateReport();
             } catch (err: unknown) {
               setPullError(
                 err instanceof Error ? err.message : "Failed to pull channel data"
@@ -1311,7 +1671,7 @@ export default function DashboardPage() {
           }
         });
     });
-  }, [router, triggerPull]);
+  }, [router, triggerPull, generateReport]);
 
   const handleSignOut = async () => {
     const supabase = createSupabaseBrowserClient();
@@ -1396,6 +1756,12 @@ export default function DashboardPage() {
             Pulling your channel data from YouTube...
           </div>
         )}
+        {generatingReport && !pulling && (
+          <div className="flex items-center gap-3 text-[#94a3b8] text-sm mb-8 border border-[#1a1a1a] px-5 py-4">
+            <div className="w-4 h-4 border border-[#475569] border-t-[#4ade80] rounded-full animate-spin shrink-0" />
+            TALLY is analyzing your channel...
+          </div>
+        )}
         {pullError && !pulling && (
           <div className="flex items-start gap-3 mb-8 border border-[#f87171]/30 px-5 py-4">
             <AlertTriangle className="w-4 h-4 text-[#f87171] shrink-0 mt-0.5" />
@@ -1410,11 +1776,14 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-        {tab === "overview"        && <OverviewTab profile={profile} channelData={channelData} />}
+        {tab === "overview"        && <OverviewTab profile={profile} channelData={channelData} report={report} nicheRank={nicheRank} />}
         {tab === "keywords"        && <KeywordsTab channelData={channelData} />}
-        {tab === "top-videos"      && <TopVideosTab channelData={channelData} />}
-        {tab === "avoid"           && <AvoidTab />}
-        {tab === "upload-kit"      && <UploadKitTab />}
+        {tab === "top-videos"      && <TopVideosTab channelData={channelData} report={report} />}
+        {tab === "benchmark"       && <BenchmarkTab channelData={channelData} report={report} />}
+        {tab === "rising-artists"  && <RisingArtistsTab report={report} />}
+        {tab === "action-plan"     && <ActionPlanTab report={report} />}
+        {tab === "avoid"           && <AvoidTab report={report} />}
+        {tab === "upload-kit"      && <UploadKitTab report={report} />}
         {tab === "competitors"     && <CompetitorsTab />}
         {tab === "audience"        && <AudienceTab />}
         {tab === "content-gaps"    && <ContentGapsTab />}
