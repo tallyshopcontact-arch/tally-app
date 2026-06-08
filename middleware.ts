@@ -33,7 +33,10 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  const isProtected = pathname.startsWith("/dashboard") || pathname.startsWith("/admin");
+  const isProtected =
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/admin") ||
+    pathname === "/settings";
   const isAuthPage = pathname === "/login" || pathname === "/signup";
   const isOnboarding = pathname === "/onboarding";
 
@@ -75,5 +78,6 @@ export const config = {
     "/login",
     "/signup",
     "/onboarding",
+    "/settings",
   ],
 };

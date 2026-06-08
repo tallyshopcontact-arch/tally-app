@@ -12,6 +12,7 @@ import {
   Check,
   Clock,
   Copy,
+  Lock,
   TrendingUp,
   TrendingDown,
   Users,
@@ -409,14 +410,16 @@ function OverviewTab({
           sub: "across uploads",
         },
         {
-          label: "Watch time",
-          value: "Coming soon",
-          sub: "not available via API",
+          label: "Watch Time",
+          value: "Pro feature",
+          sub: "connect Google account",
+          locked: true,
         },
         {
-          label: "New subscribers",
-          value: "Coming soon",
-          sub: "requires Analytics API",
+          label: "Subscribers Gained",
+          value: "Pro feature",
+          sub: "this month",
+          locked: true,
         },
       ]
     : null;
@@ -457,15 +460,39 @@ function OverviewTab({
               {monthLabel} Snapshot
             </p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-px bg-[#1a1a1a]">
-              {snapshotStats.map(({ label, value, sub }) => (
-                <div key={label} className="bg-[#0a0a0a] p-6">
-                  <p className="text-[#94a3b8] text-xs uppercase tracking-widest mb-4">
-                    {label}
+              {snapshotStats.map(({ label, value, sub, locked }) => (
+                <div
+                  key={label}
+                  className={`bg-[#0a0a0a] p-6 ${locked ? "opacity-50" : ""}`}
+                >
+                  <div className="flex items-center gap-1.5 mb-4">
+                    {locked && <Lock className="w-3 h-3 text-[#475569] shrink-0" />}
+                    <p className="text-[#94a3b8] text-xs uppercase tracking-widest">
+                      {label}
+                    </p>
+                  </div>
+                  <p className={`text-3xl font-bold mb-1 ${locked ? "text-[#2a2a2a]" : ""}`}>
+                    {value}
                   </p>
-                  <p className="text-3xl font-bold mb-1">{value}</p>
                   <p className="text-xs text-[#475569]">{sub}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Upgrade banner */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-[#1a1a1a] px-5 py-4 bg-[#0d0d0d]">
+              <div className="flex items-center gap-2.5">
+                <Lock className="w-3.5 h-3.5 text-[#475569] shrink-0" />
+                <p className="text-xs text-[#475569]">
+                  Unlock full analytics by connecting your Google account — available on Pro plan
+                </p>
+              </div>
+              <Link
+                href="/pricing"
+                className="shrink-0 text-xs font-semibold text-black bg-white px-4 py-2 hover:bg-[#e8e8e8] transition-colors"
+              >
+                Upgrade to Pro
+              </Link>
             </div>
           </div>
 
@@ -1276,14 +1303,28 @@ export default function DashboardPage() {
             <Link href="/" className="text-sm font-bold tracking-[0.25em]">
               TALLY
             </Link>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-5">
               {!loadingUser && (
                 <span className="text-xs text-[#94a3b8] hidden sm:block">
                   {displayName}
                   {profile?.genre ? ` · ${profile.genre}` : ""}
-                  {" · May 2026 Report"}
                 </span>
               )}
+              <span className="hidden sm:flex items-center gap-2 text-xs border border-[#1e1e1e] px-2.5 py-1">
+                <span className="text-[#475569]">Free Trial</span>
+                <Link
+                  href="/pricing"
+                  className="text-white font-semibold hover:text-[#94a3b8] transition-colors"
+                >
+                  Upgrade
+                </Link>
+              </span>
+              <Link
+                href="/settings"
+                className="text-sm text-[#94a3b8] hover:text-white transition-colors hidden sm:block"
+              >
+                Settings
+              </Link>
               <button
                 onClick={handleSignOut}
                 className="text-sm text-[#94a3b8] hover:text-white transition-colors cursor-pointer"

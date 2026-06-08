@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { Check } from "lucide-react";
 
 const GENRES = [
   "Boom Bap",
@@ -122,8 +123,8 @@ export default function OnboardingPage() {
       data: { onboarding_complete: true },
     });
 
-    router.push("/dashboard");
-    router.refresh();
+    setSaving(false);
+    setStep(5);
   };
 
   const displayGenre = form.genre === "Other"
@@ -139,7 +140,7 @@ export default function OnboardingPage() {
 
         {/* Progress indicator */}
         <div className="flex items-center gap-2 mb-10">
-          {[1, 2, 3, 4].map((s) => (
+          {[1, 2, 3, 4, 5].map((s) => (
             <div
               key={s}
               className={`h-0.5 flex-1 transition-colors ${
@@ -346,6 +347,79 @@ export default function OnboardingPage() {
                 {saving ? "Saving..." : "Confirm →"}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Step 5 — Choose plan */}
+        {step === 5 && (
+          <div className="space-y-6">
+            <div>
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">Step 5 of 5</p>
+              <h1 className="text-2xl font-bold mb-2">Choose your plan</h1>
+              <p className="text-[#94a3b8] text-sm">
+                All plans include a 30-day free trial. No card needed to start.
+              </p>
+            </div>
+
+            <div className="space-y-px bg-[#1e1e1e]">
+              {[
+                {
+                  name: "Basic",
+                  price: "$9.99/mo",
+                  features: ["Upload kit generator (10/month)", "Keyword heat map", "Trending videos", "Public channel stats"],
+                },
+                {
+                  name: "Growth",
+                  price: "$19.99/mo",
+                  features: ["Everything in Basic", "Unlimited upload kits", "Full monthly report (all 10 sections)", "Channel score, action plan, what to avoid"],
+                  highlight: true,
+                },
+                {
+                  name: "Pro",
+                  price: "$34.99/mo",
+                  features: ["Everything in Growth", "Google Analytics (watch time + subscribers)", "Thumbnail generator", "Upload scheduler"],
+                },
+              ].map(({ name, price, features, highlight }) => (
+                <div
+                  key={name}
+                  className={`p-5 flex flex-col gap-3 ${highlight ? "bg-[#111]" : "bg-[#0a0a0a]"}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold">{name}</p>
+                      <p className="text-[#475569] text-xs mt-0.5">{price}</p>
+                    </div>
+                    {highlight && (
+                      <span className="text-[10px] font-semibold tracking-[0.15em] uppercase text-[#94a3b8] border border-[#2a2a2a] px-2 py-0.5">
+                        Popular
+                      </span>
+                    )}
+                  </div>
+                  <ul className="space-y-1.5">
+                    {features.map((f) => (
+                      <li key={f} className="flex items-start gap-2 text-xs text-[#94a3b8]">
+                        <Check className="w-3 h-3 text-[#475569] shrink-0 mt-0.5" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { router.push("/dashboard"); router.refresh(); }}
+              className="w-full bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] transition-colors cursor-pointer"
+            >
+              Start with Basic — free for 30 days →
+            </button>
+            <p className="text-center text-xs text-[#475569]">
+              <Link href="/pricing" className="hover:text-[#94a3b8] transition-colors underline underline-offset-2">
+                View all plans
+              </Link>
+              {" "}· Stripe integration coming soon
+            </p>
           </div>
         )}
       </div>
