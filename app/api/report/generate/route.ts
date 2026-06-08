@@ -73,6 +73,14 @@ export async function POST(_req: NextRequest) {
     generateTALLYScore(channelData, nicheData),
   ]);
 
+  console.log(
+    "[report/generate] allSettled results:",
+    `rising_artists=${s3.status === "fulfilled" ? (s3.value as unknown[]).length : "REJECTED:" + (s3 as PromiseRejectedResult).reason}`,
+    `what_to_avoid=${s4.status === "fulfilled" ? (s4.value as unknown[]).length : "REJECTED:" + (s4 as PromiseRejectedResult).reason}`,
+    `action_plan=${s5.status === "fulfilled" ? (s5.value as unknown[]).length : "REJECTED:" + (s5 as PromiseRejectedResult).reason}`,
+    `upload_kits=${s6.status === "fulfilled" ? (s6.value as unknown[]).length : "REJECTED:" + (s6 as PromiseRejectedResult).reason}`
+  );
+
   const ok = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
     r.status === "fulfilled" ? r.value : fallback;
 

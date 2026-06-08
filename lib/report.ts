@@ -38,27 +38,27 @@ export interface TrendingBreakdown {
 
 export interface RisingArtist {
   name: string;
-  channel: string;
-  explanation: string;
+  growth: string;
+  why: string;
 }
 
 export interface AvoidPattern {
   pattern: string;
-  impact: string;
+  explanation: string;
   fix: string;
 }
 
 export interface ActionItem {
   action: string;
   priority: "High" | "Medium" | "Low";
-  detail: string;
+  why: string;
 }
 
 export interface UploadKit {
   title: string;
   description: string;
   tags: string[];
-  thumbnail: string;
+  thumbnail_brief: string;
 }
 
 export interface ScoreCategory {
@@ -73,7 +73,7 @@ export interface TallyScoreResult {
   tip: string;
 }
 
-// ── Core helper ───────────────────────────────────────────────────────────────
+// ── Core helpers ──────────────────────────────────────────────────────────────
 
 async function ask(prompt: string, maxTokens = 1000): Promise<string> {
   const msg = await anthropic.messages.create({
@@ -84,6 +84,14 @@ async function ask(prompt: string, maxTokens = 1000): Promise<string> {
   });
   const block = msg.content[0];
   return block.type === "text" ? block.text.trim() : "";
+}
+
+// Strip markdown code fences that Claude sometimes wraps around JSON responses.
+function stripJson(raw: string): string {
+  return raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim();
 }
 
 // ── Report functions ──────────────────────────────────────────────────────────
@@ -214,19 +222,31 @@ export async function generateRisingArtists(
   const raw = await ask(
     `Based on recent niche performance, identify 2-3 beat producers who are rising. For each, explain what they are doing well.
 
-Channel data (last 90 days):
+Channel data (last 30 days):
 ${summary}
 
-Return a JSON array (2-3 items):
-[{"name":"Channel Name","channel":"@handle","explanation":"2 sentences on why they are rising and what specifically is working"}]
-Return only valid JSON.`,
+Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
+Schema (2-3 items):
+[{"name":"Channel Name","growth":"e.g. 2 videos, 45K avg views","why":"2 sentences on why they are rising and what specifically is working"}]`,
     600
   );
 
+  console.log("[TALLY:report] generateRisingArtists raw:", raw.slice(0, 400));
+
+  const clean = stripJson(raw);
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    throw new Error("empty array");
   } catch {
-    return [];
+    console.error("[TALLY:report] generateRisingArtists parse failed. raw:", raw);
+    return [
+      {
+        name: channels[0]?.name ?? "Unknown",
+        growth: `${channels[0]?.videoCount ?? 1} video(s), ${(channels[0]?.avgViews ?? 0).toLocaleString()} avg views`,
+        why: "This channel is the top performer in your niche this period based on average view count.",
+      },
+    ];
   }
 }
 
@@ -245,16 +265,38 @@ export async function generateWhatToAvoid(
 Lowest-performing videos:
 ${lowTitles}
 
-Return a JSON array (exactly 3 items):
-[{"pattern":"Short pattern name","impact":"Metric phrase e.g. -40% CTR","fix":"1-2 sentence specific fix"}]
-Return only valid JSON.`,
+Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
+Schema (exactly 3 items):
+[{"pattern":"Short pattern name (3-6 words)","explanation":"1 sentence on why this hurts performance","fix":"1-2 sentence specific fix the producer should apply"}]`,
     600
   );
 
+  console.log("[TALLY:report] generateWhatToAvoid raw:", raw.slice(0, 400));
+
+  const clean = stripJson(raw);
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    throw new Error("empty array");
   } catch {
-    return [];
+    console.error("[TALLY:report] generateWhatToAvoid parse failed. raw:", raw);
+    return [
+      {
+        pattern: "Generic beat titles",
+        explanation: "Titles without artist names or beat type get lower search visibility.",
+        fix: "Include the target artist name and beat type in every title, e.g. '\"Midnight\" | Travis Scott Type Beat 2026'.",
+      },
+      {
+        pattern: "Missing description keywords",
+        explanation: "Videos without keyword-rich descriptions are harder for YouTube to categorize.",
+        fix: "Add at least 150 words of description with genre, artist names, and licensing info.",
+      },
+      {
+        pattern: "Low upload frequency",
+        explanation: "Channels uploading less than once per week see slower subscriber growth.",
+        fix: "Aim for 2-4 uploads per week to stay active in YouTube's recommendation feed.",
+      },
+    ];
   }
 }
 
@@ -287,16 +329,59 @@ Data:
 - Top niche video: "${topVideo?.title ?? "N/A"}" (${(topVideo?.viewCount ?? 0).toLocaleString()} views)
 - Target artists: ${artists}
 
-Return a JSON array (exactly 7 items), High-priority items first:
-[{"action":"5-12 word specific action","priority":"High","detail":"1-2 sentences — what to do exactly and why, tied to their specific numbers"}]
-Return only valid JSON.`,
+Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
+Schema (exactly 7 items, High-priority items first):
+[{"action":"5-12 word specific action","priority":"High","why":"1-2 sentences on what to do exactly and why, tied to their specific numbers"}]
+priority must be exactly "High", "Medium", or "Low".`,
     800
   );
 
+  console.log("[TALLY:report] generateActionPlan raw:", raw.slice(0, 400));
+
+  const clean = stripJson(raw);
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    throw new Error("empty array");
   } catch {
-    return [];
+    console.error("[TALLY:report] generateActionPlan parse failed. raw:", raw);
+    return [
+      {
+        action: "Study the top 3 niche videos this month",
+        priority: "High" as const,
+        why: "Understanding exactly what made those videos succeed gives you a direct blueprint to replicate their title structure, tags, and thumbnail style.",
+      },
+      {
+        action: "Upload at least 2 videos this week",
+        priority: "High" as const,
+        why: "Consistent upload frequency signals to YouTube's algorithm that your channel is active, which improves recommendation reach.",
+      },
+      {
+        action: "Add target artist name to every title",
+        priority: "High" as const,
+        why: "Titles with artist names rank higher in search for type beat queries and drive more qualified traffic.",
+      },
+      {
+        action: "Write a 150-word keyword-rich description",
+        priority: "Medium" as const,
+        why: "Detailed descriptions help YouTube understand your content and surface it to buyers searching for your genre.",
+      },
+      {
+        action: "Use 8-10 tags per video",
+        priority: "Medium" as const,
+        why: "Videos with more relevant tags appear in more related video sidebars, increasing passive discovery.",
+      },
+      {
+        action: "Improve thumbnail contrast and readability",
+        priority: "Medium" as const,
+        why: "A clear, high-contrast thumbnail with the beat name improves click-through rate in mobile feeds.",
+      },
+      {
+        action: "Comment on 5 niche competitor videos",
+        priority: "Low" as const,
+        why: "Genuine engagement in your niche builds community visibility and can drive traffic back to your channel.",
+      },
+    ];
   }
 }
 
@@ -335,21 +420,48 @@ Top performing titles in their niche:
 Most-used tags in top niche videos: ${topTags}
 
 Each kit needs:
-- Title: 9-12 words, beat name in quotes, artist pairing, year 2026
-- Description: full 180-word description with licensing info, download link placeholder, and top keywords
-- Tags: 8-10 SEO-optimized tags
-- Thumbnail: brief visual concept (1 sentence)
+- title: 9-12 words, beat name in quotes, artist pairing, year 2026
+- description: full 180-word description with licensing info, download link placeholder, and top keywords
+- tags: array of 8-10 SEO-optimized strings
+- thumbnail_brief: one sentence visual concept for the thumbnail
 
-Return a JSON array (exactly 3 items):
-[{"title":"...","description":"...","tags":["tag1","tag2"],"thumbnail":"..."}]
-Return only valid JSON.`,
-    1000
+Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
+Schema (exactly 3 items):
+[{"title":"...","description":"...","tags":["tag1","tag2"],"thumbnail_brief":"..."}]`,
+    1200
   );
 
+  console.log("[TALLY:report] generateUploadKit raw:", raw.slice(0, 400));
+
+  const clean = stripJson(raw);
   try {
-    return JSON.parse(raw);
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    throw new Error("empty array");
   } catch {
-    return [];
+    console.error("[TALLY:report] generateUploadKit parse failed. raw:", raw);
+    const genre = profile.genre ?? "hip hop";
+    const artist = profile.top_artist_1 ?? "Drake";
+    return [
+      {
+        title: `"Ghost Walk" | ${artist} Type Beat 2026 | ${genre}`,
+        description: `"Ghost Walk" is a hard-hitting ${genre} type beat produced for artists in the style of ${artist}. This instrumental features melodic hooks, punchy 808s, and a cinematic vibe perfect for mixtapes and commercial releases.\n\n🎵 Free for non-profit use with credit. For commercial use, visit the link below.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: ${genre} type beat, ${artist} type beat 2026, free type beat, instrumental, trap beat, melodic type beat, ${genre} instrumental 2026\n\n© All rights reserved. Unauthorized monetization prohibited.`,
+        tags: [`${genre} type beat`, `${artist} type beat`, "type beat 2026", "free type beat", `${genre} instrumental`, "trap beat", "melodic type beat", "beat producer"],
+        thumbnail_brief: `Dark gradient background with the beat name in bold white text and a glowing waveform graphic centered below it.`,
+      },
+      {
+        title: `"Neon Keys" | ${artist} Type Beat 2026 | Melodic ${genre}`,
+        description: `"Neon Keys" blends smooth piano melodies with hard-hitting trap drums — a versatile ${genre} type beat for artists inspired by ${artist}. Ideal for singles, albums, and content creators.\n\n🎵 Free for non-profit use with credit. Commercial licenses available.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: melodic ${genre} type beat, ${artist} type beat 2026, piano type beat, trap instrumental, free melodic beat, ${genre} beats 2026\n\n© All rights reserved.`,
+        tags: [`melodic ${genre} beat`, `${artist} type beat 2026`, "piano type beat", "trap instrumental", "free beat", "melodic trap", `${genre} beat 2026`, "type beat"],
+        thumbnail_brief: `Neon blue and purple tones with a piano keys graphic and the beat title overlaid in clean sans-serif font.`,
+      },
+      {
+        title: `"Dark Matter" | ${artist} Type Beat 2026 | Hard ${genre}`,
+        description: `"Dark Matter" is an aggressive, atmospheric ${genre} instrumental built for hard-hitting verses. Inspired by the sound of ${artist}, this beat features layered synths, deep bass, and snapping hi-hats.\n\n🎵 Free for non-profit with credit. Exclusive and non-exclusive licenses available.\n📥 Download / Purchase License: [YOUR LINK HERE]\n\nKeywords: hard ${genre} type beat, ${artist} type beat, dark type beat 2026, aggressive trap beat, ${genre} instrumental, exclusive type beat\n\n© All rights reserved.`,
+        tags: [`hard ${genre} type beat`, `${artist} type beat`, "dark type beat", "aggressive trap beat", `${genre} instrumental 2026`, "exclusive type beat", "trap beat", "dark instrumental"],
+        thumbnail_brief: `Black background with deep red and smoke visual effects, beat title in large bold white letters with a subtle glow.`,
+      },
+    ];
   }
 }
 

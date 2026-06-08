@@ -64,10 +64,10 @@ interface ReportData {
   channel_summary: string;
   benchmark_insights: string;
   trending_breakdowns: Array<{ videoId: string; breakdown: string }>;
-  rising_artists: Array<{ name: string; channel: string; explanation: string }>;
-  what_to_avoid: Array<{ pattern: string; impact: string; fix: string }>;
-  action_plan: Array<{ action: string; priority: "High" | "Medium" | "Low"; detail: string }>;
-  upload_kits: Array<{ title: string; description: string; tags: string[]; thumbnail: string }>;
+  rising_artists: Array<{ name: string; growth: string; why: string }>;
+  what_to_avoid: Array<{ pattern: string; explanation: string; fix: string }>;
+  action_plan: Array<{ action: string; priority: "High" | "Medium" | "Low"; why: string }>;
+  upload_kits: Array<{ title: string; description: string; tags: string[]; thumbnail_brief: string }>;
   tally_score: number;
   score_breakdown: { categories: ScoreCategory[]; tip: string };
 }
@@ -705,14 +705,14 @@ function RisingArtistsTab({ report }: { report: ReportData | null }) {
               <div className="flex-1">
                 <div className="flex flex-wrap items-center gap-3 mb-1">
                   <p className="text-white font-semibold">{artist.name}</p>
-                  {artist.channel && (
-                    <span className="text-[#475569] text-xs">
-                      {artist.channel}
+                  {artist.growth && (
+                    <span className="text-[#4ade80] text-xs">
+                      {artist.growth}
                     </span>
                   )}
                 </div>
                 <p className="text-[#94a3b8] text-sm leading-relaxed">
-                  {artist.explanation}
+                  {artist.why}
                 </p>
               </div>
             </div>
@@ -820,7 +820,7 @@ function ThumbnailsTab({ report }: { report: ReportData | null }) {
     year: "numeric",
   });
   const concepts =
-    report?.upload_kits?.filter((k) => k.thumbnail).slice(0, 3) ?? [];
+    report?.upload_kits?.filter((k) => k.thumbnail_brief).slice(0, 3) ?? [];
 
   return (
     <div>
@@ -857,7 +857,7 @@ function ThumbnailsTab({ report }: { report: ReportData | null }) {
               </p>
               <p className="text-white font-medium text-sm mb-3">{kit.title}</p>
               <p className="text-[#94a3b8] text-sm leading-relaxed border-l-2 border-[#1e1e1e] pl-3">
-                {kit.thumbnail}
+                {kit.thumbnail_brief}
               </p>
             </div>
           ))}
@@ -900,11 +900,14 @@ function AvoidTab({ report }: { report: ReportData | null }) {
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
                   <h3 className="font-semibold text-white">{item.pattern}</h3>
                   <span className="shrink-0 text-xs text-[#f87171] bg-[#1f0a0a] px-2 py-1">
-                    {item.impact}
+                    Impact
                   </span>
                 </div>
-                <p className="text-[#94a3b8] text-sm leading-relaxed">
-                  {item.fix}
+                <p className="text-[#94a3b8] text-sm leading-relaxed mb-2">
+                  {item.explanation}
+                </p>
+                <p className="text-[#64748b] text-xs leading-relaxed border-l-2 border-[#2a2a2a] pl-3">
+                  Fix: {item.fix}
                 </p>
               </div>
             </div>
@@ -971,7 +974,7 @@ function ActionPlanTab({ report }: { report: ReportData | null }) {
                   </span>
                 </div>
                 <p className="text-[#94a3b8] text-sm leading-relaxed">
-                  {item.detail}
+                  {item.why}
                 </p>
               </div>
             </div>
@@ -1064,7 +1067,7 @@ function UploadKitTab({ report }: { report: ReportData | null }) {
                     Thumbnail Concept
                   </p>
                   <p className="text-[#cbd5e1] text-sm leading-relaxed">
-                    {kit.thumbnail}
+                    {kit.thumbnail_brief}
                   </p>
                 </div>
               </div>
