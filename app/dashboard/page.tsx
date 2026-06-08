@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createSupabaseBrowserClient } from "@/lib/supabase";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -20,19 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 
-// ── Credentials ──────────────────────────────────────────────────────────────
-
-const DEMO_EMAIL = "demo@tally.com";
-const DEMO_PASSWORD = "tally2026";
-
 // ── Data ─────────────────────────────────────────────────────────────────────
-
-const channel = {
-  name: "BoomBap_Marcus",
-  handle: "@BoomBap_Marcus",
-  genre: "Boom Bap",
-  subscribers: "12,847",
-};
 
 const stats = [
   { label: "Views this month", value: "61,430", delta: "+18%", sub: "vs last month" },
@@ -402,76 +392,111 @@ const scoreColor = (s: number) =>
 const scoreBarColor = (s: number) =>
   s >= 80 ? "bg-[#4ade80]" : s >= 60 ? "bg-[#fbbf24]" : "bg-[#f87171]";
 
+// ── Profile type ──────────────────────────────────────────────────────────────
+
+interface UserProfile {
+  name: string | null;
+  genre: string | null;
+  youtube_channel_url: string | null;
+}
+
 // ── Tab components ────────────────────────────────────────────────────────────
 
-function OverviewTab() {
+function OverviewTab({ profile }: { profile: UserProfile | null }) {
+  const displayName = profile?.name || "Producer";
+  const displayGenre = profile?.genre || "Boom Bap";
+  const initials = displayName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-5 pb-8 border-b border-[#1a1a1a]">
         <div className="w-14 h-14 bg-[#1a1a1a] flex items-center justify-center font-bold text-lg tracking-wide shrink-0">
-          BM
+          {initials}
         </div>
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <h2 className="text-xl font-bold">{channel.name}</h2>
+            <h2 className="text-xl font-bold">{displayName}</h2>
             <span className="text-xs text-[#94a3b8] border border-[#2a2a2a] px-2 py-0.5">
-              {channel.genre}
+              {displayGenre}
             </span>
           </div>
-          <p className="text-[#94a3b8] text-sm">
-            {channel.handle} · {channel.subscribers} subscribers
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#1a1a1a]">
-        {stats.map(({ label, value, delta, sub }) => (
-          <div key={label} className="bg-[#0a0a0a] p-6">
-            <p className="text-[#94a3b8] text-xs uppercase tracking-widest mb-4">{label}</p>
-            <p className="text-3xl font-bold mb-1">{value}</p>
-            <p className="text-xs">
-              <span className="text-[#4ade80]">{delta}</span>
-              <span className="text-[#475569] ml-1">{sub}</span>
+          {profile?.youtube_channel_url ? (
+            <p className="text-[#94a3b8] text-sm truncate max-w-sm">
+              {profile.youtube_channel_url}
             </p>
-          </div>
-        ))}
+          ) : (
+            <p className="text-[#475569] text-sm italic">
+              Your first report is being generated — check back soon.
+            </p>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="border border-[#1a1a1a] p-6">
-          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
-            May 2026 Summary
-          </p>
-          <p className="text-sm text-[#cbd5e1] leading-relaxed">
-            Jazz-influenced boom bap is at its highest point in 18 months.
-            Sample flip content is outperforming standard boom bap by{" "}
-            <span className="text-white font-semibold">94%</span> in your niche
-            — this is the single most important trend to act on now.
-          </p>
-          <p className="text-sm text-[#94a3b8] leading-relaxed mt-3">
-            Your watch time growth (+22%) outpaces subscriber growth (+14%),
-            signaling strong content quality but room to improve discovery.
-            Better title and tag optimization is the highest-leverage fix.
+      {!profile?.youtube_channel_url ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <div className="text-2xl mb-3">📊</div>
+          <h3 className="text-lg font-semibold mb-2">Generating your first report</h3>
+          <p className="text-[#94a3b8] text-sm leading-relaxed max-w-md mx-auto">
+            We&apos;re pulling your channel data and analyzing your niche. Your first full report will be ready within 24 hours.
           </p>
         </div>
-        <div className="border border-[#1a1a1a] p-6">
-          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
-            Key Opportunities
-          </p>
-          <ul className="space-y-4">
-            {[
-              '"Jazz boom bap" is underserved — high search volume, low competition.',
-              "Sample flip content averages 2.4× more views than standard boom bap uploads.",
-              "Thursday/Friday uploads in your genre get 34% higher first-week view counts.",
-            ].map((item, i) => (
-              <li key={i} className="flex items-start gap-3">
-                <ArrowUpRight className="w-4 h-4 text-[#4ade80] shrink-0 mt-0.5" />
-                <span className="text-sm text-[#cbd5e1]">{item}</span>
-              </li>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#1a1a1a]">
+            {stats.map(({ label, value, delta, sub }) => (
+              <div key={label} className="bg-[#0a0a0a] p-6">
+                <p className="text-[#94a3b8] text-xs uppercase tracking-widest mb-4">{label}</p>
+                <p className="text-3xl font-bold mb-1">{value}</p>
+                <p className="text-xs">
+                  <span className="text-[#4ade80]">{delta}</span>
+                  <span className="text-[#475569] ml-1">{sub}</span>
+                </p>
+              </div>
             ))}
-          </ul>
-        </div>
-      </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border border-[#1a1a1a] p-6">
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
+                May 2026 Summary
+              </p>
+              <p className="text-sm text-[#cbd5e1] leading-relaxed">
+                Jazz-influenced boom bap is at its highest point in 18 months.
+                Sample flip content is outperforming standard boom bap by{" "}
+                <span className="text-white font-semibold">94%</span> in your niche
+                — this is the single most important trend to act on now.
+              </p>
+              <p className="text-sm text-[#94a3b8] leading-relaxed mt-3">
+                Your watch time growth (+22%) outpaces subscriber growth (+14%),
+                signaling strong content quality but room to improve discovery.
+                Better title and tag optimization is the highest-leverage fix.
+              </p>
+            </div>
+            <div className="border border-[#1a1a1a] p-6">
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">
+                Key Opportunities
+              </p>
+              <ul className="space-y-4">
+                {[
+                  '"Jazz boom bap" is underserved — high search volume, low competition.',
+                  "Sample flip content averages 2.4× more views than standard boom bap uploads.",
+                  "Thursday/Friday uploads in your genre get 34% higher first-week view counts.",
+                ].map((item, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <ArrowUpRight className="w-4 h-4 text-[#4ade80] shrink-0 mt-0.5" />
+                    <span className="text-sm text-[#cbd5e1]">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -726,7 +751,6 @@ function AudienceTab() {
         </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Age */}
         <div className="border border-[#1a1a1a] p-6">
           <div className="flex items-center gap-2 mb-6">
             <Users className="w-4 h-4 text-[#64748b]" />
@@ -740,10 +764,7 @@ function AudienceTab() {
                   <span className="text-white font-semibold">{a.pct}%</span>
                 </div>
                 <div className="h-1.5 bg-[#1a1a1a]">
-                  <div
-                    className="h-full bg-white transition-all"
-                    style={{ width: `${a.pct}%` }}
-                  />
+                  <div className="h-full bg-white transition-all" style={{ width: `${a.pct}%` }} />
                 </div>
               </div>
             ))}
@@ -753,7 +774,6 @@ function AudienceTab() {
           </p>
         </div>
 
-        {/* Geography */}
         <div className="border border-[#1a1a1a] p-6">
           <div className="flex items-center gap-2 mb-6">
             <Globe className="w-4 h-4 text-[#64748b]" />
@@ -768,10 +788,7 @@ function AudienceTab() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="w-20 h-1 bg-[#1a1a1a]">
-                    <div
-                      className="h-full bg-[#94a3b8]"
-                      style={{ width: `${(c.pct / 54) * 100}%` }}
-                    />
+                    <div className="h-full bg-[#94a3b8]" style={{ width: `${(c.pct / 54) * 100}%` }} />
                   </div>
                   <span className="text-sm text-white font-medium w-8 text-right">{c.pct}%</span>
                 </div>
@@ -780,7 +797,6 @@ function AudienceTab() {
           </div>
         </div>
 
-        {/* Devices */}
         <div className="border border-[#1a1a1a] p-6">
           <div className="flex items-center gap-2 mb-6">
             <Smartphone className="w-4 h-4 text-[#64748b]" />
@@ -807,7 +823,6 @@ function AudienceTab() {
           </p>
         </div>
 
-        {/* Traffic sources */}
         <div className="border border-[#1a1a1a] p-6">
           <div className="flex items-center gap-2 mb-6">
             <Search className="w-4 h-4 text-[#64748b]" />
@@ -865,12 +880,8 @@ function ContentGapsTab() {
                 </span>
               </div>
               <div className="flex flex-wrap gap-4 text-xs text-[#94a3b8] mb-3">
-                <span>
-                  <span className="text-white font-medium">{gap.searches}</span> monthly searches
-                </span>
-                <span>
-                  <span className="text-white font-medium">{gap.supply}</span> competing videos this month
-                </span>
+                <span><span className="text-white font-medium">{gap.searches}</span> monthly searches</span>
+                <span><span className="text-white font-medium">{gap.supply}</span> competing videos this month</span>
               </div>
               <p className="text-[#94a3b8] text-sm leading-relaxed">{gap.why}</p>
             </div>
@@ -897,8 +908,6 @@ function SEOAuditTab() {
           How well your channel and videos are optimized for search right now.
         </p>
       </div>
-
-      {/* Overall score */}
       <div className="border border-[#1a1a1a] p-6 mb-6 flex items-center gap-6">
         <div>
           <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">Overall SEO Score</p>
@@ -906,17 +915,13 @@ function SEOAuditTab() {
         </div>
         <div className="flex-1 hidden sm:block">
           <div className="h-2 bg-[#1a1a1a]">
-            <div
-              className={`h-full transition-all ${scoreBarColor(overall)}`}
-              style={{ width: `${overall}%` }}
-            />
+            <div className={`h-full transition-all ${scoreBarColor(overall)}`} style={{ width: `${overall}%` }} />
           </div>
           <p className="text-[#94a3b8] text-xs mt-2">
             Quick wins on descriptions and tags alone could push this to 80+.
           </p>
         </div>
       </div>
-
       <div className="space-y-px bg-[#1a1a1a]">
         {seoAudit.map((item, i) => (
           <div key={i} className="bg-[#0a0a0a] p-6">
@@ -931,10 +936,7 @@ function SEOAuditTab() {
               </div>
             </div>
             <div className="h-1 bg-[#1a1a1a] mb-4 ml-7">
-              <div
-                className={`h-full ${scoreBarColor(item.score)}`}
-                style={{ width: `${item.score}%` }}
-              />
+              <div className={`h-full ${scoreBarColor(item.score)}`} style={{ width: `${item.score}%` }} />
             </div>
             <p className="text-[#94a3b8] text-sm leading-relaxed ml-7 mb-2">{item.finding}</p>
             <p className="text-xs text-[#4ade80] ml-7">
@@ -963,14 +965,12 @@ function GrowthForecastTab() {
         </p>
       </div>
 
-      {/* Current baseline */}
       <div className="border border-[#1a1a1a] p-6 mb-6">
         <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">Current Subscribers</p>
         <p className="text-4xl font-bold">{growthForecast.current.toLocaleString()}</p>
         <p className="text-[#94a3b8] text-sm mt-1">as of May 2026</p>
       </div>
 
-      {/* Projection table */}
       <div className="border border-[#1a1a1a] overflow-x-auto mb-6">
         <table className="w-full text-sm min-w-[480px]">
           <thead>
@@ -1003,7 +1003,6 @@ function GrowthForecastTab() {
         </table>
       </div>
 
-      {/* Milestones */}
       <div className="border border-[#1a1a1a] p-6 mb-6">
         <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-5">Milestones</p>
         <div className="space-y-3">
@@ -1018,7 +1017,6 @@ function GrowthForecastTab() {
         </div>
       </div>
 
-      {/* Action plan */}
       <div className="border border-[#1a1a1a] p-6">
         <div className="flex items-center gap-2 mb-5">
           <Zap className="w-4 h-4 text-[#fbbf24]" />
@@ -1035,72 +1033,6 @@ function GrowthForecastTab() {
               </div>
             </div>
           ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Login gate ────────────────────────────────────────────────────────────────
-
-function LoginGate({ onAuth }: { onAuth: () => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState(false);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
-      onAuth();
-    } else {
-      setError(true);
-    }
-  };
-
-  const inputClass =
-    "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors";
-
-  return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
-        <Link href="/" className="block text-sm font-bold tracking-[0.25em] mb-12">
-          TALLY
-        </Link>
-        <h1 className="text-2xl font-bold mb-2">Sign in</h1>
-        <p className="text-[#94a3b8] text-sm mb-8">
-          Enter your credentials to access your report.
-        </p>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => { setEmail(e.target.value); setError(false); }}
-            placeholder="Email"
-            autoFocus
-            className={inputClass}
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => { setPassword(e.target.value); setError(false); }}
-            placeholder="Password"
-            className={inputClass}
-          />
-          {error && (
-            <p className="text-[#f87171] text-xs">Incorrect email or password.</p>
-          )}
-          <button
-            type="submit"
-            className="w-full bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] transition-colors cursor-pointer"
-          >
-            Sign in
-          </button>
-        </form>
-
-        <div className="mt-8 border border-[#1a1a1a] p-4">
-          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Demo account</p>
-          <p className="text-[#cbd5e1] text-xs font-mono">{DEMO_EMAIL}</p>
-          <p className="text-[#cbd5e1] text-xs font-mono">{DEMO_PASSWORD}</p>
         </div>
       </div>
     </div>
@@ -1134,8 +1066,45 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "growth-forecast", label: "Growth Forecast"},
 ];
 
-function Dashboard({ onSignOut }: { onSignOut: () => void }) {
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function DashboardPage() {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [loadingUser, setLoadingUser] = useState(true);
+
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+      setUserEmail(user.email ?? null);
+
+      supabase
+        .from("profiles")
+        .select("name, genre, youtube_channel_url")
+        .eq("id", user.id)
+        .single()
+        .then(({ data }) => {
+          if (data) setProfile(data as UserProfile);
+          setLoadingUser(false);
+        });
+    });
+  }, [router]);
+
+  const handleSignOut = async () => {
+    const supabase = createSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    router.push("/login");
+    router.refresh();
+  };
+
+  const displayName = profile?.name || userEmail?.split("@")[0] || "Producer";
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -1146,11 +1115,15 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
               TALLY
             </Link>
             <div className="flex items-center gap-6">
-              <span className="text-xs text-[#94a3b8] hidden sm:block">
-                {channel.name} · May 2026 Report
-              </span>
+              {!loadingUser && (
+                <span className="text-xs text-[#94a3b8] hidden sm:block">
+                  {displayName}
+                  {profile?.genre ? ` · ${profile.genre}` : ""}
+                  {" · May 2026 Report"}
+                </span>
+              )}
               <button
-                onClick={onSignOut}
+                onClick={handleSignOut}
                 className="text-sm text-[#94a3b8] hover:text-white transition-colors cursor-pointer"
               >
                 Sign out
@@ -1178,7 +1151,7 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
       </div>
 
       <main className="max-w-6xl mx-auto px-6 py-10">
-        {tab === "overview"        && <OverviewTab />}
+        {tab === "overview"        && <OverviewTab profile={profile} />}
         {tab === "keywords"        && <KeywordsTab />}
         {tab === "top-videos"      && <TopVideosTab />}
         {tab === "avoid"           && <AvoidTab />}
@@ -1191,12 +1164,4 @@ function Dashboard({ onSignOut }: { onSignOut: () => void }) {
       </main>
     </div>
   );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-export default function DashboardPage() {
-  const [authenticated, setAuthenticated] = useState(false);
-  if (!authenticated) return <LoginGate onAuth={() => setAuthenticated(true)} />;
-  return <Dashboard onSignOut={() => setAuthenticated(false)} />;
 }
