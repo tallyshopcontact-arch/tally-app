@@ -60,6 +60,200 @@ const TEXT_OPTIONS = [
   { id: "never", label: "Never", desc: "No text overlays" },
 ];
 
+// ── Thumbnail Mockup ──────────────────────────────────────────────────────────
+
+function ThumbnailMockup({
+  concept,
+  beatName,
+  producerTag,
+  producerTagName,
+  idx,
+}: {
+  concept: ThumbnailConcept;
+  beatName: string;
+  producerTag: boolean;
+  producerTagName?: string;
+  idx: number;
+}) {
+  const bg = concept.color_palette[0] ?? "#0a0a0a";
+  const accent = concept.color_palette[1] ?? "#e8e8e8";
+  const tertiary = concept.color_palette[2] ?? "#94a3b8";
+  const id = `tm${idx}`;
+
+  const raw = beatName ? beatName.toUpperCase() : "BEAT";
+  // Truncate display name so it doesn't overflow the SVG canvas
+  const name = raw.length > 13 ? raw.slice(0, 13) : raw;
+  const tagText = producerTag && producerTagName ? producerTagName.toUpperCase() : "";
+
+  const s = concept.style_name.toLowerCase();
+  let vStyle: "minimal" | "bold" | "abstract" | "atmospheric" | "colorpop" | "artist";
+  if (s.includes("bold") || s.includes("impact") || s.includes("big text") || s.includes("type"))
+    vStyle = "bold";
+  else if (s.includes("photo") || s.includes("atmospheric") || s.includes("cinematic") || s.includes("moody") || s.includes("film"))
+    vStyle = "atmospheric";
+  else if (s.includes("color") || s.includes("pop") || s.includes("vivid") || s.includes("neon") || s.includes("vibrant"))
+    vStyle = "colorpop";
+  else if (s.includes("artist") || s.includes("silhouette") || s.includes("portrait") || s.includes("figure") || s.includes("shadow"))
+    vStyle = "artist";
+  else if (s.includes("abstract") || s.includes("geometric") || s.includes("shape") || s.includes("gradient") || s.includes("minimal"))
+    vStyle = "abstract";
+  else {
+    // Rotate through distinct styles to guarantee variety across 3 concepts
+    const fallbacks = ["minimal", "abstract", "atmospheric"] as const;
+    vStyle = fallbacks[idx % 3];
+  }
+
+  if (vStyle === "bold") {
+    return (
+      <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" className="w-full block">
+        <rect width="320" height="180" fill={bg} />
+        {/* Left accent bar */}
+        <rect x="0" y="0" width="6" height="180" fill={accent} />
+        {/* Top rule */}
+        <line x1="18" y1="44" x2="300" y2="44" stroke={accent} strokeWidth="0.5" opacity="0.2" />
+        {/* Beat name — massive bold */}
+        <text x="20" y="115" fontSize="54" fontWeight="900" fill={accent} letterSpacing="-2" fontFamily="Arial Black, Arial, sans-serif">{name}</text>
+        {/* Sub-label */}
+        <text x="20" y="138" fontSize="9" fontWeight="700" fill={tertiary} letterSpacing="4" opacity="0.65" fontFamily="Arial, sans-serif">TYPE BEAT 2026</text>
+        {/* Bottom bar tint */}
+        <rect x="0" y="156" width="320" height="24" fill={accent} opacity="0.06" />
+        {tagText && <text x="308" y="172" textAnchor="end" fontSize="7" fill={tertiary} letterSpacing="2" opacity="0.45" fontFamily="Arial, sans-serif">{tagText}</text>}
+      </svg>
+    );
+  }
+
+  if (vStyle === "atmospheric") {
+    return (
+      <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" className="w-full block">
+        <defs>
+          <radialGradient id={`${id}g1`} cx="25%" cy="35%" r="55%">
+            <stop offset="0%" stopColor={accent} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={bg} stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id={`${id}g2`} cx="78%" cy="65%" r="48%">
+            <stop offset="0%" stopColor={tertiary} stopOpacity="0.14" />
+            <stop offset="100%" stopColor={bg} stopOpacity="0" />
+          </radialGradient>
+          <linearGradient id={`${id}lg`} x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor={bg} stopOpacity="0.92" />
+            <stop offset="45%" stopColor={bg} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <rect width="320" height="180" fill={bg} />
+        <rect width="320" height="180" fill={`url(#${id}g1)`} />
+        <rect width="320" height="180" fill={`url(#${id}g2)`} />
+        {/* Subtle light rays */}
+        <line x1="-10" y1="58" x2="330" y2="46" stroke={accent} strokeWidth="1.2" opacity="0.04" />
+        <line x1="-10" y1="78" x2="330" y2="66" stroke={accent} strokeWidth="0.6" opacity="0.025" />
+        <line x1="-10" y1="100" x2="330" y2="88" stroke={accent} strokeWidth="0.4" opacity="0.015" />
+        {/* Bottom fade */}
+        <rect width="320" height="180" fill={`url(#${id}lg)`} />
+        {/* Text block */}
+        <text x="16" y="145" fontSize="28" fontWeight="800" fill={accent} letterSpacing="1" fontFamily="Arial, sans-serif">{name}</text>
+        <line x1="16" y1="153" x2="130" y2="153" stroke={accent} strokeWidth="0.8" opacity="0.35" />
+        <text x="16" y="167" fontSize="8" fontWeight="400" fill={tertiary} letterSpacing="3" opacity="0.65" fontFamily="Arial, sans-serif">TYPE BEAT · 2026</text>
+        {tagText && <text x="308" y="167" textAnchor="end" fontSize="7" fill={tertiary} letterSpacing="1" opacity="0.35" fontFamily="Arial, sans-serif">{tagText}</text>}
+      </svg>
+    );
+  }
+
+  if (vStyle === "colorpop") {
+    return (
+      <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" className="w-full block">
+        <rect width="320" height="180" fill={bg} />
+        {/* Top stripe */}
+        <rect x="0" y="0" width="320" height="6" fill={accent} />
+        {/* Beat name in accent */}
+        <text x="160" y="108" textAnchor="middle" fontSize="48" fontWeight="900" fill={accent} letterSpacing="-1" fontFamily="Arial Black, Arial, sans-serif">{name}</text>
+        {/* Tag line */}
+        <text x="160" y="129" textAnchor="middle" fontSize="9" fontWeight="700" fill={tertiary} letterSpacing="5" opacity="0.65" fontFamily="Arial, sans-serif">TYPE BEAT 2026</text>
+        {/* Bottom stripe */}
+        <rect x="0" y="163" width="320" height="17" fill={accent} opacity="0.88" />
+        {tagText && <text x="308" y="175" textAnchor="end" fontSize="7" fill={bg} fontWeight="700" letterSpacing="1" fontFamily="Arial, sans-serif">{tagText}</text>}
+      </svg>
+    );
+  }
+
+  if (vStyle === "artist") {
+    return (
+      <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" className="w-full block">
+        <defs>
+          <radialGradient id={`${id}ar`} cx="50%" cy="42%" r="52%">
+            <stop offset="0%" stopColor={accent} stopOpacity="0.15" />
+            <stop offset="100%" stopColor={bg} stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <rect width="320" height="180" fill={bg} />
+        <ellipse cx="160" cy="76" rx="132" ry="90" fill={`url(#${id}ar)`} />
+        {/* Stylised silhouette */}
+        <ellipse cx="160" cy="50" rx="20" ry="22" fill={accent} opacity="0.11" />
+        <path d="M128,148 Q140,90 160,80 Q180,90 192,148 Z" fill={accent} opacity="0.08" />
+        {/* Circle frame */}
+        <ellipse cx="160" cy="74" rx="50" ry="58" fill="none" stroke={accent} strokeWidth="0.6" opacity="0.16" />
+        <ellipse cx="160" cy="74" rx="56" ry="64" fill="none" stroke={accent} strokeWidth="0.3" opacity="0.09" />
+        {/* Beat name */}
+        <text x="160" y="157" textAnchor="middle" fontSize="15" fontWeight="700" fill={accent} letterSpacing="4" fontFamily="Arial, sans-serif">{name}</text>
+        <text x="160" y="171" textAnchor="middle" fontSize="7" fontWeight="400" fill={tertiary} letterSpacing="3" opacity="0.55" fontFamily="Arial, sans-serif">TYPE BEAT</text>
+        {tagText && <text x="308" y="14" textAnchor="end" fontSize="7" fill={tertiary} letterSpacing="1" opacity="0.35" fontFamily="Arial, sans-serif">{tagText}</text>}
+      </svg>
+    );
+  }
+
+  if (vStyle === "abstract") {
+    return (
+      <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" className="w-full block">
+        <defs>
+          <radialGradient id={`${id}ab1`} cx="65%" cy="28%" r="52%">
+            <stop offset="0%" stopColor={accent} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={bg} stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id={`${id}ab2`} cx="22%" cy="76%" r="46%">
+            <stop offset="0%" stopColor={tertiary} stopOpacity="0.17" />
+            <stop offset="100%" stopColor={bg} stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <rect width="320" height="180" fill={bg} />
+        <ellipse cx="208" cy="50" rx="112" ry="90" fill={`url(#${id}ab1)`} />
+        <ellipse cx="72" cy="138" rx="90" ry="66" fill={`url(#${id}ab2)`} />
+        {/* Geometric elements */}
+        <polygon points="160,22 224,132 96,132" fill="none" stroke={accent} strokeWidth="0.5" opacity="0.14" />
+        <polygon points="160,42 202,120 118,120" fill="none" stroke={accent} strokeWidth="0.3" opacity="0.09" />
+        <line x1="0" y1="90" x2="320" y2="90" stroke={accent} strokeWidth="0.3" opacity="0.1" />
+        <line x1="160" y1="0" x2="160" y2="180" stroke={accent} strokeWidth="0.3" opacity="0.07" />
+        {/* Beat name */}
+        <text x="160" y="162" textAnchor="middle" fontSize="10" fontWeight="300" fill={accent} letterSpacing="5" opacity="0.6" fontFamily="Arial, sans-serif">{name}</text>
+        {tagText && <text x="308" y="14" textAnchor="end" fontSize="7" fill={tertiary} letterSpacing="1" opacity="0.3" fontFamily="Arial, sans-serif">{tagText}</text>}
+      </svg>
+    );
+  }
+
+  // Minimal (default)
+  return (
+    <svg viewBox="0 0 320 180" xmlns="http://www.w3.org/2000/svg" className="w-full block">
+      <defs>
+        <radialGradient id={`${id}mn`} cx="72%" cy="22%" r="62%">
+          <stop offset="0%" stopColor={accent} stopOpacity="0.07" />
+          <stop offset="100%" stopColor={bg} stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <rect width="320" height="180" fill={bg} />
+      <rect width="320" height="180" fill={`url(#${id}mn)`} />
+      {/* Corner accents TL */}
+      <line x1="18" y1="18" x2="42" y2="18" stroke={accent} strokeWidth="1" opacity="0.35" />
+      <line x1="18" y1="18" x2="18" y2="42" stroke={accent} strokeWidth="1" opacity="0.35" />
+      {/* Corner accents BR */}
+      <line x1="278" y1="162" x2="302" y2="162" stroke={accent} strokeWidth="1" opacity="0.35" />
+      <line x1="302" y1="138" x2="302" y2="162" stroke={accent} strokeWidth="1" opacity="0.35" />
+      {/* Thin horizontal rule */}
+      <line x1="40" y1="94" x2="280" y2="94" stroke={accent} strokeWidth="0.4" opacity="0.18" />
+      {/* Beat name — thin, spaced */}
+      <text x="160" y="87" textAnchor="middle" fontSize="26" fontWeight="300" fill={accent} letterSpacing="8" opacity="0.88" fontFamily="Arial, sans-serif">{name}</text>
+      <text x="160" y="108" textAnchor="middle" fontSize="7" fontWeight="400" fill={tertiary} letterSpacing="5" opacity="0.4" fontFamily="Arial, sans-serif">TYPE BEAT</text>
+      {tagText && <text x="302" y="170" textAnchor="end" fontSize="7" fill={tertiary} letterSpacing="1" opacity="0.3" fontFamily="Arial, sans-serif">{tagText}</text>}
+    </svg>
+  );
+}
+
 // ── Setup Wizard ──────────────────────────────────────────────────────────────
 
 function SetupWizard({ onComplete }: { onComplete: (style: ThumbnailStyle) => void }) {
@@ -392,33 +586,25 @@ function Generator({ thumbnailStyle }: { thumbnailStyle: ThumbnailStyle }) {
                     </div>
                   </div>
 
-                  {/* CSS mockup */}
-                  <div
-                    className="w-full aspect-video mb-5 flex items-center justify-center border border-[#2a2a2a] relative overflow-hidden"
-                    style={{ background: concept.color_palette[0] ?? "#0a0a0a" }}
-                  >
-                    <div className="text-center px-4">
-                      <p className="font-bold text-xl sm:text-3xl tracking-wider mb-2" style={{ color: concept.color_palette[1] ?? "#ffffff" }}>
-                        {beatName.toUpperCase()}
-                      </p>
-                      <p className="text-xs tracking-widest opacity-70" style={{ color: concept.color_palette[2] ?? "#94a3b8" }}>
-                        {concept.style_name.toUpperCase()}
-                      </p>
-                    </div>
+                  {/* SVG Thumbnail Mockup */}
+                  <div className="w-full border border-[#2a2a2a] overflow-hidden mb-5">
+                    <ThumbnailMockup
+                      concept={concept}
+                      beatName={beatName}
+                      producerTag={thumbnailStyle.producer_tag}
+                      producerTagName={thumbnailStyle.producer_tag_name}
+                      idx={i}
+                    />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-4">
                     <div>
-                      <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Visual Brief</p>
-                      <p className="text-[#94a3b8] text-sm leading-relaxed">{concept.visual_brief}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Canva Instructions</p>
+                      <p className="text-xs text-[#475569] uppercase tracking-widest mb-2">How to Recreate in Canva</p>
                       <p className="text-[#94a3b8] text-sm leading-relaxed">{concept.canva_instructions}</p>
                     </div>
-                  </div>
-                  <div className="mt-4 border-l-2 border-[#1e1e1e] pl-3">
-                    <p className="text-xs text-[#4ade80]">Why it fits: <span className="text-[#64748b]">{concept.why_it_fits}</span></p>
+                    <div className="border-l-2 border-[#1e1e1e] pl-3">
+                      <p className="text-xs text-[#4ade80]">Why it works: <span className="text-[#64748b]">{concept.why_it_fits}</span></p>
+                    </div>
                   </div>
                 </div>
               ))}

@@ -66,11 +66,27 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const SUPPORTED_GENRES = [
+  "Boom Bap",
+  "Trap",
+  "Drill",
+  "Lo-fi",
+  "Afrobeats",
+  "Jersey Club",
+  "UK Drill",
+  "Pop Rap",
+  "R&B",
+  "Melodic Rap",
+];
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function TitleTesterPage() {
   const router = useRouter();
-  const [genre, setGenre] = useState<string>("");
+  const [profileGenre, setProfileGenre] = useState<string>("");
+  const [selectedGenre, setSelectedGenre] = useState<string>("");
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TitleResult | null>(null);
@@ -89,7 +105,10 @@ export default function TitleTesterPage() {
         supabase.from("title_tests").select("id, original_title, score, result, created_at").eq("producer_id", user.id).order("created_at", { ascending: false }).limit(5),
       ]);
 
-      if (profileRes.data?.genre) setGenre(profileRes.data.genre);
+      if (profileRes.data?.genre) {
+        setProfileGenre(profileRes.data.genre);
+        setSelectedGenre(profileRes.data.genre);
+      }
       if (testsRes.data) setRecentTests(testsRes.data as RecentTest[]);
     });
   }, [router]);
@@ -110,7 +129,7 @@ export default function TitleTesterPage() {
       const res = await fetch("/api/title-tester", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim() }),
+        body: JSON.stringify({ title: title.trim(), genre: selectedGenre }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Request failed");
@@ -142,6 +161,7 @@ export default function TitleTesterPage() {
   };
 
   const displayName = userEmail?.split("@")[0] ?? "Producer";
+  const genreChanged = selectedGenre !== profileGenre && profileGenre !== "";
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -156,7 +176,7 @@ export default function TitleTesterPage() {
           <span className="text-xs text-[#475569] hidden sm:block">Title Tester</span>
         </div>
         <div className="flex items-center gap-5">
-          <span className="text-xs text-[#94a3b8] hidden sm:block">{displayName}{genre ? ` · ${genre}` : ""}</span>
+          <span className="text-xs text-[#94a3b8] hidden sm:block">{displayName}{selectedGenre ? ` · ${selectedGenre}` : ""}</span>
           <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors hidden sm:block">Settings</Link>
           <button onClick={handleSignOut} className="text-xs text-[#94a3b8] hover:text-white transition-colors cursor-pointer">Sign out</button>
         </div>
@@ -172,11 +192,30 @@ export default function TitleTesterPage() {
 
         {/* Input */}
         <div className="border border-[#1a1a1a] p-7 mb-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div>
-              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-0.5">Genre</p>
-              <p className="text-white text-sm font-medium">{genre || "Not set — update your profile"}</p>
-            </div>
+          <div className="mb-5">
+            <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">
+              Genre
+            </label>
+            <select
+              value={selectedGenre}
+              onChange={(e) => setSelectedGenre(e.target.value)}
+              className="bg-[#111] border border-[#1e1e1e] text-white text-sm px-4 py-2.5 focus:outline-none focus:border-[#2a2a2a] cursor-pointer appearance-none pr-8"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center" }}
+            >
+              {!selectedGenre && <option value="">Not set</option>}
+              {SUPPORTED_GENRES.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+            {genreChanged ? (
+              <p className="text-xs text-[#475569] mt-1.5">
+                Testing as <span className="text-[#fbbf24]">{selectedGenre}</span> — your profile genre (<span className="text-[#94a3b8]">{profileGenre}</span>) stays unchanged.
+              </p>
+            ) : (
+              <p className="text-xs text-[#2a2a2a] mt-1.5">
+                Testing a different genre? Switch here — your profile genre stays unchanged.
+              </p>
+            )}
           </div>
 
           <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">

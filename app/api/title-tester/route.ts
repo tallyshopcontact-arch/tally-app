@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { title } = await req.json() as { title: string };
+  const { title, genre: genreOverride } = await req.json() as { title: string; genre?: string };
   if (!title?.trim()) return NextResponse.json({ error: "Title is required" }, { status: 400 });
 
   const [profileRes, channelRes] = await Promise.all([
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     supabase.from("channel_data").select("niche_data").eq("producer_id", user.id).order("year", { ascending: false }).order("month", { ascending: false }).limit(1).single(),
   ]);
 
-  const genre = profileRes.data?.genre ?? "hip hop";
+  const genre = genreOverride?.trim() || profileRes.data?.genre || "hip hop";
   const artists = [profileRes.data?.top_artist_1, profileRes.data?.top_artist_2, profileRes.data?.top_artist_3].filter(Boolean).join(", ") || "various artists";
   const nicheData: NicheVideo[] = channelRes.data?.niche_data ?? [];
   const topKeywords = extractKeywords(nicheData).slice(0, 10).map((k) => k.tag).join(", ") || `${genre} type beat, free type beat`;
