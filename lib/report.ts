@@ -40,6 +40,7 @@ export interface RisingArtist {
   name: string;
   growth: string;
   why: string;
+  youtube_url: string;
 }
 
 export interface AvoidPattern {
@@ -227,7 +228,8 @@ ${summary}
 
 Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
 Schema (2-3 items):
-[{"name":"Channel Name","growth":"e.g. 2 videos, 45K avg views","why":"2 sentences on why they are rising and what specifically is working"}]`,
+[{"name":"Channel Name","growth":"e.g. 2 videos, 45K avg views","why":"2 sentences on why they are rising and what specifically is working","youtube_url":"https://www.youtube.com/results?search_query=CHANNEL+NAME+type+beat"}]
+For youtube_url, replace CHANNEL+NAME with the actual channel name URL-encoded (spaces as +).`,
     600
   );
 
@@ -240,11 +242,13 @@ Schema (2-3 items):
     throw new Error("empty array");
   } catch {
     console.error("[TALLY:report] generateRisingArtists parse failed. raw:", raw);
+    const fallbackName = channels[0]?.name ?? "Unknown";
     return [
       {
-        name: channels[0]?.name ?? "Unknown",
+        name: fallbackName,
         growth: `${channels[0]?.videoCount ?? 1} video(s), ${(channels[0]?.avgViews ?? 0).toLocaleString()} avg views`,
         why: "This channel is the top performer in your niche this period based on average view count.",
+        youtube_url: `https://www.youtube.com/results?search_query=${fallbackName.split(" ").join("+")}+type+beat`,
       },
     ];
   }

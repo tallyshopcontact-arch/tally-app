@@ -64,7 +64,7 @@ interface ReportData {
   channel_summary: string;
   benchmark_insights: string;
   trending_breakdowns: Array<{ videoId: string; breakdown: string }>;
-  rising_artists: Array<{ name: string; growth: string; why: string }>;
+  rising_artists: Array<{ name: string; growth: string; why: string; youtube_url: string }>;
   what_to_avoid: Array<{ pattern: string; explanation: string; fix: string }>;
   action_plan: Array<{ action: string; priority: "High" | "Medium" | "Low"; why: string }>;
   upload_kits: Array<{ title: string; description: string; tags: string[]; thumbnail_brief: string }>;
@@ -711,9 +711,20 @@ function RisingArtistsTab({ report }: { report: ReportData | null }) {
                     </span>
                   )}
                 </div>
-                <p className="text-[#94a3b8] text-sm leading-relaxed">
+                <p className="text-[#94a3b8] text-sm leading-relaxed mb-3">
                   {artist.why}
                 </p>
+                {artist.youtube_url && (
+                  <a
+                    href={artist.youtube_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-[#60a5fa] hover:text-white transition-colors"
+                  >
+                    View Channel
+                    <ArrowUpRight className="w-3 h-3" />
+                  </a>
+                )}
               </div>
             </div>
           ))}
