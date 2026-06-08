@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
@@ -14,15 +14,10 @@ import {
   IconTrendingUp,
   IconRocket,
   IconTag,
-  IconPhoto,
   IconAlertTriangle,
   IconChecklist,
-  IconFileText,
   IconUsers,
-  IconEye,
-  IconPuzzle,
-  IconSearch,
-  IconChartLine,
+  IconGraph,
 } from "@tabler/icons-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -112,23 +107,12 @@ type Tab =
   | "top-videos"
   | "rising-artists"
   | "keywords"
-  | "thumbnails"
   | "avoid"
   | "action-plan"
-  | "upload-kit"
   | "competitors"
-  | "audience"
-  | "content-gaps"
-  | "seo-audit"
   | "growth-forecast";
 
-const SOON_TABS: ReadonlySet<Tab> = new Set([
-  "competitors",
-  "audience",
-  "content-gaps",
-  "seo-audit",
-  "growth-forecast",
-]);
+const SOON_TABS: ReadonlySet<Tab> = new Set(["competitors"]);
 
 type TablerIcon = React.ComponentType<{
   size?: number;
@@ -144,21 +128,16 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "overview",        label: "Overview",        Icon: IconLayoutDashboard },
-  { id: "snapshot",        label: "Snapshot",        Icon: IconChartBar },
-  { id: "benchmark",       label: "Benchmark",       Icon: IconTrophy },
-  { id: "top-videos",      label: "Top Videos",      Icon: IconTrendingUp },
-  { id: "rising-artists",  label: "Rising Artists",  Icon: IconRocket },
-  { id: "keywords",        label: "Keyword Map",     Icon: IconTag },
-  { id: "thumbnails",      label: "Thumbnails",      Icon: IconPhoto },
-  { id: "avoid",           label: "What to Avoid",   Icon: IconAlertTriangle },
-  { id: "action-plan",     label: "Action Plan",     Icon: IconChecklist },
-  { id: "upload-kit",      label: "Upload Kit",      Icon: IconFileText },
-  { id: "competitors",     label: "Competitors",     Icon: IconUsers,     soon: true },
-  { id: "audience",        label: "Audience",        Icon: IconEye,       soon: true },
-  { id: "content-gaps",    label: "Content Gaps",    Icon: IconPuzzle,    soon: true },
-  { id: "seo-audit",       label: "SEO Audit",       Icon: IconSearch,    soon: true },
-  { id: "growth-forecast", label: "Growth Forecast", Icon: IconChartLine, soon: true },
+  { id: "overview",        label: "Overview",           Icon: IconLayoutDashboard },
+  { id: "snapshot",        label: "Snapshot",           Icon: IconChartBar },
+  { id: "benchmark",       label: "Benchmark",          Icon: IconTrophy },
+  { id: "top-videos",      label: "Top Videos",         Icon: IconTrendingUp },
+  { id: "rising-artists",  label: "Rising Artists",     Icon: IconRocket },
+  { id: "keywords",        label: "Keyword Map",        Icon: IconTag },
+  { id: "avoid",           label: "What to Avoid",      Icon: IconAlertTriangle },
+  { id: "action-plan",     label: "Action Plan",        Icon: IconChecklist },
+  { id: "competitors",     label: "Competitor Tracker", Icon: IconUsers,  soon: true },
+  { id: "growth-forecast", label: "Growth Forecast",    Icon: IconGraph },
 ];
 
 // ── Tab components ────────────────────────────────────────────────────────────
@@ -824,59 +803,6 @@ function KeywordsTab({ channelData }: { channelData: ChannelData | null }) {
   );
 }
 
-function ThumbnailsTab({ report }: { report: ReportData | null }) {
-  const now = new Date();
-  const monthLabel = now.toLocaleString("default", {
-    month: "long",
-    year: "numeric",
-  });
-  const concepts =
-    report?.upload_kits?.filter((k) => k.thumbnail_brief).slice(0, 3) ?? [];
-
-  return (
-    <div>
-      <div className="mb-8">
-        <h2 className="text-xl font-bold mb-1">
-          Thumbnails — {monthLabel}
-        </h2>
-        <p className="text-[#94a3b8] text-sm">
-          AI-generated thumbnail concepts from your upload kits this month.
-        </p>
-      </div>
-
-      {concepts.length === 0 ? (
-        <div className="border border-[#1a1a1a] p-10 text-center">
-          <IconPhoto
-            size={28}
-            stroke={1.5}
-            className="text-[#475569] mx-auto mb-3"
-          />
-          <p className="text-white font-medium mb-1">
-            Thumbnail concepts will appear here
-          </p>
-          <p className="text-[#475569] text-sm max-w-xs mx-auto leading-relaxed">
-            Generate your Upload Kit to see AI-written thumbnail briefs for
-            your next 3 beats.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {concepts.map((kit, i) => (
-            <div key={i} className="border border-[#1a1a1a] p-6">
-              <p className="text-xs text-[#475569] uppercase tracking-widest mb-2">
-                Concept {i + 1}
-              </p>
-              <p className="text-white font-medium text-sm mb-3">{kit.title}</p>
-              <p className="text-[#94a3b8] text-sm leading-relaxed border-l-2 border-[#1e1e1e] pl-3">
-                {kit.thumbnail_brief}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function AvoidTab({ report }: { report: ReportData | null }) {
   const items = report?.what_to_avoid ?? [];
@@ -996,94 +922,186 @@ function ActionPlanTab({ report }: { report: ReportData | null }) {
   );
 }
 
-function UploadKitTab({ report }: { report: ReportData | null }) {
-  const now = new Date();
-  const monthLabel = now.toLocaleString("default", {
-    month: "long",
-    year: "numeric",
-  });
-  const kits = report?.upload_kits ?? [];
+function GrowthForecastTab() {
+  const supabase = createSupabaseBrowserClient();
+  const [loading, setLoading] = React.useState(true);
+  const [monthsOfData, setMonthsOfData] = React.useState(0);
+  const [forecast, setForecast] = React.useState<{
+    baseline: number[];
+    optimized: number[];
+    months: string[];
+    milestones: Array<{ month: string; event: string }>;
+    drivers: string[];
+    summary: string;
+  } | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { setLoading(false); return; }
+      const { data: rows } = await supabase
+        .from("channel_data")
+        .select("month, year, monthly_views, monthly_subscribers")
+        .eq("producer_id", user.id)
+        .order("year", { ascending: true })
+        .order("month", { ascending: true });
+
+      const count = rows?.length ?? 0;
+      setMonthsOfData(count);
+
+      if (count >= 3) {
+        try {
+          const res = await fetch("/api/report/growth-forecast", { method: "POST" });
+          const json = await res.json();
+          if (res.ok) setForecast(json);
+          else setError(json.error ?? "Failed to generate forecast");
+        } catch {
+          setError("Failed to generate forecast");
+        }
+      }
+      setLoading(false);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 text-[#94a3b8] text-sm border border-[#1a1a1a] px-5 py-4">
+        <div className="w-4 h-4 border border-[#475569] border-t-[#4ade80] rounded-full animate-spin shrink-0" />
+        Loading forecast data...
+      </div>
+    );
+  }
+
+  if (monthsOfData < 3) {
+    const previews = [
+      "3-month subscriber trajectory",
+      "Optimized vs baseline view projections",
+      "Key growth milestones",
+      "What's driving your momentum",
+    ];
+    return (
+      <div>
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-1">Growth Forecast</h2>
+          <p className="text-[#94a3b8] text-sm">
+            3 months of TALLY data required to generate your personalized forecast.
+          </p>
+        </div>
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <div className="w-12 h-12 bg-[#1a1a1a] border border-[#2a2a2a] flex items-center justify-center mx-auto mb-5">
+            <Lock className="w-5 h-5 text-[#475569]" />
+          </div>
+          <h3 className="text-lg font-bold mb-2">Your Growth Forecast unlocks after 3 months</h3>
+          <div className="flex items-center justify-center gap-2 mb-6">
+            {[1, 2, 3].map((m) => (
+              <div key={m} className="flex flex-col items-center gap-1.5">
+                <div className={`w-8 h-8 flex items-center justify-center text-xs font-bold border ${m <= monthsOfData ? "bg-white text-black border-white" : "border-[#2a2a2a] text-[#475569]"}`}>
+                  {m}
+                </div>
+                <span className="text-[10px] text-[#475569]">
+                  {m <= monthsOfData ? "Done" : "Month " + m}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[#475569] text-sm mb-6">Month {monthsOfData} of 3 complete</p>
+          <div className="text-left border border-[#1a1a1a] p-5 max-w-xs mx-auto">
+            <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Included in your forecast</p>
+            <ul className="space-y-2">
+              {previews.map((p) => (
+                <li key={p} className="flex items-center gap-2 text-[#475569] text-sm">
+                  <span className="w-1.5 h-1.5 bg-[#2a2a2a] rounded-full shrink-0" />
+                  {p}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="border border-[#f87171]/30 px-5 py-4 text-[#f87171] text-sm">
+        {error}
+      </div>
+    );
+  }
+
+  if (!forecast) return null;
+
+  const maxVal = Math.max(...forecast.optimized, ...forecast.baseline, 1);
 
   return (
     <div>
       <div className="mb-8">
-        <h2 className="text-xl font-bold mb-1">Upload Kit — {monthLabel}</h2>
-        <p className="text-[#94a3b8] text-sm">
-          AI-generated ready-to-use upload packages built from this
-          month&apos;s niche data.
-        </p>
+        <h2 className="text-xl font-bold mb-1">Growth Forecast</h2>
+        <p className="text-[#94a3b8] text-sm">{forecast.summary}</p>
       </div>
 
-      {!report ? (
-        <div className="border border-[#1a1a1a] p-8 text-center">
-          <p className="text-[#475569] text-sm">
-            Upload kits will appear once the AI report is generated.
-          </p>
-        </div>
-      ) : kits.length === 0 ? (
-        <div className="border border-[#1a1a1a] p-8 text-center">
-          <p className="text-[#475569] text-sm">
-            No kits generated. Try refreshing your data to trigger a new
-            report.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-8">
-          {kits.map((kit, i) => (
-            <div key={i} className="space-y-3">
-              <p className="text-xs text-[#475569] uppercase tracking-widest">
-                Kit {i + 1}
-              </p>
-              <div className="border border-[#1a1a1a] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest">
-                    Title
-                  </p>
-                  <CopyButton text={kit.title} />
-                </div>
-                <p className="text-white font-medium">{kit.title}</p>
+      {/* Chart */}
+      <div className="border border-[#1a1a1a] p-6 mb-4">
+        <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-6">3-Month View Projection</p>
+        <div className="flex items-end gap-4 h-40">
+          {forecast.months.map((month, i) => (
+            <div key={month} className="flex-1 flex flex-col items-center gap-1.5">
+              <div className="w-full flex gap-1 items-end h-32">
+                <div
+                  className="flex-1 bg-[#1a1a1a]"
+                  style={{ height: `${(forecast.baseline[i] / maxVal) * 100}%` }}
+                  title={`Baseline: ${formatNum(forecast.baseline[i])}`}
+                />
+                <div
+                  className="flex-1 bg-[#4ade80]"
+                  style={{ height: `${(forecast.optimized[i] / maxVal) * 100}%` }}
+                  title={`Optimized: ${formatNum(forecast.optimized[i])}`}
+                />
               </div>
-              <div className="border border-[#1a1a1a] p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest">
-                    Description
-                  </p>
-                  <CopyButton text={kit.description} />
-                </div>
-                <pre className="text-[#cbd5e1] text-sm leading-relaxed whitespace-pre-wrap font-sans">
-                  {kit.description}
-                </pre>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="border border-[#1a1a1a] p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-xs text-[#94a3b8] uppercase tracking-widest">
-                      Tags
-                    </p>
-                    <CopyButton text={kit.tags.join(", ")} />
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {kit.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-3 py-1.5"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="border border-[#1a1a1a] p-5">
-                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">
-                    Thumbnail Concept
-                  </p>
-                  <p className="text-[#cbd5e1] text-sm leading-relaxed">
-                    {kit.thumbnail_brief}
-                  </p>
-                </div>
-              </div>
+              <span className="text-[10px] text-[#475569]">{month}</span>
             </div>
           ))}
+        </div>
+        <div className="flex items-center gap-5 mt-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a]" />
+            <span className="text-xs text-[#475569]">Baseline</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 bg-[#4ade80]" />
+            <span className="text-xs text-[#475569]">Optimized</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Milestones */}
+      {forecast.milestones.length > 0 && (
+        <div className="border border-[#1a1a1a] p-6 mb-4">
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">Milestones</p>
+          <div className="space-y-3">
+            {forecast.milestones.map((m, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <span className="text-xs text-[#475569] w-16 shrink-0 pt-0.5">{m.month}</span>
+                <p className="text-[#94a3b8] text-sm">{m.event}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Drivers */}
+      {forecast.drivers.length > 0 && (
+        <div className="border border-[#1a1a1a] p-6">
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">What&apos;s Driving This</p>
+          <ul className="space-y-2">
+            {forecast.drivers.map((d, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm text-[#94a3b8]">
+                <span className="text-[#4ade80] mt-0.5 shrink-0">→</span>
+                {d}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
@@ -1540,10 +1558,9 @@ export default function ReportPage() {
             {tab === "keywords" && (
               <KeywordsTab channelData={channelData} />
             )}
-            {tab === "thumbnails" && <ThumbnailsTab report={report} />}
             {tab === "avoid" && <AvoidTab report={report} />}
             {tab === "action-plan" && <ActionPlanTab report={report} />}
-            {tab === "upload-kit" && <UploadKitTab report={report} />}
+            {tab === "growth-forecast" && <GrowthForecastTab />}
             {SOON_TABS.has(tab) && (
               <ComingSoonTab label={activeNavItem?.label ?? tab} />
             )}

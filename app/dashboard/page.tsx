@@ -6,8 +6,13 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { extractKeywords } from "@/lib/keywords";
 import type { NicheVideo } from "@/lib/keywords";
-import { IconChartBar, IconFileText } from "@tabler/icons-react";
-import { ArrowUpRight, RefreshCw } from "lucide-react";
+import {
+  IconChartBar,
+  IconFileText,
+  IconTag,
+  IconUsers,
+} from "@tabler/icons-react";
+import { ArrowUpRight, Image, RefreshCw, Type } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -98,6 +103,59 @@ export default function DashboardHome() {
     { label: "TALLY score", value: report ? report.tally_score.toString() : "—", color: report ? scoreColor(report.tally_score) : "" },
   ];
 
+  const tools: {
+    label: string;
+    description: string;
+    href: string;
+    icon: React.ReactNode;
+    iconColor: string;
+    stat?: string;
+    statLabel?: string;
+    cta: string;
+    ctaStyle: "primary" | "secondary";
+  }[] = [
+    {
+      label: "Monthly Report",
+      description: report ? `${monthLabel} report is ready` : loading ? "Loading..." : "Generating...",
+      href: "/dashboard/report",
+      icon: <IconChartBar size={18} stroke={1.5} className="text-[#60a5fa]" />,
+      iconColor: "text-[#60a5fa]",
+      stat: report && report.tally_score > 0 ? report.tally_score.toString() : undefined,
+      statLabel: "TALLY Score",
+      cta: "View Report",
+      ctaStyle: "primary",
+    },
+    {
+      label: "Upload Kit Generator",
+      description: "Generate your YouTube package for any beat",
+      href: "/dashboard/upload-kit",
+      icon: <IconFileText size={18} stroke={1.5} className="text-[#4ade80]" />,
+      iconColor: "text-[#4ade80]",
+      stat: loading ? "..." : kitsThisMonth.toString(),
+      statLabel: "kits this month",
+      cta: "Create Kit",
+      ctaStyle: "secondary",
+    },
+    {
+      label: "Title Tester",
+      description: "Score your YouTube titles for SEO and clicks",
+      href: "/dashboard/title-tester",
+      icon: <Type className="w-[18px] h-[18px] text-[#fbbf24]" />,
+      iconColor: "text-[#fbbf24]",
+      cta: "Test a Title",
+      ctaStyle: "secondary",
+    },
+    {
+      label: "Thumbnail Studio",
+      description: "AI thumbnail concepts built for your niche",
+      href: "/dashboard/thumbnail-studio",
+      icon: <Image className="w-[18px] h-[18px] text-[#f97316]" />,
+      iconColor: "text-[#f97316]",
+      cta: "Generate Concepts",
+      ctaStyle: "secondary",
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Header */}
@@ -125,77 +183,76 @@ export default function DashboardHome() {
           </h1>
         </div>
 
-        {/* Two cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
-          {/* Monthly Report card */}
-          <div className="border border-[#1a1a1a] p-7 flex flex-col bg-[#0a0a0a] hover:bg-[#0d0d0d] transition-colors">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 bg-[#111] border border-[#1e1e1e] flex items-center justify-center shrink-0">
-                <IconChartBar size={18} stroke={1.5} className="text-[#60a5fa]" />
+        {/* 2×2 tool grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+          {tools.map((tool) => (
+            <div key={tool.href} className="border border-[#1a1a1a] p-7 flex flex-col bg-[#0a0a0a] hover:bg-[#0d0d0d] transition-colors">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-9 h-9 bg-[#111] border border-[#1e1e1e] flex items-center justify-center shrink-0">
+                  {tool.icon}
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">{tool.label}</p>
+                  <p className="text-[#94a3b8] text-xs mt-0.5">{tool.description}</p>
+                </div>
               </div>
-              <div>
-                <p className="font-semibold text-sm">Monthly Report</p>
-                <p className="text-[#94a3b8] text-xs mt-0.5">
-                  {report ? `${monthLabel} report is ready` : loading ? "Loading..." : "Generating..."}
-                </p>
+
+              {tool.stat !== undefined ? (
+                <div className="mb-6">
+                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">{tool.statLabel}</p>
+                  <p className={`text-5xl font-bold ${tool.label === "Monthly Report" && report ? scoreColor(report.tally_score) : "text-white"}`}>
+                    {tool.stat}
+                    {tool.label === "Monthly Report" && report && (
+                      <span className="text-xl text-[#1e1e1e]">/100</span>
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <div className="mb-6">
+                  {loading ? (
+                    <div className="flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 text-[#475569] animate-spin" />
+                      <p className="text-[#475569] text-xs">Loading...</p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="mt-auto">
+                <Link
+                  href={tool.href}
+                  className={`flex items-center justify-center gap-2 w-full text-xs font-semibold py-3 transition-colors ${
+                    tool.ctaStyle === "primary"
+                      ? "bg-white text-black hover:bg-[#e8e8e8]"
+                      : "border border-white text-white hover:bg-white hover:text-black"
+                  }`}
+                >
+                  {tool.cta}
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </Link>
               </div>
             </div>
+          ))}
+        </div>
 
-            {report && report.tally_score > 0 ? (
-              <div className="mb-6">
-                <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">TALLY Score</p>
-                <p className={`text-5xl font-bold ${scoreColor(report.tally_score)}`}>
-                  {report.tally_score}
-                  <span className="text-xl text-[#1e1e1e]">/100</span>
-                </p>
-              </div>
-            ) : (
-              <div className="mb-6 flex items-center gap-2">
-                <RefreshCw className="w-3.5 h-3.5 text-[#475569] animate-spin" />
-                <p className="text-[#475569] text-xs">Generating your report...</p>
-              </div>
-            )}
-
-            <div className="mt-auto">
-              <Link
-                href="/dashboard/report"
-                className="flex items-center justify-center gap-2 w-full bg-white text-black text-xs font-semibold py-3 hover:bg-[#e8e8e8] transition-colors"
-              >
-                View Report
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </Link>
+        {/* Competitor Tracker — 5th card full width */}
+        <div className="border border-[#1a1a1a] p-7 flex flex-col sm:flex-row sm:items-center justify-between gap-5 bg-[#0a0a0a] hover:bg-[#0d0d0d] transition-colors mb-10">
+          <div className="flex items-center gap-4">
+            <div className="w-9 h-9 bg-[#111] border border-[#1e1e1e] flex items-center justify-center shrink-0">
+              <IconUsers size={18} stroke={1.5} className="text-[#a78bfa]" />
             </div>
-          </div>
-
-          {/* Upload Kit Generator card */}
-          <div className="border border-[#1a1a1a] p-7 flex flex-col bg-[#0a0a0a] hover:bg-[#0d0d0d] transition-colors">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 bg-[#111] border border-[#1e1e1e] flex items-center justify-center shrink-0">
-                <IconFileText size={18} stroke={1.5} className="text-[#4ade80]" />
-              </div>
-              <div>
-                <p className="font-semibold text-sm">Upload Kit Generator</p>
-                <p className="text-[#94a3b8] text-xs mt-0.5">Generate your YouTube package for any beat</p>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <p className={`text-5xl font-bold ${kitsThisMonth > 0 ? "text-white" : "text-[#1e1e1e]"}`}>
-                {loading ? "..." : kitsThisMonth}
-              </p>
-              <p className="text-[#94a3b8] text-xs mt-1">kits generated this month</p>
-            </div>
-
-            <div className="mt-auto">
-              <Link
-                href="/dashboard/upload-kit"
-                className="flex items-center justify-center gap-2 w-full border border-white text-white text-xs font-semibold py-3 hover:bg-white hover:text-black transition-colors"
-              >
-                Create Kit
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </Link>
+            <div>
+              <p className="font-semibold text-sm">Competitor Tracker</p>
+              <p className="text-[#94a3b8] text-xs mt-0.5">Track up to 5 competitor channels and compare stats</p>
             </div>
           </div>
+          <Link
+            href="/dashboard/competitors"
+            className="shrink-0 flex items-center justify-center gap-2 border border-white text-white text-xs font-semibold px-6 py-3 hover:bg-white hover:text-black transition-colors"
+          >
+            View Tracker
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
         {/* Stats row */}
@@ -210,15 +267,12 @@ export default function DashboardHome() {
 
         {/* Quick links */}
         <div className="mt-8 flex flex-wrap gap-4">
-          <Link href="/dashboard/upload-kit" className="text-xs text-[#94a3b8] hover:text-white transition-colors">
-            → Upload Kit Generator
-          </Link>
-          <Link href="/dashboard/report" className="text-xs text-[#94a3b8] hover:text-white transition-colors">
-            → Monthly Report
-          </Link>
-          <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors">
-            → Settings
-          </Link>
+          <Link href="/dashboard/report" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Monthly Report</Link>
+          <Link href="/dashboard/upload-kit" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Upload Kit Generator</Link>
+          <Link href="/dashboard/title-tester" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Title Tester</Link>
+          <Link href="/dashboard/thumbnail-studio" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Thumbnail Studio</Link>
+          <Link href="/dashboard/competitors" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Competitor Tracker</Link>
+          <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Settings</Link>
         </div>
       </div>
     </div>
