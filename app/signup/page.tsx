@@ -34,6 +34,12 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+      if (!supabaseUrl) console.warn("[signup] NEXT_PUBLIC_SUPABASE_URL is not defined");
+      if (!supabaseKey) console.warn("[signup] NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is not defined");
+
       const supabase = createSupabaseBrowserClient();
 
       const { data, error: authError } = await supabase.auth.signUp({
@@ -79,8 +85,9 @@ export default function SignupPage() {
       router.push("/onboarding");
       router.refresh();
     } catch (err) {
-      console.error("Signup error:", err);
-      setError("Something went wrong. Please check your connection and try again.");
+      console.error("[signup] Caught error:", err);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message || "Something went wrong. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
