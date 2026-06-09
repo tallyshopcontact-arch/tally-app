@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import Link from "next/link";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface WaitlistEntry {
   id: string;
@@ -19,6 +21,29 @@ interface ProducerProfile {
   subscription_status: string;
   beta_access: boolean;
 }
+
+interface Prospect {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  channel_url: string;
+  subscriber_count: number | null;
+  latest_video_title: string | null;
+  latest_video_url: string | null;
+  latest_video_views: number | null;
+  genre: string | null;
+  email: string | null;
+  instagram_handle: string | null;
+  contact_method: string | null;
+  personalized_message: string | null;
+  message_type: string | null;
+  status: string;
+  found_at: string;
+  contacted_at: string | null;
+  notes: string | null;
+}
+
+type Tab = "waitlist" | "beta" | "prospects";
 
 // ── Login gate ────────────────────────────────────────────────────────────────
 
@@ -59,15 +84,12 @@ function LoginGate({
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
-        <Link
-          href="/"
-          className="block text-sm font-bold tracking-[0.25em] mb-12"
-        >
+        <Link href="/" className="block text-sm font-bold tracking-[0.25em] mb-12">
           TALLY
         </Link>
         <h1 className="text-2xl font-bold mb-2">Admin</h1>
         <p className="text-[#94a3b8] text-sm mb-8">
-          Enter the admin password to view waitlist signups.
+          Enter the admin password to continue.
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <input
@@ -95,6 +117,676 @@ function LoginGate({
   );
 }
 
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    pending: "text-[#94a3b8] bg-[#94a3b8]/10",
+    approved: "text-[#4ade80] bg-[#4ade80]/10",
+    sent: "text-[#fbbf24] bg-[#fbbf24]/10",
+    responded: "text-[#a78bfa] bg-[#a78bfa]/10",
+    signed_up: "text-[#4ade80] bg-[#4ade80]/20",
+    rejected: "text-[#f87171] bg-[#f87171]/10",
+  };
+  return (
+    <span
+      className={`text-[10px] px-2 py-0.5 font-medium ${styles[status] ?? "text-[#94a3b8]"}`}
+    >
+      {status.replace("_", " ")}
+    </span>
+  );
+}
+
+// ── Waitlist section ──────────────────────────────────────────────────────────
+
+function WaitlistSection({
+  entries,
+  refreshing,
+  refreshError,
+  onRefresh,
+}: {
+  entries: WaitlistEntry[];
+  refreshing: boolean;
+  refreshError: string;
+  onRefresh: () => void;
+}) {
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+
+  return (
+    <div>
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h2 className="text-xl font-bold mb-1">Waitlist Signups</h2>
+          <p className="text-[#94a3b8] text-sm">
+            {entries.length} {entries.length === 1 ? "signup" : "signups"} total
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          className="text-sm text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-4 py-2 hover:border-[#333] transition-colors disabled:opacity-40"
+        >
+          {refreshing ? "Refreshing..." : "Refresh"}
+        </button>
+      </div>
+
+      {refreshError && (
+        <p className="text-red-400 text-sm mb-6">{refreshError}</p>
+      )}
+
+      {entries.length === 0 ? (
+        <div className="border border-[#1a1a1a] p-16 text-center">
+          <p className="text-[#94a3b8] text-sm">No signups yet.</p>
+        </div>
+      ) : (
+        <div className="border border-[#1a1a1a] overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
+            <thead>
+              <tr className="border-b border-[#1a1a1a]">
+                {["Name", "Email", "Genre", "YouTube Channel", "Date Signed Up"].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-5 py-4 font-medium"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr
+                  key={entry.id}
+                  className="border-b border-[#1a1a1a] last:border-0 hover:bg-[#111] transition-colors"
+                >
+                  <td className="px-5 py-4 text-white font-medium">{entry.name}</td>
+                  <td className="px-5 py-4 text-[#94a3b8]">{entry.email}</td>
+                  <td className="px-5 py-4 text-[#94a3b8]">{entry.genre}</td>
+                  <td className="px-5 py-4 max-w-[220px]">
+                    <a
+                      href={entry.youtube_channel}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#94a3b8] hover:text-white transition-colors truncate block"
+                      title={entry.youtube_channel}
+                    >
+                      {entry.youtube_channel}
+                    </a>
+                  </td>
+                  <td className="px-5 py-4 text-[#94a3b8] whitespace-nowrap">
+                    {formatDate(entry.created_at)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Beta access section ───────────────────────────────────────────────────────
+
+function BetaSection({
+  producers,
+  loading,
+  betaAction,
+  onRefresh,
+  onToggle,
+}: {
+  producers: ProducerProfile[];
+  loading: boolean;
+  betaAction: string | null;
+  onRefresh: () => void;
+  onToggle: (id: string, grant: boolean) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold mb-1">Beta Access</h2>
+          <p className="text-[#94a3b8] text-sm">
+            Grant or revoke free access for beta producers.
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="text-sm text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-4 py-2 hover:border-[#333] transition-colors disabled:opacity-40"
+        >
+          {loading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
+        </div>
+      ) : producers.length === 0 ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <p className="text-[#94a3b8] text-sm">No producers found.</p>
+        </div>
+      ) : (
+        <div className="border border-[#1a1a1a] overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead>
+              <tr className="border-b border-[#1a1a1a]">
+                {["Name", "Email", "Status", "Beta Access", "Action"].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-5 py-4 font-medium"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {producers.map((p) => (
+                <tr
+                  key={p.id}
+                  className="border-b border-[#1a1a1a] last:border-0 hover:bg-[#111] transition-colors"
+                >
+                  <td className="px-5 py-4 text-white font-medium">{p.name || "—"}</td>
+                  <td className="px-5 py-4 text-[#94a3b8]">{p.email}</td>
+                  <td className="px-5 py-4 text-[#94a3b8]">{p.subscription_status}</td>
+                  <td className="px-5 py-4">
+                    {p.beta_access ? (
+                      <span className="text-xs text-[#a78bfa] font-semibold">Beta</span>
+                    ) : (
+                      <span className="text-xs text-[#475569]">None</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-4">
+                    {p.beta_access ? (
+                      <button
+                        onClick={() => onToggle(p.id, false)}
+                        disabled={betaAction === p.id}
+                        className="text-xs text-[#f87171] hover:text-white border border-[#f87171]/30 px-3 py-1 hover:border-[#f87171] transition-colors disabled:opacity-40"
+                      >
+                        {betaAction === p.id ? "…" : "Revoke"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onToggle(p.id, true)}
+                        disabled={betaAction === p.id}
+                        className="text-xs text-[#4ade80] hover:text-white border border-[#4ade80]/30 px-3 py-1 hover:border-[#4ade80] transition-colors disabled:opacity-40"
+                      >
+                        {betaAction === p.id ? "…" : "Grant"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Producer finder section ───────────────────────────────────────────────────
+
+const GENRES = [
+  "Trap",
+  "Drill",
+  "Boom Bap",
+  "Lo-Fi",
+  "R&B",
+  "Pop",
+  "Afrobeats",
+  "Reggaeton",
+  "UK Drill",
+  "Jersey Club",
+];
+
+const STATUS_TABS = [
+  "all",
+  "pending",
+  "approved",
+  "sent",
+  "responded",
+  "signed_up",
+  "rejected",
+] as const;
+
+type StatusTab = (typeof STATUS_TABS)[number];
+
+function ProspectFinderSection({ password }: { password: string }) {
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([
+    "Trap",
+    "Drill",
+  ]);
+  const [finding, setFinding] = useState(false);
+  const [findError, setFindError] = useState("");
+  const [findResult, setFindResult] = useState<string | null>(null);
+
+  const [prospects, setProspects] = useState<Prospect[]>([]);
+  const [loadingProspects, setLoadingProspects] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<StatusTab>("all");
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editMessage, setEditMessage] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
+
+  const loadProspects = useCallback(async () => {
+    setLoadingProspects(true);
+    try {
+      const res = await fetch("/api/admin/prospects", {
+        headers: { "x-admin-password": password },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProspects(data.prospects ?? []);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingProspects(false);
+    }
+  }, [password]);
+
+  useEffect(() => {
+    loadProspects();
+  }, [loadProspects]);
+
+  const handleFind = async () => {
+    if (selectedGenres.length === 0) return;
+    setFinding(true);
+    setFindError("");
+    setFindResult(null);
+    try {
+      const res = await fetch("/api/admin/find-producers", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": password,
+        },
+        body: JSON.stringify({ genres: selectedGenres, maxResults: 30 }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFindResult(
+          data.count > 0
+            ? `Found ${data.count} new prospect${data.count === 1 ? "" : "s"}`
+            : "No new prospects found (all channels already tracked)"
+        );
+        await loadProspects();
+      } else {
+        setFindError(data.error ?? "Failed to find producers");
+      }
+    } catch {
+      setFindError("Network error");
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  const updateProspect = async (
+    id: string,
+    updates: Record<string, string | null>
+  ) => {
+    setActionId(id);
+    try {
+      const res = await fetch("/api/admin/prospects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": password,
+        },
+        body: JSON.stringify({ id, ...updates }),
+      });
+      if (res.ok) await loadProspects();
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const toggleGenre = (g: string) =>
+    setSelectedGenres((prev) =>
+      prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g]
+    );
+
+  const stats = {
+    all: prospects.length,
+    pending: prospects.filter((p) => p.status === "pending").length,
+    approved: prospects.filter((p) => p.status === "approved").length,
+    sent: prospects.filter((p) => p.status === "sent").length,
+    responded: prospects.filter((p) => p.status === "responded").length,
+    signed_up: prospects.filter((p) => p.status === "signed_up").length,
+    rejected: prospects.filter((p) => p.status === "rejected").length,
+  };
+
+  const filtered =
+    statusFilter === "all"
+      ? prospects
+      : prospects.filter((p) => p.status === statusFilter);
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="mb-8">
+        <h2 className="text-xl font-bold mb-1">Producer Finder</h2>
+        <p className="text-[#94a3b8] text-sm">
+          Search YouTube for beat producers (200–5,000 subs) and generate personalized outreach.
+        </p>
+      </div>
+
+      {/* Genre selector */}
+      <div className="mb-5">
+        <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">
+          Genres
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {GENRES.map((g) => (
+            <button
+              key={g}
+              onClick={() => toggleGenre(g)}
+              className={`text-xs px-3 py-1.5 border transition-colors ${
+                selectedGenres.includes(g)
+                  ? "bg-white text-black border-white"
+                  : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
+              }`}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Find button */}
+      <div className="flex items-center gap-4 mb-8">
+        <button
+          onClick={handleFind}
+          disabled={finding || selectedGenres.length === 0}
+          className="text-sm font-semibold bg-white text-black px-6 py-2.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors"
+        >
+          {finding ? "Searching YouTube..." : "Find Producers"}
+        </button>
+        {findResult && (
+          <p className="text-sm text-[#4ade80]">{findResult}</p>
+        )}
+        {findError && (
+          <p className="text-sm text-[#f87171]">{findError}</p>
+        )}
+      </div>
+
+      {/* Stats bar */}
+      <div className="grid grid-cols-4 md:grid-cols-7 gap-px bg-[#1a1a1a] mb-6">
+        {STATUS_TABS.map((key) => (
+          <div key={key} className="bg-[#0a0a0a] px-4 py-3 text-center">
+            <p className="text-lg font-bold">{stats[key]}</p>
+            <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest">
+              {key.replace("_", " ")}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Status filter tabs */}
+      <div className="flex gap-1 mb-4 flex-wrap border-b border-[#1a1a1a] pb-3">
+        {STATUS_TABS.map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={`text-xs px-3 py-1.5 transition-colors ${
+              statusFilter === s
+                ? "bg-[#1a1a1a] text-white"
+                : "text-[#94a3b8] hover:text-white"
+            }`}
+          >
+            {s === "all"
+              ? `All (${stats.all})`
+              : `${s.replace("_", " ")} (${stats[s]})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Prospects table */}
+      {loadingProspects ? (
+        <div className="border border-[#1a1a1a] p-8 text-center">
+          <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="border border-[#1a1a1a] p-12 text-center">
+          <p className="text-[#94a3b8] text-sm">
+            {prospects.length === 0
+              ? 'No prospects yet. Select genres and click "Find Producers".'
+              : "No prospects in this status."}
+          </p>
+        </div>
+      ) : (
+        <div className="border border-[#1a1a1a] overflow-x-auto">
+          <table className="w-full text-sm min-w-[900px]">
+            <thead>
+              <tr className="border-b border-[#1a1a1a]">
+                {["Channel", "Subs", "Genre", "Contact", "Status", "Actions"].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-4 py-3 font-medium"
+                    >
+                      {h}
+                    </th>
+                  )
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p) => (
+                <Fragment key={p.id}>
+                  <tr className="border-b border-[#1a1a1a] hover:bg-[#111] transition-colors">
+                    <td className="px-4 py-3 max-w-[220px]">
+                      <a
+                        href={p.channel_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-white hover:text-[#94a3b8] font-medium transition-colors"
+                      >
+                        {p.channel_name}
+                      </a>
+                      {p.latest_video_title && (
+                        <p
+                          className="text-[10px] text-[#475569] mt-0.5 truncate"
+                          title={p.latest_video_title}
+                        >
+                          {p.latest_video_url ? (
+                            <a
+                              href={p.latest_video_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="hover:text-[#94a3b8] transition-colors"
+                            >
+                              {p.latest_video_title}
+                            </a>
+                          ) : (
+                            p.latest_video_title
+                          )}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-[#94a3b8] whitespace-nowrap">
+                      {p.subscriber_count?.toLocaleString() ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-[#94a3b8]">
+                      {p.genre ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.email ? (
+                        <span className="text-xs text-[#60a5fa]">{p.email}</span>
+                      ) : p.instagram_handle ? (
+                        <span className="text-xs text-[#c084fc]">
+                          @{p.instagram_handle}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[#475569]">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={p.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Edit message */}
+                        <button
+                          onClick={() => {
+                            if (editingId === p.id) {
+                              setEditingId(null);
+                            } else {
+                              setEditingId(p.id);
+                              setEditMessage(p.personalized_message ?? "");
+                            }
+                          }}
+                          className="text-[10px] text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-2 py-1 hover:border-[#333] transition-colors"
+                        >
+                          {editingId === p.id ? "Close" : "Edit"}
+                        </button>
+
+                        {/* Copy message */}
+                        {p.personalized_message && (
+                          <button
+                            onClick={() =>
+                              navigator.clipboard.writeText(
+                                p.personalized_message!
+                              )
+                            }
+                            className="text-[10px] text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-2 py-1 hover:border-[#333] transition-colors"
+                          >
+                            Copy
+                          </button>
+                        )}
+
+                        {/* Approve */}
+                        {p.status === "pending" && (
+                          <button
+                            onClick={() =>
+                              updateProspect(p.id, { status: "approved" })
+                            }
+                            disabled={actionId === p.id}
+                            className="text-[10px] text-[#4ade80] border border-[#4ade80]/30 px-2 py-1 hover:border-[#4ade80] hover:text-white transition-colors disabled:opacity-40"
+                          >
+                            Approve
+                          </button>
+                        )}
+
+                        {/* Mark Sent */}
+                        {p.status === "approved" && (
+                          <button
+                            onClick={() =>
+                              updateProspect(p.id, {
+                                status: "sent",
+                                contacted_at: new Date().toISOString(),
+                              })
+                            }
+                            disabled={actionId === p.id}
+                            className="text-[10px] text-[#fbbf24] border border-[#fbbf24]/30 px-2 py-1 hover:border-[#fbbf24] hover:text-white transition-colors disabled:opacity-40"
+                          >
+                            Sent
+                          </button>
+                        )}
+
+                        {/* Mark Responded */}
+                        {p.status === "sent" && (
+                          <button
+                            onClick={() =>
+                              updateProspect(p.id, { status: "responded" })
+                            }
+                            disabled={actionId === p.id}
+                            className="text-[10px] text-[#a78bfa] border border-[#a78bfa]/30 px-2 py-1 hover:border-[#a78bfa] hover:text-white transition-colors disabled:opacity-40"
+                          >
+                            Responded
+                          </button>
+                        )}
+
+                        {/* Mark Signed Up */}
+                        {!["signed_up", "rejected"].includes(p.status) && (
+                          <button
+                            onClick={() =>
+                              updateProspect(p.id, { status: "signed_up" })
+                            }
+                            disabled={actionId === p.id}
+                            className="text-[10px] text-[#4ade80] border border-[#4ade80]/30 px-2 py-1 hover:border-[#4ade80] hover:text-white transition-colors disabled:opacity-40"
+                          >
+                            Signed Up
+                          </button>
+                        )}
+
+                        {/* Reject */}
+                        {!["rejected", "signed_up"].includes(p.status) && (
+                          <button
+                            onClick={() =>
+                              updateProspect(p.id, { status: "rejected" })
+                            }
+                            disabled={actionId === p.id}
+                            className="text-[10px] text-[#f87171] border border-[#f87171]/30 px-2 py-1 hover:border-[#f87171] hover:text-white transition-colors disabled:opacity-40"
+                          >
+                            Reject
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Inline message editor */}
+                  {editingId === p.id && (
+                    <tr className="border-b border-[#1a1a1a] bg-[#0d0d0d]">
+                      <td colSpan={6} className="px-4 py-4">
+                        <div className="space-y-3 max-w-2xl">
+                          <p className="text-xs text-[#94a3b8] uppercase tracking-widest">
+                            Outreach Message
+                            {p.message_type ? ` · ${p.message_type}` : ""}
+                          </p>
+                          <textarea
+                            value={editMessage}
+                            onChange={(e) => setEditMessage(e.target.value)}
+                            rows={6}
+                            className="w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors resize-none"
+                            placeholder="No message generated yet."
+                          />
+                          <div className="flex gap-3">
+                            <button
+                              onClick={async () => {
+                                setSavingId(p.id);
+                                await updateProspect(p.id, {
+                                  personalized_message: editMessage,
+                                });
+                                setSavingId(null);
+                                setEditingId(null);
+                              }}
+                              disabled={savingId === p.id}
+                              className="text-xs bg-white text-black px-4 py-2 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors"
+                            >
+                              {savingId === p.id ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              onClick={() => setEditingId(null)}
+                              className="text-xs text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-4 py-2 hover:border-[#333] transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Admin dashboard ───────────────────────────────────────────────────────────
 
 function AdminDashboard({
@@ -106,6 +798,7 @@ function AdminDashboard({
   password: string;
   onSignOut: () => void;
 }) {
+  const [tab, setTab] = useState<Tab>("waitlist");
   const [entries, setEntries] = useState<WaitlistEntry[]>(initialEntries);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
@@ -130,14 +823,19 @@ function AdminDashboard({
     }
   }, [password]);
 
-  useEffect(() => { loadProducers(); }, [loadProducers]);
+  useEffect(() => {
+    loadProducers();
+  }, [loadProducers]);
 
   const toggleBeta = async (producerId: string, grant: boolean) => {
     setBetaAction(producerId);
     try {
       await fetch("/api/admin/beta", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-password": password },
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": password,
+        },
         body: JSON.stringify({ producer_id: producerId, beta_access: grant }),
       });
       await loadProducers();
@@ -146,7 +844,7 @@ function AdminDashboard({
     }
   };
 
-  const refresh = async () => {
+  const refreshWaitlist = async () => {
     setRefreshing(true);
     setRefreshError("");
     try {
@@ -163,25 +861,21 @@ function AdminDashboard({
     }
   };
 
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+  const TABS: { key: Tab; label: string }[] = [
+    { key: "waitlist", label: "Waitlist" },
+    { key: "beta", label: "Beta Access" },
+    { key: "prospects", label: "Producer Finder" },
+  ];
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* Nav */}
       <nav className="border-b border-[#1a1a1a] px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <Link href="/" className="text-sm font-bold tracking-[0.25em]">
             TALLY
           </Link>
           <div className="flex items-center gap-6">
-            <span className="text-xs text-[#94a3b8] hidden sm:block">
-              Admin · Waitlist
-            </span>
+            <span className="text-xs text-[#94a3b8] hidden sm:block">Admin</span>
             <button
               onClick={onSignOut}
               className="text-sm text-[#94a3b8] hover:text-white transition-colors"
@@ -193,159 +887,45 @@ function AdminDashboard({
       </nav>
 
       <div className="max-w-6xl mx-auto px-6 py-10">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-bold mb-1">Waitlist Signups</h1>
-            <p className="text-[#94a3b8] text-sm">
-              {entries.length} {entries.length === 1 ? "signup" : "signups"} total
-            </p>
-          </div>
-          <button
-            onClick={refresh}
-            disabled={refreshing}
-            className="text-sm text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-4 py-2 hover:border-[#333] transition-colors disabled:opacity-40"
-          >
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-
-        {refreshError && (
-          <p className="text-red-400 text-sm mb-6">{refreshError}</p>
-        )}
-
-        {entries.length === 0 ? (
-          <div className="border border-[#1a1a1a] p-16 text-center">
-            <p className="text-[#94a3b8] text-sm">No signups yet.</p>
-          </div>
-        ) : (
-          <div className="border border-[#1a1a1a] overflow-x-auto">
-            <table className="w-full text-sm min-w-[760px]">
-              <thead>
-                <tr className="border-b border-[#1a1a1a]">
-                  {[
-                    "Name",
-                    "Email",
-                    "Genre",
-                    "YouTube Channel",
-                    "Date Signed Up",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-5 py-4 font-medium"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="border-b border-[#1a1a1a] last:border-0 hover:bg-[#111] transition-colors"
-                  >
-                    <td className="px-5 py-4 text-white font-medium">
-                      {entry.name}
-                    </td>
-                    <td className="px-5 py-4 text-[#94a3b8]">{entry.email}</td>
-                    <td className="px-5 py-4 text-[#94a3b8]">{entry.genre}</td>
-                    <td className="px-5 py-4 max-w-[220px]">
-                      <a
-                        href={entry.youtube_channel}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[#94a3b8] hover:text-white transition-colors truncate block"
-                        title={entry.youtube_channel}
-                      >
-                        {entry.youtube_channel}
-                      </a>
-                    </td>
-                    <td className="px-5 py-4 text-[#94a3b8] whitespace-nowrap">
-                      {formatDate(entry.created_at)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Beta Access */}
-        <div className="mt-16">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-lg font-bold mb-1">Beta Access</h2>
-              <p className="text-[#94a3b8] text-sm">Grant or revoke free access for beta producers.</p>
-            </div>
+        {/* Tab nav */}
+        <div className="flex gap-6 border-b border-[#1a1a1a] mb-10">
+          {TABS.map(({ key, label }) => (
             <button
-              onClick={loadProducers}
-              disabled={producersLoading}
-              className="text-sm text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-4 py-2 hover:border-[#333] transition-colors disabled:opacity-40"
+              key={key}
+              onClick={() => setTab(key)}
+              className={`text-sm pb-3 border-b-2 transition-colors -mb-px ${
+                tab === key
+                  ? "border-white text-white font-semibold"
+                  : "border-transparent text-[#94a3b8] hover:text-white"
+              }`}
             >
-              {producersLoading ? "Loading..." : "Refresh"}
+              {label}
             </button>
-          </div>
-
-          {producersLoading ? (
-            <div className="border border-[#1a1a1a] p-8 text-center">
-              <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
-            </div>
-          ) : producers.length === 0 ? (
-            <div className="border border-[#1a1a1a] p-8 text-center">
-              <p className="text-[#94a3b8] text-sm">No producers found.</p>
-            </div>
-          ) : (
-            <div className="border border-[#1a1a1a] overflow-x-auto">
-              <table className="w-full text-sm min-w-[600px]">
-                <thead>
-                  <tr className="border-b border-[#1a1a1a]">
-                    {["Name", "Email", "Status", "Beta Access", "Action"].map((h) => (
-                      <th key={h} className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-5 py-4 font-medium">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {producers.map((p) => (
-                    <tr key={p.id} className="border-b border-[#1a1a1a] last:border-0 hover:bg-[#111] transition-colors">
-                      <td className="px-5 py-4 text-white font-medium">{p.name || "—"}</td>
-                      <td className="px-5 py-4 text-[#94a3b8]">{p.email}</td>
-                      <td className="px-5 py-4 text-[#94a3b8]">{p.subscription_status}</td>
-                      <td className="px-5 py-4">
-                        {p.beta_access ? (
-                          <span className="text-xs text-[#a78bfa] font-semibold">Beta</span>
-                        ) : (
-                          <span className="text-xs text-[#475569]">None</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4">
-                        {p.beta_access ? (
-                          <button
-                            onClick={() => toggleBeta(p.id, false)}
-                            disabled={betaAction === p.id}
-                            className="text-xs text-[#f87171] hover:text-white border border-[#f87171]/30 px-3 py-1 hover:border-[#f87171] transition-colors disabled:opacity-40"
-                          >
-                            {betaAction === p.id ? "…" : "Revoke"}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => toggleBeta(p.id, true)}
-                            disabled={betaAction === p.id}
-                            className="text-xs text-[#4ade80] hover:text-white border border-[#4ade80]/30 px-3 py-1 hover:border-[#4ade80] transition-colors disabled:opacity-40"
-                          >
-                            {betaAction === p.id ? "…" : "Grant"}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          ))}
         </div>
+
+        {tab === "waitlist" && (
+          <WaitlistSection
+            entries={entries}
+            refreshing={refreshing}
+            refreshError={refreshError}
+            onRefresh={refreshWaitlist}
+          />
+        )}
+
+        {tab === "beta" && (
+          <BetaSection
+            producers={producers}
+            loading={producersLoading}
+            betaAction={betaAction}
+            onRefresh={loadProducers}
+            onToggle={toggleBeta}
+          />
+        )}
+
+        {tab === "prospects" && (
+          <ProspectFinderSection password={password} />
+        )}
       </div>
     </div>
   );
