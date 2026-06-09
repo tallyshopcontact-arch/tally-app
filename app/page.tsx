@@ -63,12 +63,6 @@ const tools = [
 ];
 
 
-const testimonials = [
-  { initials: "JR", name: "JR Beats", genre: "Trap / Drill" },
-  { initials: "MK", name: "Melo Keys", genre: "Lo-fi / R&B" },
-  { initials: "DB", name: "DrumBoss", genre: "Boom Bap" },
-];
-
 const faqs = [
   {
     q: "Does this work for my genre?",
@@ -505,53 +499,6 @@ export default function HomePage() {
                 No credit card required. Cancel anytime.
               </p>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials */}
-      <section className="border-t border-[#1a1a1a] py-20">
-        <div className="max-w-5xl mx-auto px-6">
-          <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-4">
-            Reviews
-          </p>
-          <h2 className="text-3xl font-bold mb-12">
-            What producers
-            <br />
-            are saying.
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {testimonials.map(({ initials, name, genre }) => (
-              <div
-                key={name}
-                className="border border-[#1a1a1a] p-6 flex flex-col gap-4"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#141414] border border-[#1e1e1e] flex items-center justify-center text-xs font-bold text-[#64748b] shrink-0">
-                    {initials}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">{name}</p>
-                    <p className="text-[#64748b] text-xs">{genre}</p>
-                  </div>
-                </div>
-                <div className="flex gap-0.5">
-                  {[...Array(5)].map((_, i) => (
-                    <svg
-                      key={i}
-                      className="w-3.5 h-3.5 text-[#334155]"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                  ))}
-                </div>
-                <p className="text-[#475569] text-sm leading-relaxed italic">
-                  &ldquo;Be the first to leave a review for TALLY.&rdquo;
-                </p>
-              </div>
-            ))}
           </div>
         </div>
       </section>
