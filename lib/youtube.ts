@@ -285,6 +285,111 @@ export async function searchNicheVideos(
     .map(toNicheVideo);
 }
 
+// Artist-first thumbnail search: per-artist "type beat" searches first,
+// then genre+vibe fill-in to reach 5 results.
+export async function searchArtistFirstThumbnails(
+  artists: string[],
+  genre: string,
+  vibes: string[]
+): Promise<NicheVideo[]> {
+  const publishedAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const validArtists = artists.filter(Boolean).slice(0, 3);
+  const collected = new Map<string, boolean>(); // videoId → seen
+
+  // Step 1: per-artist search — top 2 results per artist
+  if (validArtists.length > 0) {
+    const artistIdGroups = await Promise.all(
+      validArtists.map(async (artist) => {
+        const q = encodeURIComponent(`${artist} type beat`);
+        const res = await fetch(
+          `${YT}/search?part=id&type=video&q=${q}&order=viewCount` +
+            `&publishedAfter=${publishedAfter}&maxResults=5&key=${KEY}`
+        );
+        const data = await res.json();
+        return ((data.items ?? []) as { id: { videoId: string } }[])
+          .slice(0, 2)
+          .map((i) => i.id.videoId);
+      })
+    );
+    for (const ids of artistIdGroups) {
+      for (const id of ids) collected.set(id, true);
+    }
+  }
+
+  // Step 2: genre + vibe fill-in if fewer than 5
+  if (collected.size < 5) {
+    const vibeStr = vibes.filter(Boolean).slice(0, 2).join(" ");
+    const q = encodeURIComponent(`${vibeStr ? vibeStr + " " : ""}${genre} type beat`.trim());
+    const res = await fetch(
+      `${YT}/search?part=id&type=video&q=${q}&order=viewCount` +
+        `&publishedAfter=${publishedAfter}&maxResults=15&key=${KEY}`
+    );
+    const data = await res.json();
+    for (const item of (data.items ?? []) as { id: { videoId: string } }[]) {
+      if (!collected.has(item.id.videoId)) collected.set(item.id.videoId, true);
+    }
+  }
+
+  const allIds = [...collected.keys()];
+  if (!allIds.length) return [];
+
+  // Fetch full details in chunks of 50
+  const chunks: string[][] = [];
+  for (let i = 0; i < allIds.length; i += 50) chunks.push(allIds.slice(i, i + 50));
+
+  const rawItems = (
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        const res = await fetch(
+          `${YT}/videos?part=snippet,statistics,contentDetails&id=${chunk.join(",")}&key=${KEY}`
+        );
+        const data = await res.json();
+        return data.items ?? [];
+      })
+    )
+  ).flat();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapped = (rawItems as any[]).map((v) => ({
+    videoId: v.id as string,
+    title: v.snippet.title as string,
+    channelName: v.snippet.channelTitle as string,
+    viewCount: parseInt(v.statistics?.viewCount ?? "0"),
+    tags: (v.snippet.tags ?? []) as string[],
+    publishedAt: v.snippet.publishedAt as string,
+    thumbnailUrl: (v.snippet.thumbnails?.high?.url ??
+      v.snippet.thumbnails?.default?.url ?? "") as string,
+    durationSecs: parseDurationSecs(v.contentDetails?.duration ?? ""),
+  }));
+
+  const isBeatContent = (title: string) => {
+    const t = title.toLowerCase();
+    return ALLOWLIST.some((kw) => t.includes(kw)) && !BLOCKLIST.some((kw) => t.includes(kw));
+  };
+
+  let results = mapped.filter(
+    (v) => isBeatContent(v.title) && v.durationSecs >= MIN_SECS && v.durationSecs <= MAX_SECS && v.viewCount >= 1000
+  );
+  if (results.length < 3) {
+    results = mapped.filter(
+      (v) => isBeatContent(v.title) && v.durationSecs >= MIN_SECS && v.durationSecs <= MAX_SECS && v.viewCount >= 500
+    );
+  }
+
+  return results
+    .sort((a, b) => b.viewCount - a.viewCount)
+    .slice(0, 5)
+    .map((v): NicheVideo => ({
+      videoId: v.videoId,
+      title: v.title,
+      channelName: v.channelName,
+      viewCount: v.viewCount,
+      tags: v.tags,
+      publishedAt: v.publishedAt,
+      thumbnailUrl: v.thumbnailUrl,
+    }));
+}
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 async function fetchVideoDetails(ids: string[]): Promise<VideoData[]> {

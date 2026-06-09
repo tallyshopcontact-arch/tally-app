@@ -8,11 +8,18 @@ import { ArrowUpRight, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface ScoreBreakdownItem {
+  category: string;
+  score: number;
+  max: number;
+}
+
 interface LastData {
   videos_this_month: number;
   top_video: { title: string; views: number; videoId: string } | null;
-  top_tags: string[];
   avg_views: number;
+  tally_score?: number;
+  score_breakdown?: ScoreBreakdownItem[];
   ai_insight?: string;
   pulled_at: string;
 }
@@ -42,6 +49,7 @@ export default function CompetitorsPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [producerAvgViews, setProducerAvgViews] = useState<number | null>(null);
+  const [producerTallyScore, setProducerTallyScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [urlInput, setUrlInput] = useState("");
   const [adding, setAdding] = useState(false);
@@ -55,9 +63,10 @@ export default function CompetitorsPage() {
     setUserEmail(user.email ?? null);
 
     const now = new Date();
-    const [compRes, channelRes] = await Promise.all([
+    const [compRes, channelRes, scoreRes] = await Promise.all([
       supabase.from("competitors").select("*").eq("producer_id", user.id).order("added_at", { ascending: true }),
       supabase.from("channel_data").select("monthly_views, monthly_videos").eq("producer_id", user.id).eq("month", now.getMonth() + 1).eq("year", now.getFullYear()).single(),
+      supabase.from("scores_history").select("score").eq("producer_id", user.id).order("year", { ascending: false }).order("month", { ascending: false }).limit(1).single(),
     ]);
 
     if (compRes.data) setCompetitors(compRes.data as Competitor[]);
@@ -65,6 +74,7 @@ export default function CompetitorsPage() {
     if (cd && cd.monthly_videos > 0) {
       setProducerAvgViews(Math.round(cd.monthly_views / cd.monthly_videos));
     }
+    if (scoreRes.data?.score) setProducerTallyScore(scoreRes.data.score);
     setLoading(false);
   }, [router]);
 
@@ -254,12 +264,25 @@ export default function CompetitorsPage() {
                           )}
                         </div>
                         <div className="bg-[#0a0a0a] px-4 py-4 col-span-2 sm:col-span-1">
-                          <p className="text-xs text-[#475569] uppercase tracking-widest mb-1">Top Tags</p>
-                          <div className="flex flex-wrap gap-1.5 mt-1">
-                            {ld.top_tags.length > 0 ? ld.top_tags.map((tag) => (
-                              <span key={tag} className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-2 py-0.5">{tag}</span>
-                            )) : <span className="text-xs text-[#475569]">No public tags found</span>}
-                          </div>
+                          <p className="text-xs text-[#475569] uppercase tracking-widest mb-1">TALLY Score</p>
+                          {ld.tally_score !== undefined ? (
+                            <>
+                              <p className={`text-2xl font-bold ${ld.tally_score >= 70 ? "text-[#4ade80]" : ld.tally_score >= 40 ? "text-[#fbbf24]" : "text-[#f87171]"}`}>
+                                {ld.tally_score}/100
+                              </p>
+                              {producerTallyScore !== null && (
+                                <p className={`text-xs mt-0.5 ${ld.tally_score > producerTallyScore ? "text-[#f87171]" : "text-[#4ade80]"}`}>
+                                  {ld.tally_score > producerTallyScore
+                                    ? `They score ${ld.tally_score - producerTallyScore} pts higher`
+                                    : ld.tally_score < producerTallyScore
+                                    ? `You score ${producerTallyScore - ld.tally_score} pts higher`
+                                    : "Tied with you"}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-xs text-[#475569] mt-1">Refresh to calculate</p>
+                          )}
                         </div>
                       </div>
 

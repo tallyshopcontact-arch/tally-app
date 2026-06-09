@@ -269,44 +269,6 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
         </div>
       </div>
 
-      {/* Thumbnail concepts */}
-      <div>
-        <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Thumbnail Concepts</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {kit.thumbnail_concepts.map((tc, i) => (
-            <div key={i} className="border border-[#1a1a1a] overflow-hidden">
-              {/* CSS mockup */}
-              <div
-                className="h-28 flex items-center justify-center text-center px-3 relative overflow-hidden"
-                style={{ background: i === 0 ? "#0d0d1a" : i === 1 ? "#1a0d0d" : "#0d1a0d" }}
-              >
-                <div
-                  className="absolute inset-0 opacity-10"
-                  style={{
-                    background: i === 0
-                      ? "radial-gradient(ellipse at 30% 40%, #6366f1 0%, transparent 60%)"
-                      : i === 1
-                      ? "radial-gradient(ellipse at 70% 30%, #ef4444 0%, transparent 60%)"
-                      : "radial-gradient(ellipse at 50% 50%, #22c55e 0%, transparent 60%)",
-                  }}
-                />
-                <p className="text-white text-xs font-bold leading-tight relative z-10 line-clamp-3">
-                  {tc.text_treatment}
-                </p>
-              </div>
-              <div className="p-4">
-                <p className="text-white text-xs font-semibold mb-1">{tc.style}</p>
-                <p className="text-[#94a3b8] text-xs leading-relaxed mb-2">{tc.background}</p>
-                {tc.color_palette && (
-                  <p className="text-[#64748b] text-xs mb-2">{tc.color_palette}</p>
-                )}
-                <p className="text-[#94a3b8] text-xs italic leading-relaxed">{tc.why_it_works}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Thumbnail inspiration from niche */}
       {kit.niche_thumbnails && kit.niche_thumbnails.length > 0 && (
         <ThumbnailInspiration

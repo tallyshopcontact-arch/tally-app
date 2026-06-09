@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
 import { extractKeywords } from "@/lib/keywords";
-import { searchNicheVideos } from "@/lib/youtube";
+import { searchArtistFirstThumbnails } from "@/lib/youtube";
 import { anthropic } from "@/lib/anthropic";
 import { scoreTitle } from "@/lib/title-scorer";
 import type { NicheVideo } from "@/lib/keywords";
@@ -83,6 +83,52 @@ Respond with ONLY valid JSON. No markdown.
   } catch (e) {
     console.error("[upload-kit/generate] thumbnail analysis failed:", e);
     return null;
+  }
+}
+
+async function generateStrongTitles(
+  beatName: string,
+  genre: string,
+  artists: string[],
+  keywords: string[]
+): Promise<Array<{ title: string; reason: string }>> {
+  const artistRef = artists.filter(Boolean).slice(0, 2).join(" x ") || genre;
+  const shortKws = keywords.filter((k) => k && k.split(" ").length <= 3).slice(0, 4);
+  const kwExamples = shortKws.length > 0 ? shortKws.join(", ") : `${genre} type beat`;
+  const beatRef = beatName ? `"${beatName}"` : '"Beat"';
+
+  const prompt = `Generate 3 YouTube titles for a ${genre} beat.
+
+ALL titles MUST score 75+ using this exact system:
+• Word count 9–12 = 25pts | 7–14 = 15pts | 5+ = 8pts
+• Beat name in double quotes (${beatRef}) = 20pts
+• Artist reference ("${artistRef}") = 20pts
+• 1 niche keyword (one of: ${kwExamples}) = 15pts; 2+ keywords = 25pts
+• Year 2026 present = 10pts
+
+Minimum path to 75+: word count 9–12 + artist + beat name in quotes + year = 75pts.
+Every space-separated token counts as a word (including "|", "x", "2026").
+
+Template A (9 words, 75pts): ${genre} Type Beat ${beatRef} | ${artistRef} 2026
+Template B (11 words, 85pts): Dark ${genre} Type Beat ${beatRef} | ${artistRef} | ${shortKws[0] ?? genre} 2026
+
+Respond ONLY with valid JSON array — no markdown:
+[{"title":"<title>","reason":"<why this scores 75+>"},{"title":"<title>","reason":"<reason>"},{"title":"<title>","reason":"<reason>"}]`;
+
+  try {
+    const msg = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 500,
+      system: "You are a YouTube SEO expert for beat producers. Output only a valid JSON array with no markdown or code blocks.",
+      messages: [{ role: "user", content: prompt }],
+    });
+    const raw = msg.content[0].type === "text" ? msg.content[0].text.trim() : "[]";
+    const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const parsed = JSON.parse(clean);
+    return Array.isArray(parsed) ? parsed.slice(0, 3) : [];
+  } catch (e) {
+    console.error("[upload-kit/generate] generateStrongTitles failed:", e);
+    return [];
   }
 }
 
@@ -241,11 +287,7 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
   "niche_tip": "One specific, actionable tip based on the niche data above — what is working right now in this exact niche"
 }`;
 
-  // Determine if we need to search for genre-specific thumbnail data
-  const profileGenre = profile?.genre ?? "";
-  const needsGenreSearch = !!profileGenre && resolvedGenre.toLowerCase() !== profileGenre.toLowerCase();
-
-  // Run Claude generation + genre thumbnail search concurrently
+  // Always use artist-first thumbnail search; run concurrently with Claude
   const [kitMsg, thumbnailNicheVideos] = await Promise.all([
     anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -254,20 +296,15 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
         "You are a YouTube SEO expert for beat producers. Output only valid JSON with no markdown or code blocks.",
       messages: [{ role: "user", content: prompt }],
     }),
-    needsGenreSearch
-      ? searchNicheVideos(resolvedGenre, artistsList).catch(() => nicheData)
-      : Promise.resolve(nicheData),
+    searchArtistFirstThumbnails(artistsList, resolvedGenre, vibes ?? []).catch(() => nicheData),
   ]);
 
-  const top5ForAnalysis = [...thumbnailNicheVideos]
-    .sort((a, b) => b.viewCount - a.viewCount)
-    .slice(0, 5)
-    .map((v) => ({
-      videoId: v.videoId,
-      title: v.title,
-      viewCount: v.viewCount,
-      thumbnailUrl: v.thumbnailUrl,
-    }));
+  const top5ForAnalysis = thumbnailNicheVideos.slice(0, 5).map((v) => ({
+    videoId: v.videoId,
+    title: v.title,
+    viewCount: v.viewCount,
+    thumbnailUrl: v.thumbnailUrl,
+  }));
 
   let generatedKit: Record<string, unknown>;
   try {
@@ -282,15 +319,44 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
   // Generate thumbnail analysis with genre + artists + vibes context
   const thumbnailAnalysis = await analyzeThumbnails(top5ForAnalysis, resolvedGenre, artistsList, vibes ?? []);
 
-  // Score each title with the shared deterministic scorer
+  // Score titles; retry with stronger prompt if none reaches 75 (max 3 attempts)
   const artistsForScoring = artistsList.length > 0
     ? artistsList
     : [profile?.top_artist_1, profile?.top_artist_2, profile?.top_artist_3].filter((a): a is string => !!a);
+
   if (Array.isArray(generatedKit.titles)) {
-    const scored = (generatedKit.titles as Array<{ title: string; reason: string }>).map(t => ({
+    let scored = (generatedKit.titles as Array<{ title: string; reason: string }>).map(t => ({
       ...t,
       ...scoreTitle(t.title, topKeywords, artistsForScoring),
     }));
+
+    let attempt = 1;
+    while (attempt < 3 && !scored.some(t => t.score >= 75)) {
+      console.log(`[upload-kit/generate] No title scored 75+ on attempt ${attempt}, retrying...`);
+      try {
+        const retryTitles = await generateStrongTitles(
+          beatNameStr || (generatedKit.beat_name_suggestion as string) || "Beat",
+          resolvedGenre,
+          artistsForScoring,
+          topKeywords
+        );
+        if (retryTitles.length > 0) {
+          const retryScored = retryTitles.map(t => ({ ...t, ...scoreTitle(t.title, topKeywords, artistsForScoring) }));
+          const currentMax = Math.max(...scored.map(t => t.score));
+          const retryMax = Math.max(...retryScored.map(t => t.score));
+          if (retryMax > currentMax) {
+            scored = retryScored;
+            console.log(`[upload-kit/generate] Retry ${attempt} improved max: ${currentMax} → ${retryMax}`);
+          } else {
+            console.log(`[upload-kit/generate] Retry ${attempt} did not improve: current=${currentMax}, retry=${retryMax}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[upload-kit/generate] Title retry ${attempt} failed:`, e);
+      }
+      attempt++;
+    }
+
     const maxScore = Math.max(...scored.map(t => t.score));
     let markedBest = false;
     generatedKit.titles = scored.map(t => {

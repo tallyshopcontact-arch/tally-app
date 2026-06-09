@@ -160,13 +160,14 @@ function OverviewTab({
     const supabase = createSupabaseBrowserClient();
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("scores_history")
         .select("month, year, score")
         .eq("producer_id", user.id)
         .order("year", { ascending: true })
         .order("month", { ascending: true })
         .limit(12);
+      console.log("[TALLY] scores_history:", data?.length ?? 0, "rows", error ? `error: ${error.message}` : "ok");
       if (data && data.length > 0) setScoreHistory(data);
     });
   }, []);
@@ -289,10 +290,16 @@ function OverviewTab({
       ) : null}
 
       {/* Score history chart */}
-      {chartData.length >= 1 && (
+      {chartData.length >= 1 ? (
         <div className="border border-[#1a1a1a] p-6">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-xs text-[#94a3b8] uppercase tracking-widest">TALLY Score History</p>
+            <div>
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">TALLY Score History</p>
+              <p className={`text-3xl font-bold ${scoreColor(chartData[chartData.length - 1].score)}`}>
+                {chartData[chartData.length - 1].score}
+                <span className="text-base text-[#475569] ml-1">/100</span>
+              </p>
+            </div>
             {chartData.length >= 2 && (
               <div className="flex items-center gap-1.5 text-xs">
                 {trend > 0 ? (
@@ -327,9 +334,13 @@ function OverviewTab({
           </ResponsiveContainer>
           {chartData.length === 1 && (
             <p className="text-xs text-[#475569] mt-3 text-center">
-              Your score history builds each month — keep uploading
+              Score history builds each month — keep generating your report
             </p>
           )}
+        </div>
+      ) : (
+        <div className="border border-[#1a1a1a] p-6 text-center">
+          <p className="text-[#475569] text-sm">Generate your report to see your score history</p>
         </div>
       )}
 
@@ -1180,12 +1191,14 @@ function GrowthForecastTab() {
   );
 }
 
-function CompetitorsTab() {
+function CompetitorsTab({ reportTallyScore }: { reportTallyScore: number | null }) {
+  interface ScoreBItem { category: string; score: number; max: number; }
   interface CompLastData {
     videos_this_month: number;
     avg_views: number;
     top_video: { title: string; views: number; videoId: string } | null;
-    top_tags: string[];
+    tally_score?: number;
+    score_breakdown?: ScoreBItem[];
     ai_insight?: string;
     pulled_at: string;
   }
@@ -1257,29 +1270,30 @@ function CompetitorsTab() {
 
       {/* Comparison table */}
       <div className="border border-[#1a1a1a] mb-6 overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[520px]">
           <thead>
             <tr className="border-b border-[#1a1a1a]">
               <th className="text-left px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Channel</th>
-              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Subscribers</th>
+              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">TALLY</th>
               <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Videos/Mo</th>
               <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Avg Views</th>
-              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">vs You</th>
+              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Score Gap</th>
             </tr>
           </thead>
           <tbody>
-            {producerAvgViews !== null && (
+            {reportTallyScore !== null && (
               <tr className="border-b border-[#1a1a1a] bg-[#0d0d0d]">
                 <td className="px-4 py-3 text-white font-semibold">You</td>
+                <td className="px-4 py-3 text-right font-bold text-white">{reportTallyScore}</td>
                 <td className="px-4 py-3 text-right text-[#94a3b8]">—</td>
-                <td className="px-4 py-3 text-right text-[#94a3b8]">—</td>
-                <td className="px-4 py-3 text-right text-white font-semibold">{formatNum(producerAvgViews)}</td>
+                <td className="px-4 py-3 text-right text-white font-semibold">{producerAvgViews !== null ? formatNum(producerAvgViews) : "—"}</td>
                 <td className="px-4 py-3 text-right text-[#475569]">—</td>
               </tr>
             )}
             {competitors.map((c) => {
               const avg = c.last_data?.avg_views ?? 0;
-              const diff = producerAvgViews !== null ? avg - producerAvgViews : null;
+              const compScore = c.last_data?.tally_score;
+              const scoreDiff = reportTallyScore !== null && compScore !== undefined ? compScore - reportTallyScore : null;
               return (
                 <tr key={c.id} className="border-b border-[#1a1a1a] last:border-0">
                   <td className="px-4 py-3">
@@ -1287,13 +1301,19 @@ function CompetitorsTab() {
                       {c.channel_name} <ArrowUpRight className="w-3 h-3 text-[#475569]" />
                     </a>
                   </td>
-                  <td className="px-4 py-3 text-right text-[#94a3b8]">{formatNum(c.subscriber_count)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {compScore !== undefined ? (
+                      <span className={`font-bold ${compScore >= 70 ? "text-[#4ade80]" : compScore >= 40 ? "text-[#fbbf24]" : "text-[#f87171]"}`}>
+                        {compScore}
+                      </span>
+                    ) : <span className="text-[#475569]">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-right text-[#94a3b8]">{c.last_data?.videos_this_month ?? "—"}</td>
                   <td className="px-4 py-3 text-right text-[#94a3b8]">{avg > 0 ? formatNum(avg) : "—"}</td>
                   <td className="px-4 py-3 text-right text-xs">
-                    {diff !== null && avg > 0 ? (
-                      <span className={diff > 0 ? "text-[#f87171]" : "text-[#4ade80]"}>
-                        {diff > 0 ? `+${formatNum(diff)}` : `-${formatNum(Math.abs(diff))}`}
+                    {scoreDiff !== null ? (
+                      <span className={scoreDiff > 0 ? "text-[#f87171]" : scoreDiff < 0 ? "text-[#4ade80]" : "text-[#475569]"}>
+                        {scoreDiff > 0 ? `+${scoreDiff} they lead` : scoreDiff < 0 ? `${Math.abs(scoreDiff)} you lead` : "tied"}
                       </span>
                     ) : <span className="text-[#475569]">—</span>}
                   </td>
@@ -1315,10 +1335,12 @@ function CompetitorsTab() {
               </a>
             </div>
             <p className="text-white text-sm leading-relaxed">{c.last_data!.ai_insight}</p>
-            {c.last_data?.top_tags && c.last_data.top_tags.length > 0 && (
+            {c.last_data?.score_breakdown && c.last_data.score_breakdown.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
-                {c.last_data.top_tags.map(tag => (
-                  <span key={tag} className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-2 py-0.5">{tag}</span>
+                {c.last_data.score_breakdown.map(b => (
+                  <span key={b.category} className={`text-[10px] px-2 py-0.5 border ${b.score >= b.max * 0.7 ? "border-[#1a3a1a] text-[#4ade80] bg-[#0a1a0a]" : "border-[#1a1a1a] text-[#475569]"}`}>
+                    {b.category} {b.score}/{b.max}
+                  </span>
                 ))}
               </div>
             )}
@@ -1781,7 +1803,7 @@ export default function ReportPage() {
             )}
             {tab === "avoid" && <AvoidTab report={report} />}
             {tab === "action-plan" && <ActionPlanTab report={report} />}
-            {tab === "competitors" && <CompetitorsTab />}
+            {tab === "competitors" && <CompetitorsTab reportTallyScore={report?.tally_score ?? null} />}
             {tab === "growth-forecast" && <GrowthForecastTab />}
             {SOON_TABS.has(tab) && (
               <ComingSoonTab label={activeNavItem?.label ?? tab} />

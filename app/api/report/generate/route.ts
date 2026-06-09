@@ -112,17 +112,21 @@ export async function POST(_req: NextRequest) {
     return NextResponse.json(report);
   }
 
-  // Record score in history table (best-effort — don't block response)
+  // Record score in history table
   if (tallyScore.total > 0) {
-    supabase
+    const { error: histError } = await supabase
       .from("scores_history")
       .upsert(
         { producer_id: user.id, month, year, score: tallyScore.total, score_breakdown: tallyScore.breakdown },
         { onConflict: "producer_id,month,year" }
-      )
-      .then(({ error }) => {
-        if (error) console.error("[report/generate] scores_history upsert error:", error.message);
-      });
+      );
+    if (histError) {
+      console.error("[report/generate] scores_history upsert error:", histError.message);
+    } else {
+      console.log(`[report/generate] scores_history saved: score=${tallyScore.total} for ${month}/${year}`);
+    }
+  } else {
+    console.log("[report/generate] skipping scores_history: tallyScore.total=0");
   }
 
   return NextResponse.json(saved);
