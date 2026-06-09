@@ -8,9 +8,21 @@ import { ArrowLeft, ArrowRight, Check, Copy, Lightbulb, Clock, Loader2 } from "l
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface TitleScoreBreakdown {
+  keyword_strength: number;
+  title_length: number;
+  artist_pairing: number;
+  beat_name: number;
+  year_present: number;
+}
+
 interface TitleOption {
   title: string;
   reason: string;
+  score?: number;
+  breakdown?: TitleScoreBreakdown;
+  tip?: string | null;
+  recommended?: boolean;
 }
 
 interface ThumbnailConcept {
@@ -166,22 +178,58 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
       <div>
         <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">3 Title Options</p>
         <div className="space-y-3">
-          {kit.titles.map((t, i) => (
-            <div key={i} className={`border p-5 ${i === 0 ? "border-white/20" : "border-[#1a1a1a]"}`}>
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  {i === 0 && (
-                    <span className="text-[10px] font-semibold tracking-widest uppercase text-[#4ade80] bg-[#0a1a0a] border border-[#1a3a1a] px-2 py-0.5 shrink-0">
-                      Best pick
-                    </span>
-                  )}
-                  <p className="font-semibold text-white leading-snug">{t.title}</p>
+          {kit.titles.map((t, i) => {
+            const sc = t.score;
+            const scoreBadgeClass = sc === undefined ? "" : sc >= 70 ? "text-[#4ade80] bg-[#0a1a0a] border-[#1a3a1a]" : sc >= 40 ? "text-[#fbbf24] bg-[#1a1500] border-[#2a2000]" : "text-[#f87171] bg-[#1a0a0a] border-[#3a1a1a]";
+            const BREAKDOWN_LABELS: Record<keyof TitleScoreBreakdown, string> = {
+              keyword_strength: "Keywords",
+              title_length: "Length",
+              artist_pairing: "Artist",
+              beat_name: "Beat Name",
+              year_present: "Year",
+            };
+            const BREAKDOWN_MAX: Record<keyof TitleScoreBreakdown, number> = {
+              keyword_strength: 25, title_length: 25, artist_pairing: 20, beat_name: 20, year_present: 10,
+            };
+            return (
+              <div key={i} className={`border p-5 ${t.recommended ? "border-white/20" : "border-[#1a1a1a]"}`}>
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {t.recommended && (
+                      <span className="text-[10px] font-semibold tracking-widest uppercase text-[#4ade80] bg-[#0a1a0a] border border-[#1a3a1a] px-2 py-0.5 shrink-0">
+                        Recommended
+                      </span>
+                    )}
+                    {sc !== undefined && (
+                      <span className={`text-[10px] font-bold border px-2 py-0.5 shrink-0 ${scoreBadgeClass}`}>
+                        {sc}/100
+                      </span>
+                    )}
+                    <p className="font-semibold text-white leading-snug">{t.title}</p>
+                  </div>
+                  <CopyBtn text={t.title} />
                 </div>
-                <CopyBtn text={t.title} />
+                <p className="text-[#94a3b8] text-xs leading-relaxed mb-3">{t.reason}</p>
+                {t.breakdown && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(t.breakdown) as Array<keyof TitleScoreBreakdown>).map(k => {
+                      const val = t.breakdown![k];
+                      const max = BREAKDOWN_MAX[k];
+                      const hit = val > 0;
+                      return (
+                        <span key={k} className={`text-[10px] px-2 py-0.5 border ${hit ? "border-[#1a3a1a] text-[#4ade80] bg-[#0a1a0a]" : "border-[#1a1a1a] text-[#475569]"}`}>
+                          {BREAKDOWN_LABELS[k]} {hit ? `+${val}/${max}` : `0/${max}`}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+                {t.tip && (
+                  <p className="text-xs text-[#fbbf24] mt-2">Tip: {t.tip}</p>
+                )}
               </div>
-              <p className="text-[#94a3b8] text-xs leading-relaxed">{t.reason}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

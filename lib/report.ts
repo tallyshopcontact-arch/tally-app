@@ -340,37 +340,61 @@ export async function generateActionPlan(
     channelData.monthly_videos > 0
       ? Math.round(channelData.monthly_views / channelData.monthly_videos)
       : 0;
-  const producerTitleWords = channelData.best_video_title?.split(" ").length ?? 0;
+  const producerTitleWords = channelData.best_video_title
+    ? channelData.best_video_title.trim().split(/\s+/).length
+    : 0;
   const topVideo = top10[0];
+  const bottomVideo = top10[top10.length - 1] ?? null;
   const artists = [profile.top_artist_1, profile.top_artist_2, profile.top_artist_3]
     .filter(Boolean)
     .join(", ") || "not specified";
 
+  // Top keywords NOT appearing in producer's best video title
+  const bestTitleLower = (channelData.best_video_title ?? "").toLowerCase();
+  const allKeywords = extractKeywords(nicheData).slice(0, 20).map((k) => k.tag);
+  const missingKeywords = allKeywords.filter((kw) => !bestTitleLower.includes(kw.toLowerCase())).slice(0, 3);
+
+  const viewGap = top10AvgViews - producerAvg;
+  const titleWordGap = top10AvgTitleWords - producerTitleWords;
+
   const raw = await ask(
-    `Generate 7 specific prioritized actions for ${profile.name ?? "this producer"} to take next month. Base every action on the real performance gaps shown in the data below.
+    `Generate 7 specific prioritized actions for ${profile.name ?? "this producer"} to take next month.
 
-Producer stats vs niche top-10 benchmarks (real YouTube API data):
-| Metric               | This Producer        | Niche Top-10 Avg     |
-|----------------------|----------------------|----------------------|
-| Avg views/video      | ${producerAvg.toLocaleString()}          | ${top10AvgViews.toLocaleString()}           |
-| Upload frequency     | ${channelData.monthly_videos} videos/month    | N/A (benchmark only) |
-| Title word count     | ${producerTitleWords} words              | ${top10AvgTitleWords} words               |
-| Tags per video       | (own channel unknown)| ${top10AvgTags} tags avg              |
+REAL PERFORMANCE DATA (YouTube API):
+| Metric               | ${profile.name ?? "This Producer"}           | Niche Top-10 Avg     |
+|----------------------|------------------------------|----------------------|
+| Avg views/video      | ${producerAvg.toLocaleString()} views         | ${top10AvgViews.toLocaleString()} views (+${viewGap > 0 ? viewGap.toLocaleString() : 0} gap) |
+| Videos this month    | ${channelData.monthly_videos} uploaded        | N/A                  |
+| Title word count     | ${producerTitleWords} words (best video)      | ${top10AvgTitleWords} words avg      |
+| Tags per video       | unknown                      | ${top10AvgTags} tags avg        |
 
-Additional context:
-- Channel: ${channelData.channel_name} (${profile.genre ?? "hip hop"} beats)
-- Target artists: ${artists}
-- Best video this month: "${channelData.best_video_title ?? "N/A"}"
-- Top niche video: "${topVideo?.title ?? "N/A"}" (${(topVideo?.viewCount ?? 0).toLocaleString()} views)
-- Niche overall avg views: ${nicheAvg.toLocaleString()}
+Key data points:
+- Channel: ${channelData.channel_name} · ${channelData.subscriber_count?.toLocaleString() ?? "?"} subscribers
+- Genre: ${profile.genre ?? "hip hop"} · Target artists: ${artists}
+- Producer's best video: "${channelData.best_video_title ?? "N/A"}" (${(channelData.best_video_views ?? 0).toLocaleString()} views)
+- Niche leader: "${topVideo?.title ?? "N/A"}" (${(topVideo?.viewCount ?? 0).toLocaleString()} views)
+- Niche weakest top-10: "${bottomVideo?.title ?? "N/A"}" (${(bottomVideo?.viewCount ?? 0).toLocaleString()} views)
+- Niche avg views: ${nicheAvg.toLocaleString()}
+- Top niche keywords NOT in producer's best title: ${missingKeywords.length > 0 ? missingKeywords.join(", ") : "all covered"}
 
-Each action must directly address a specific gap from the table above or a specific opportunity from the context. Do not give generic advice.
+CRITICAL — Write actions that look like the GOOD example, not the BAD example:
 
-Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation. Just the raw JSON array.
-Schema (exactly 7 items, High-priority items first):
-[{"action":"5-12 word specific action","priority":"High","why":"1-2 sentences on what to do exactly and why, citing their specific numbers"}]
+BAD (generic, useless): "Improve your title structure to get more views"
+GOOD (specific): "Add '${missingKeywords[0] ?? (profile.genre ?? "type beat")}' to your next 3 titles — this keyword appears in ${top10.filter(v => v.title.toLowerCase().includes((missingKeywords[0] ?? "").toLowerCase())).length} of the top-10 niche videos but not in your best title"
+
+BAD: "Upload more consistently"
+GOOD: "You uploaded ${channelData.monthly_videos} videos this month — top performers average ${Math.round(top10AvgViews / Math.max(producerAvg, 1))}x your views; match their ${top10AvgTitleWords}-word title structure"
+
+BAD: "Optimize your tags"
+GOOD: "Add ${top10AvgTags} tags per video (you have unknown; niche leaders use ${top10AvgTags}) — start with: ${allKeywords.slice(0, 4).join(", ")}"
+
+Every action MUST cite actual numbers from the data above. No generic advice.
+
+Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation.
+Schema (exactly 7 items, High-priority first):
+[{"action":"5-12 word specific action","priority":"High","why":"1-2 sentences citing specific numbers from the data"}]
 priority must be exactly "High", "Medium", or "Low".`,
-    800
+    900
   );
 
   console.log("[TALLY:report] generateActionPlan raw:", raw.slice(0, 400));

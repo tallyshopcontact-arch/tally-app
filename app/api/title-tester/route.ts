@@ -2,18 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
 import { anthropic } from "@/lib/anthropic";
 import { extractKeywords } from "@/lib/keywords";
+import { scoreTitle } from "@/lib/title-scorer";
 import type { NicheVideo } from "@/lib/keywords";
 
-interface TitleTestResult {
-  score: number;
+interface ClaudeAnalysis {
   verdict: string;
-  categories: {
-    keyword_strength: number;
-    title_length: number;
-    artist_pairing: number;
-    beat_name: number;
-    year_relevance: number;
-  };
   improvements: [string, string, string];
   rewrites: [string, string];
 }
@@ -36,51 +29,70 @@ export async function POST(req: NextRequest) {
   ]);
 
   const genre = genreOverride?.trim() || profileRes.data?.genre || "hip hop";
-  const artists = [profileRes.data?.top_artist_1, profileRes.data?.top_artist_2, profileRes.data?.top_artist_3].filter(Boolean).join(", ") || "various artists";
+  const artists = [profileRes.data?.top_artist_1, profileRes.data?.top_artist_2, profileRes.data?.top_artist_3].filter((a): a is string => !!a);
   const nicheData: NicheVideo[] = channelRes.data?.niche_data ?? [];
-  const topKeywords = extractKeywords(nicheData).slice(0, 10).map((k) => k.tag).join(", ") || `${genre} type beat, free type beat`;
+  const topKeywords = extractKeywords(nicheData).slice(0, 10).map((k) => k.tag);
 
-  const prompt = `You are a YouTube SEO expert for beat producers. Score this YouTube beat video title and give actionable feedback.
+  // Deterministic score
+  const { score, breakdown, tip } = scoreTitle(title.trim(), topKeywords, artists);
 
-Title to analyze: "${title}"
-Producer's genre: ${genre}
-Producer's target artists: ${artists}
-Hot keywords in their niche right now: ${topKeywords}
+  // Claude for verdict, improvements, rewrites only
+  const artistsStr = artists.join(", ") || "various artists";
+  const keywordsStr = topKeywords.join(", ") || `${genre} type beat, free type beat`;
 
-Score each category from 0–20 (total out of 100):
-- keyword_strength: Does the title include keywords that are ranking in this niche? Are they natural?
-- title_length: Is it the ideal 60–80 characters? Penalize under 40 or over 100.
-- artist_pairing: Is there a clear artist name or "type beat" pairing that matches the genre?
-- beat_name: Does the title include a unique beat name in quotes? This increases click-through.
-- year_relevance: Does it include the current year (2026) or timely language?
+  const prompt = `You are a YouTube SEO expert for beat producers. Analyze this title and give actionable feedback.
 
-Then write 3 specific improvement bullets — actionable, concrete, refer to the actual title words.
-Then write 2 rewritten versions that score 85+.
+Title: "${title}"
+Genre: ${genre}
+Target artists: ${artistsStr}
+Hot niche keywords: ${keywordsStr}
+Deterministic score: ${score}/100
+
+Score breakdown:
+- Keyword Strength: ${breakdown.keyword_strength}/25 (has ${breakdown.keyword_strength > 0 ? "matching" : "no matching"} niche keywords)
+- Title Length: ${breakdown.title_length}/25 (${title.trim().split(/\s+/).filter(Boolean).length} words — ideal is 9-12)
+- Artist Pairing: ${breakdown.artist_pairing}/20 (${breakdown.artist_pairing > 0 ? "artist found" : "no artist reference"})
+- Beat Name in Quotes: ${breakdown.beat_name}/20 (${breakdown.beat_name > 0 ? "has quoted beat name" : "no quoted beat name"})
+- Year Present: ${breakdown.year_present}/10 (${breakdown.year_present > 0 ? "year found" : "no year"})
+
+Write a 1-sentence verdict explaining this score.
+Write 3 specific improvement bullets — reference the actual title words.
+Write 2 rewritten versions that would score 85+.
 
 Respond with ONLY valid JSON. No markdown no code blocks.
-{"score":number,"verdict":"one sentence on why this score","categories":{"keyword_strength":number,"title_length":number,"artist_pairing":number,"beat_name":number,"year_relevance":number},"improvements":["bullet 1","bullet 2","bullet 3"],"rewrites":["rewrite 1","rewrite 2"]}`;
+{"verdict":"one sentence","improvements":["bullet 1","bullet 2","bullet 3"],"rewrites":["rewrite 1","rewrite 2"]}`;
 
   const msg = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 800,
+    max_tokens: 600,
     system: "You are a YouTube SEO expert for beat producers. Output only valid JSON.",
     messages: [{ role: "user", content: prompt }],
   });
 
   const raw = msg.content[0].type === "text" ? msg.content[0].text : "";
-  let result: TitleTestResult;
+  let analysis: ClaudeAnalysis;
   try {
-    result = JSON.parse(stripJson(raw)) as TitleTestResult;
+    analysis = JSON.parse(stripJson(raw)) as ClaudeAnalysis;
   } catch {
     return NextResponse.json({ error: "Failed to parse AI response" }, { status: 500 });
   }
 
+  const result = {
+    score,
+    verdict: analysis.verdict,
+    categories: breakdown,
+    improvements: analysis.improvements,
+    rewrites: analysis.rewrites,
+    tip,
+    original_title: title.trim(),
+  };
+
   await supabase.from("title_tests").insert({
     producer_id: user.id,
     original_title: title.trim(),
-    score: result.score,
+    score,
     result,
   });
 
-  return NextResponse.json({ ...result, original_title: title.trim() });
+  return NextResponse.json(result);
 }

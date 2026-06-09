@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { extractKeywords, getTopNicheVideos } from "@/lib/keywords";
 import type { NicheVideo } from "@/lib/keywords";
-import { AlertTriangle, ArrowUpRight, Check, Copy, Lock, Menu, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, Copy, Lock, Menu, RefreshCw, TrendingDown, TrendingUp, Minus, X } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import {
   IconLayoutDashboard,
   IconChartBar,
@@ -112,7 +113,7 @@ type Tab =
   | "competitors"
   | "growth-forecast";
 
-const SOON_TABS: ReadonlySet<Tab> = new Set(["competitors"]);
+const SOON_TABS: ReadonlySet<Tab> = new Set([]);
 
 type TablerIcon = React.ComponentType<{
   size?: number;
@@ -136,7 +137,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "keywords",        label: "Keyword Map",        Icon: IconTag },
   { id: "avoid",           label: "What to Avoid",      Icon: IconAlertTriangle },
   { id: "action-plan",     label: "Action Plan",        Icon: IconChecklist },
-  { id: "competitors",     label: "Competitor Tracker", Icon: IconUsers,  soon: true },
+  { id: "competitors",     label: "Competitor Tracker", Icon: IconUsers },
   { id: "growth-forecast", label: "Growth Forecast",    Icon: IconGraph },
 ];
 
@@ -153,6 +154,32 @@ function OverviewTab({
   report: ReportData | null;
   nicheRank: { rank: number; total: number } | null;
 }) {
+  const [scoreHistory, setScoreHistory] = React.useState<Array<{ month: number; year: number; score: number }>>([]);
+
+  React.useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return;
+      const { data } = await supabase
+        .from("scores_history")
+        .select("month, year, score")
+        .eq("producer_id", user.id)
+        .order("year", { ascending: true })
+        .order("month", { ascending: true })
+        .limit(12);
+      if (data && data.length > 0) setScoreHistory(data);
+    });
+  }, []);
+
+  const chartData = scoreHistory.map((h) => ({
+    label: new Date(h.year, h.month - 1).toLocaleString("default", { month: "short" }),
+    score: h.score,
+  }));
+
+  const trend = scoreHistory.length >= 2
+    ? scoreHistory[scoreHistory.length - 1].score - scoreHistory[scoreHistory.length - 2].score
+    : 0;
+
   const displayName = profile?.name || "Producer";
   const displayGenre = profile?.genre || "";
   const initials = displayName
@@ -260,6 +287,36 @@ function OverviewTab({
           </p>
         </div>
       ) : null}
+
+      {/* Score history chart */}
+      {chartData.length >= 2 && (
+        <div className="border border-[#1a1a1a] p-6">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs text-[#94a3b8] uppercase tracking-widest">TALLY Score History</p>
+            <div className="flex items-center gap-1.5 text-xs">
+              {trend > 0 ? (
+                <><TrendingUp className="w-3.5 h-3.5 text-[#4ade80]" /><span className="text-[#4ade80]">+{trend} improving</span></>
+              ) : trend < 0 ? (
+                <><TrendingDown className="w-3.5 h-3.5 text-[#f87171]" /><span className="text-[#f87171]">{trend} declining</span></>
+              ) : (
+                <><Minus className="w-3.5 h-3.5 text-[#475569]" /><span className="text-[#475569]">stable</span></>
+              )}
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={120}>
+            <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+              <XAxis dataKey="label" tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis domain={[0, 100]} tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                contentStyle={{ background: "#111", border: "1px solid #1a1a1a", borderRadius: 0, fontSize: 12 }}
+                itemStyle={{ color: "#4ade80" }}
+                labelStyle={{ color: "#94a3b8" }}
+              />
+              <Line type="monotone" dataKey="score" stroke="#4ade80" strokeWidth={2} dot={{ fill: "#4ade80", r: 3 }} activeDot={{ r: 4 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {!channelData && (
         <div className="border border-[#1a1a1a] p-8 text-center">
@@ -1108,6 +1165,155 @@ function GrowthForecastTab() {
   );
 }
 
+function CompetitorsTab() {
+  interface CompLastData {
+    videos_this_month: number;
+    avg_views: number;
+    top_video: { title: string; views: number; videoId: string } | null;
+    top_tags: string[];
+    ai_insight?: string;
+    pulled_at: string;
+  }
+  interface CompRow {
+    id: string;
+    channel_url: string;
+    channel_name: string;
+    subscriber_count: number;
+    last_data: CompLastData | null;
+  }
+
+  const [competitors, setCompetitors] = React.useState<CompRow[]>([]);
+  const [producerAvgViews, setProducerAvgViews] = React.useState<number | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) { setLoading(false); return; }
+      const now = new Date();
+      const [compRes, chanRes] = await Promise.all([
+        supabase.from("competitors").select("id, channel_url, channel_name, subscriber_count, last_data").eq("producer_id", user.id).order("added_at", { ascending: true }),
+        supabase.from("channel_data").select("monthly_views, monthly_videos").eq("producer_id", user.id).eq("month", now.getMonth() + 1).eq("year", now.getFullYear()).single(),
+      ]);
+      if (compRes.data) setCompetitors(compRes.data as CompRow[]);
+      const cd = chanRes.data;
+      if (cd && cd.monthly_videos > 0) setProducerAvgViews(Math.round(cd.monthly_views / cd.monthly_videos));
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 text-[#94a3b8] text-sm border border-[#1a1a1a] px-5 py-4">
+        <div className="w-4 h-4 border border-[#475569] border-t-[#4ade80] rounded-full animate-spin shrink-0" />
+        Loading competitors...
+      </div>
+    );
+  }
+
+  if (competitors.length === 0) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold mb-2">Competitor Tracker</h2>
+        <p className="text-[#94a3b8] text-sm mb-8">Track up to 5 competitor YouTube channels and see how you compare.</p>
+        <div className="border border-[#1a1a1a] p-10 text-center">
+          <p className="text-white font-medium mb-2">No competitors tracked yet</p>
+          <p className="text-[#475569] text-sm mb-5">Go to the Competitor Tracker to add channels.</p>
+          <a href="/dashboard/competitors" className="inline-flex items-center gap-2 border border-white text-white text-xs font-semibold px-5 py-2.5 hover:bg-white hover:text-black transition-colors">
+            Open Competitor Tracker
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 mb-8">
+        <div>
+          <h2 className="text-xl font-bold mb-1">Competitor Tracker</h2>
+          <p className="text-[#94a3b8] text-sm">How your tracked channels performed this month.</p>
+        </div>
+        <a href="/dashboard/competitors" className="shrink-0 flex items-center gap-1.5 text-xs text-[#94a3b8] hover:text-white transition-colors">
+          Manage <ArrowUpRight className="w-3 h-3" />
+        </a>
+      </div>
+
+      {/* Comparison table */}
+      <div className="border border-[#1a1a1a] mb-6 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[#1a1a1a]">
+              <th className="text-left px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Channel</th>
+              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Subscribers</th>
+              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Videos/Mo</th>
+              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">Avg Views</th>
+              <th className="text-right px-4 py-3 text-xs text-[#475569] uppercase tracking-widest font-medium">vs You</th>
+            </tr>
+          </thead>
+          <tbody>
+            {producerAvgViews !== null && (
+              <tr className="border-b border-[#1a1a1a] bg-[#0d0d0d]">
+                <td className="px-4 py-3 text-white font-semibold">You</td>
+                <td className="px-4 py-3 text-right text-[#94a3b8]">—</td>
+                <td className="px-4 py-3 text-right text-[#94a3b8]">—</td>
+                <td className="px-4 py-3 text-right text-white font-semibold">{formatNum(producerAvgViews)}</td>
+                <td className="px-4 py-3 text-right text-[#475569]">—</td>
+              </tr>
+            )}
+            {competitors.map((c) => {
+              const avg = c.last_data?.avg_views ?? 0;
+              const diff = producerAvgViews !== null ? avg - producerAvgViews : null;
+              return (
+                <tr key={c.id} className="border-b border-[#1a1a1a] last:border-0">
+                  <td className="px-4 py-3">
+                    <a href={c.channel_url} target="_blank" rel="noopener noreferrer" className="text-white hover:underline inline-flex items-center gap-1">
+                      {c.channel_name} <ArrowUpRight className="w-3 h-3 text-[#475569]" />
+                    </a>
+                  </td>
+                  <td className="px-4 py-3 text-right text-[#94a3b8]">{formatNum(c.subscriber_count)}</td>
+                  <td className="px-4 py-3 text-right text-[#94a3b8]">{c.last_data?.videos_this_month ?? "—"}</td>
+                  <td className="px-4 py-3 text-right text-[#94a3b8]">{avg > 0 ? formatNum(avg) : "—"}</td>
+                  <td className="px-4 py-3 text-right text-xs">
+                    {diff !== null && avg > 0 ? (
+                      <span className={diff > 0 ? "text-[#f87171]" : "text-[#4ade80]"}>
+                        {diff > 0 ? `+${formatNum(diff)}` : `-${formatNum(Math.abs(diff))}`}
+                      </span>
+                    ) : <span className="text-[#475569]">—</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Per-competitor AI insights */}
+      <div className="space-y-4">
+        {competitors.filter(c => c.last_data?.ai_insight).map((c) => (
+          <div key={c.id} className="border border-[#1a1a1a] p-5">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest">TALLY Insight — {c.channel_name}</p>
+              <a href={c.channel_url} target="_blank" rel="noopener noreferrer" className="text-[#475569] hover:text-white transition-colors">
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+            <p className="text-white text-sm leading-relaxed">{c.last_data!.ai_insight}</p>
+            {c.last_data?.top_tags && c.last_data.top_tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {c.last_data.top_tags.map(tag => (
+                  <span key={tag} className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-2 py-0.5">{tag}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ComingSoonTab({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -1560,6 +1766,7 @@ export default function ReportPage() {
             )}
             {tab === "avoid" && <AvoidTab report={report} />}
             {tab === "action-plan" && <ActionPlanTab report={report} />}
+            {tab === "competitors" && <CompetitorsTab />}
             {tab === "growth-forecast" && <GrowthForecastTab />}
             {SOON_TABS.has(tab) && (
               <ComingSoonTab label={activeNavItem?.label ?? tab} />

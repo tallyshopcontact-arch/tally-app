@@ -112,5 +112,18 @@ export async function POST(_req: NextRequest) {
     return NextResponse.json(report);
   }
 
+  // Record score in history table (best-effort — don't block response)
+  if (tallyScore.total > 0) {
+    supabase
+      .from("scores_history")
+      .upsert(
+        { producer_id: user.id, month, year, score: tallyScore.total, score_breakdown: tallyScore.breakdown },
+        { onConflict: "producer_id,month,year" }
+      )
+      .then(({ error }) => {
+        if (error) console.error("[report/generate] scores_history upsert error:", error.message);
+      });
+  }
+
   return NextResponse.json(saved);
 }

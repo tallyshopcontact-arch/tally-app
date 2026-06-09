@@ -13,6 +13,7 @@ interface LastData {
   top_video: { title: string; views: number; videoId: string } | null;
   top_tags: string[];
   avg_views: number;
+  ai_insight?: string;
   pulled_at: string;
 }
 
@@ -281,6 +282,13 @@ export default function CompetitorsPage() {
                               <ArrowUpRight className="w-4 h-4" />
                             </a>
                           </div>
+                        </div>
+                      )}
+
+                      {ld.ai_insight && (
+                        <div className="border border-[#60a5fa]/20 bg-[#0a0f1a] px-4 py-3">
+                          <p className="text-xs text-[#60a5fa] uppercase tracking-widest mb-1">TALLY Insight</p>
+                          <p className="text-[#94a3b8] text-sm leading-relaxed">{ld.ai_insight}</p>
                         </div>
                       )}
 

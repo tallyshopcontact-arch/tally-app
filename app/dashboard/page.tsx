@@ -12,7 +12,8 @@ import {
   IconTag,
   IconUsers,
 } from "@tabler/icons-react";
-import { ArrowUpRight, RefreshCw, Type } from "lucide-react";
+import { ArrowUpRight, RefreshCw, TrendingDown, TrendingUp, Type } from "lucide-react";
+import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ export default function DashboardHome() {
   const [channelData, setChannelData] = useState<ChannelData | null>(null);
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [kitsThisMonth, setKitsThisMonth] = useState<number>(0);
+  const [scoreHistory, setScoreHistory] = useState<Array<{ score: number }>>([]);
   const [loading, setLoading] = useState(true);
 
   const now = new Date();
@@ -68,17 +70,19 @@ export default function DashboardHome() {
       const month = now.getMonth() + 1;
       const year = now.getFullYear();
 
-      const [profileRes, channelRes, reportRes, kitsRes] = await Promise.all([
+      const [profileRes, channelRes, reportRes, kitsRes, historyRes] = await Promise.all([
         supabase.from("profiles").select("name, genre, youtube_channel_url").eq("id", user.id).single(),
         supabase.from("channel_data").select("monthly_views, monthly_subscribers, monthly_videos, niche_data").eq("producer_id", user.id).eq("month", month).eq("year", year).single(),
         supabase.from("reports").select("tally_score, action_plan").eq("producer_id", user.id).eq("month", month).eq("year", year).single(),
         supabase.from("upload_kits").select("id", { count: "exact" }).eq("producer_id", user.id).gte("created_at", new Date(year, month - 1, 1).toISOString()).lt("created_at", new Date(year, month, 1).toISOString()),
+        supabase.from("scores_history").select("score").eq("producer_id", user.id).order("year", { ascending: true }).order("month", { ascending: true }).limit(6),
       ]);
 
       if (profileRes.data) setProfile(profileRes.data as UserProfile);
       if (channelRes.data) setChannelData(channelRes.data as ChannelData);
       if (reportRes.data) setReport(reportRes.data as ReportSummary);
       setKitsThisMonth(kitsRes.count ?? 0);
+      if (historyRes.data && historyRes.data.length > 0) setScoreHistory(historyRes.data);
       setLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -191,12 +195,31 @@ export default function DashboardHome() {
               {tool.stat !== undefined ? (
                 <div className="mb-6">
                   <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">{tool.statLabel}</p>
-                  <p className={`text-5xl font-bold ${tool.label === "Monthly Report" && report ? scoreColor(report.tally_score) : "text-white"}`}>
-                    {tool.stat}
-                    {tool.label === "Monthly Report" && report && (
-                      <span className="text-xl text-[#1e1e1e]">/100</span>
+                  <div className="flex items-end gap-4">
+                    <p className={`text-5xl font-bold ${tool.label === "Monthly Report" && report ? scoreColor(report.tally_score) : "text-white"}`}>
+                      {tool.stat}
+                      {tool.label === "Monthly Report" && report && (
+                        <span className="text-xl text-[#1e1e1e]">/100</span>
+                      )}
+                    </p>
+                    {tool.label === "Monthly Report" && scoreHistory.length >= 2 && (
+                      <div className="flex-1 flex flex-col items-end gap-1 pb-1">
+                        <ResponsiveContainer width="100%" height={32}>
+                          <LineChart data={scoreHistory}>
+                            <Line type="monotone" dataKey="score" stroke={report && report.tally_score >= 70 ? "#4ade80" : report && report.tally_score >= 40 ? "#fbbf24" : "#f87171"} strokeWidth={1.5} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                        {(() => {
+                          const trend = scoreHistory[scoreHistory.length - 1].score - scoreHistory[scoreHistory.length - 2].score;
+                          return trend > 0
+                            ? <span className="text-[10px] text-[#4ade80] flex items-center gap-0.5"><TrendingUp className="w-3 h-3" /> improving</span>
+                            : trend < 0
+                            ? <span className="text-[10px] text-[#f87171] flex items-center gap-0.5"><TrendingDown className="w-3 h-3" /> declining</span>
+                            : <span className="text-[10px] text-[#475569]">stable</span>;
+                        })()}
+                      </div>
                     )}
-                  </p>
+                  </div>
                 </div>
               ) : (
                 <div className="mb-6">

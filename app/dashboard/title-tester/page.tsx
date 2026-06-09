@@ -13,7 +13,7 @@ interface CategoryScores {
   title_length: number;
   artist_pairing: number;
   beat_name: number;
-  year_relevance: number;
+  year_present: number;
 }
 
 interface TitleResult {
@@ -22,6 +22,7 @@ interface TitleResult {
   categories: CategoryScores;
   improvements: string[];
   rewrites: string[];
+  tip?: string | null;
   original_title: string;
 }
 
@@ -46,7 +47,15 @@ const CATEGORY_LABELS: Record<keyof CategoryScores, string> = {
   title_length: "Title Length",
   artist_pairing: "Artist Pairing",
   beat_name: "Beat Name",
-  year_relevance: "Year Relevance",
+  year_present: "Year Relevance",
+};
+
+const CATEGORY_MAX: Record<keyof CategoryScores, number> = {
+  keyword_strength: 25,
+  title_length: 25,
+  artist_pairing: 20,
+  beat_name: 20,
+  year_present: 10,
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -267,21 +276,26 @@ export default function TitleTesterPage() {
                 <div className="flex-1">
                   <p className="text-[#94a3b8] text-sm leading-relaxed mb-4">{result.verdict}</p>
                   <div className="space-y-3">
-                    {(Object.keys(result.categories) as (keyof CategoryScores)[]).map((cat) => {
-                      const val = result.categories[cat];
-                      const pct = (val / 20) * 100;
+                    {(Object.keys(CATEGORY_MAX) as (keyof CategoryScores)[]).map((cat) => {
+                      const cats = result.categories as unknown as Record<string, number>;
+                      const val = cats[cat] ?? cats[cat === "year_present" ? "year_relevance" : cat] ?? 0;
+                      const max = CATEGORY_MAX[cat];
+                      const pct = (val / max) * 100;
                       return (
                         <div key={cat}>
                           <div className="flex justify-between text-xs mb-1">
                             <span className="text-[#94a3b8]">{CATEGORY_LABELS[cat]}</span>
-                            <span className={scoreColor(pct)}>{val}/20</span>
+                            <span className={scoreColor(pct)}>{val}/{max}</span>
                           </div>
                           <div className="h-1 bg-[#1a1a1a]">
-                            <div className={`h-full ${scoreBarColor(pct)}`} style={{ width: `${pct}%` }} />
+                            <div className={`h-full ${scoreBarColor(pct)}`} style={{ width: `${Math.min(100, pct)}%` }} />
                           </div>
                         </div>
                       );
                     })}
+                    {result.tip && (
+                      <p className="text-xs text-[#fbbf24] pt-1">Tip: {result.tip}</p>
+                    )}
                   </div>
                 </div>
               </div>

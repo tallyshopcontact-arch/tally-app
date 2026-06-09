@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
 import { extractKeywords } from "@/lib/keywords";
 import { anthropic } from "@/lib/anthropic";
+import { scoreTitle } from "@/lib/title-scorer";
 import type { NicheVideo } from "@/lib/keywords";
 
 interface ThumbnailNote {
@@ -257,6 +258,22 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
   } catch (e) {
     console.error("[upload-kit/generate] Claude parse failed:", e);
     return NextResponse.json({ error: "Failed to generate kit" }, { status: 500 });
+  }
+
+  // Score each title with the shared deterministic scorer
+  const artistsForScoring = [artist_1, artist_2, artist_3].filter((a): a is string => !!a?.trim());
+  if (Array.isArray(generatedKit.titles)) {
+    const scored = (generatedKit.titles as Array<{ title: string; reason: string }>).map(t => ({
+      ...t,
+      ...scoreTitle(t.title, topKeywords, artistsForScoring),
+    }));
+    const maxScore = Math.max(...scored.map(t => t.score));
+    let markedBest = false;
+    generatedKit.titles = scored.map(t => {
+      const isRec = !markedBest && t.score === maxScore;
+      if (isRec) markedBest = true;
+      return { ...t, recommended: isRec };
+    });
   }
 
   // Save to upload_kits table (without niche_thumbnails — those are derived from current niche data)
