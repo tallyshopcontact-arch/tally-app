@@ -4,6 +4,8 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { useSubscription } from "@/lib/hooks/useSubscription";
+import { UpgradePrompt } from "@/components/UpgradePrompt";
 import { ArrowUpRight, Check, Copy, Loader2 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -94,6 +96,7 @@ const SUPPORTED_GENRES = [
 
 export default function TitleTesterPage() {
   const router = useRouter();
+  const { isPaid, loading: subLoading } = useSubscription();
   const [profileGenre, setProfileGenre] = useState<string>("");
   const [selectedGenre, setSelectedGenre] = useState<string>("");
   const [title, setTitle] = useState("");
@@ -102,6 +105,10 @@ export default function TitleTesterPage() {
   const [error, setError] = useState<string | null>(null);
   const [recentTests, setRecentTests] = useState<RecentTest[]>([]);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+
+  const TITLE_USES_KEY = "tally_title_uses";
+  const FREE_LIMIT = 3;
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -131,6 +138,13 @@ export default function TitleTesterPage() {
 
   const handleTest = async () => {
     if (!title.trim()) return;
+    if (!isPaid() && !subLoading) {
+      const uses = parseInt(localStorage.getItem(TITLE_USES_KEY) ?? "0", 10);
+      if (uses >= FREE_LIMIT) {
+        setShowUpgrade(true);
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     setResult(null);
@@ -143,6 +157,10 @@ export default function TitleTesterPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Request failed");
       setResult(json as TitleResult);
+      if (!isPaid()) {
+        const uses = parseInt(localStorage.getItem(TITLE_USES_KEY) ?? "0", 10);
+        localStorage.setItem(TITLE_USES_KEY, String(uses + 1));
+      }
 
       // Refresh recent tests
       const supabase = createSupabaseBrowserClient();
@@ -243,15 +261,27 @@ export default function TitleTesterPage() {
             </span>
           </div>
 
+          {!isPaid() && !subLoading && !showUpgrade && (
+            <p className="text-xs text-[#475569] mt-2">
+              {Math.max(0, FREE_LIMIT - parseInt(typeof window !== "undefined" ? (localStorage.getItem(TITLE_USES_KEY) ?? "0") : "0", 10))} free tests remaining
+            </p>
+          )}
+
           <button
             onClick={handleTest}
-            disabled={loading || !title.trim()}
-            className="flex items-center gap-2 bg-white text-black text-sm font-semibold px-6 py-3 hover:bg-[#e8e8e8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            disabled={loading || !title.trim() || showUpgrade}
+            className="flex items-center gap-2 bg-white text-black text-sm font-semibold px-6 py-3 hover:bg-[#e8e8e8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer mt-4"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpRight className="w-4 h-4" />}
             {loading ? "Analyzing..." : "Test My Title →"}
           </button>
         </div>
+
+        {showUpgrade && (
+          <div className="mb-8">
+            <UpgradePrompt feature="Title Tester" description="You've used your 3 free title tests. Upgrade to test unlimited titles." />
+          </div>
+        )}
 
         {/* Error */}
         {error && (

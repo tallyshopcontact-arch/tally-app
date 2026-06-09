@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
 interface WaitlistEntry {
@@ -10,6 +10,14 @@ interface WaitlistEntry {
   genre: string;
   youtube_channel: string;
   created_at: string;
+}
+
+interface ProducerProfile {
+  id: string;
+  name: string;
+  email: string;
+  subscription_status: string;
+  beta_access: boolean;
 }
 
 // ── Login gate ────────────────────────────────────────────────────────────────
@@ -101,6 +109,42 @@ function AdminDashboard({
   const [entries, setEntries] = useState<WaitlistEntry[]>(initialEntries);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
+  const [producers, setProducers] = useState<ProducerProfile[]>([]);
+  const [producersLoading, setProducersLoading] = useState(true);
+  const [betaAction, setBetaAction] = useState<string | null>(null);
+
+  const loadProducers = useCallback(async () => {
+    setProducersLoading(true);
+    try {
+      const res = await fetch("/api/admin/beta", {
+        headers: { "x-admin-password": password },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProducers(data.producers ?? []);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setProducersLoading(false);
+    }
+  }, [password]);
+
+  useEffect(() => { loadProducers(); }, [loadProducers]);
+
+  const toggleBeta = async (producerId: string, grant: boolean) => {
+    setBetaAction(producerId);
+    try {
+      await fetch("/api/admin/beta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-password": password },
+        body: JSON.stringify({ producer_id: producerId, beta_access: grant }),
+      });
+      await loadProducers();
+    } finally {
+      setBetaAction(null);
+    }
+  };
 
   const refresh = async () => {
     setRefreshing(true);
@@ -226,6 +270,82 @@ function AdminDashboard({
             </table>
           </div>
         )}
+
+        {/* Beta Access */}
+        <div className="mt-16">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-bold mb-1">Beta Access</h2>
+              <p className="text-[#94a3b8] text-sm">Grant or revoke free access for beta producers.</p>
+            </div>
+            <button
+              onClick={loadProducers}
+              disabled={producersLoading}
+              className="text-sm text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-4 py-2 hover:border-[#333] transition-colors disabled:opacity-40"
+            >
+              {producersLoading ? "Loading..." : "Refresh"}
+            </button>
+          </div>
+
+          {producersLoading ? (
+            <div className="border border-[#1a1a1a] p-8 text-center">
+              <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
+            </div>
+          ) : producers.length === 0 ? (
+            <div className="border border-[#1a1a1a] p-8 text-center">
+              <p className="text-[#94a3b8] text-sm">No producers found.</p>
+            </div>
+          ) : (
+            <div className="border border-[#1a1a1a] overflow-x-auto">
+              <table className="w-full text-sm min-w-[600px]">
+                <thead>
+                  <tr className="border-b border-[#1a1a1a]">
+                    {["Name", "Email", "Status", "Beta Access", "Action"].map((h) => (
+                      <th key={h} className="text-left text-xs text-[#94a3b8] uppercase tracking-widest px-5 py-4 font-medium">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {producers.map((p) => (
+                    <tr key={p.id} className="border-b border-[#1a1a1a] last:border-0 hover:bg-[#111] transition-colors">
+                      <td className="px-5 py-4 text-white font-medium">{p.name || "—"}</td>
+                      <td className="px-5 py-4 text-[#94a3b8]">{p.email}</td>
+                      <td className="px-5 py-4 text-[#94a3b8]">{p.subscription_status}</td>
+                      <td className="px-5 py-4">
+                        {p.beta_access ? (
+                          <span className="text-xs text-[#a78bfa] font-semibold">Beta</span>
+                        ) : (
+                          <span className="text-xs text-[#475569]">None</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        {p.beta_access ? (
+                          <button
+                            onClick={() => toggleBeta(p.id, false)}
+                            disabled={betaAction === p.id}
+                            className="text-xs text-[#f87171] hover:text-white border border-[#f87171]/30 px-3 py-1 hover:border-[#f87171] transition-colors disabled:opacity-40"
+                          >
+                            {betaAction === p.id ? "…" : "Revoke"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => toggleBeta(p.id, true)}
+                            disabled={betaAction === p.id}
+                            className="text-xs text-[#4ade80] hover:text-white border border-[#4ade80]/30 px-3 py-1 hover:border-[#4ade80] transition-colors disabled:opacity-40"
+                          >
+                            {betaAction === p.id ? "…" : "Grant"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

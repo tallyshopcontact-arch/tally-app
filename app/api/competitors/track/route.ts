@@ -4,6 +4,8 @@ import { extractChannelId, getChannelStats, getRecentVideos } from "@/lib/youtub
 import type { VideoData } from "@/lib/youtube";
 import type { NicheVideo } from "@/lib/keywords";
 import { anthropic } from "@/lib/anthropic";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { sanitizeInput } from "@/lib/sanitize";
 
 interface ScoreBreakdownItem {
   category: string;
@@ -97,12 +99,21 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { channel_url } = await req.json() as { channel_url: string };
-  if (!channel_url?.trim()) return NextResponse.json({ error: "channel_url is required" }, { status: 400 });
+  const rl = await checkRateLimit(user.id, "/api/competitors/track", 10);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Daily limit reached. Resets at midnight.", resetAt: rl.resetAt },
+      { status: 429 }
+    );
+  }
+
+  const { channel_url: rawUrl } = await req.json() as { channel_url: string };
+  const channel_url = sanitizeInput(rawUrl ?? "", 200);
+  if (!channel_url) return NextResponse.json({ error: "channel_url is required" }, { status: 400 });
 
   let channelId: string;
   try {
-    channelId = await extractChannelId(channel_url.trim());
+    channelId = await extractChannelId(channel_url);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Could not resolve channel" }, { status: 400 });
   }
@@ -125,14 +136,12 @@ export async function POST(req: NextRequest) {
     ? Math.round(nicheData.reduce((s, v) => s + v.viewCount, 0) / nicheData.length)
     : 0;
 
-  console.log(`[competitors/track] niche_avg_views=${nicheAvgViews} from ${nicheData.length} niche videos`);
 
   const [stats, recentVideos] = await Promise.all([
     getChannelStats(channelId),
     getRecentVideos(channelId, 20),
   ]);
 
-  console.log(`[competitors/track] ${stats.channelName}: fetched ${recentVideos.length} recent videos`);
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const videosThisMonth = recentVideos.filter(v => new Date(v.publishedAt) >= monthStart);
@@ -151,7 +160,6 @@ export async function POST(req: NextRequest) {
     : null;
 
   const competitorScore = calcCompetitorTallyScore(recentVideos, videosThisMonth.length, nicheAvgViews);
-  console.log(`[competitors/track] ${stats.channelName}: TALLY score=${competitorScore.score}`);
 
   const insight = await generateCompetitorInsight(
     stats.channelName,

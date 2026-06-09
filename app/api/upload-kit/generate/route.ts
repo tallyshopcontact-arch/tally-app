@@ -4,6 +4,8 @@ import { extractKeywords } from "@/lib/keywords";
 import { searchArtistFirstThumbnails } from "@/lib/youtube";
 import { anthropic } from "@/lib/anthropic";
 import { scoreTitle } from "@/lib/title-scorer";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { sanitizeInput } from "@/lib/sanitize";
 import type { NicheVideo } from "@/lib/keywords";
 
 interface ThumbnailNote {
@@ -139,8 +141,16 @@ export async function POST(req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const rl = await checkRateLimit(user.id, "/api/upload-kit/generate", 20);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Daily limit reached. Resets at midnight.", resetAt: rl.resetAt },
+      { status: 429 }
+    );
+  }
+
   const body = await req.json();
-  const { beat_name, genre, vibes, artist_1, artist_2, artist_3, bpm, key, notes } = body as {
+  const raw = body as {
     beat_name?: string;
     genre: string;
     vibes: string[];
@@ -151,6 +161,16 @@ export async function POST(req: NextRequest) {
     key?: string;
     notes?: string;
   };
+
+  const beat_name = raw.beat_name ? sanitizeInput(raw.beat_name, 100) : undefined;
+  const genre = sanitizeInput(raw.genre ?? "hip hop", 60);
+  const vibes = (raw.vibes ?? []).map((v) => sanitizeInput(v, 60));
+  const artist_1 = raw.artist_1 ? sanitizeInput(raw.artist_1, 80) : undefined;
+  const artist_2 = raw.artist_2 ? sanitizeInput(raw.artist_2, 80) : undefined;
+  const artist_3 = raw.artist_3 ? sanitizeInput(raw.artist_3, 80) : undefined;
+  const bpm = raw.bpm;
+  const key = raw.key ? sanitizeInput(raw.key, 20) : undefined;
+  const notes = raw.notes ? sanitizeInput(raw.notes, 400) : undefined;
 
   const { data: profile } = await supabase
     .from("profiles")
@@ -332,7 +352,6 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
 
     let attempt = 1;
     while (attempt < 3 && !scored.some(t => t.score >= 75)) {
-      console.log(`[upload-kit/generate] No title scored 75+ on attempt ${attempt}, retrying...`);
       try {
         const retryTitles = await generateStrongTitles(
           beatNameStr || (generatedKit.beat_name_suggestion as string) || "Beat",
@@ -346,9 +365,6 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
           const retryMax = Math.max(...retryScored.map(t => t.score));
           if (retryMax > currentMax) {
             scored = retryScored;
-            console.log(`[upload-kit/generate] Retry ${attempt} improved max: ${currentMax} → ${retryMax}`);
-          } else {
-            console.log(`[upload-kit/generate] Retry ${attempt} did not improve: current=${currentMax}, retry=${retryMax}`);
           }
         }
       } catch (e) {

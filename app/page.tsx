@@ -8,9 +8,7 @@ import {
   Users,
   LineChart,
 } from "lucide-react";
-import WaitlistForm from "./components/WaitlistForm";
 import GenreTags from "./components/GenreTags";
-import { createServerClient } from "@/lib/supabase";
 
 const tools = [
   {
@@ -64,54 +62,6 @@ const tools = [
   },
 ];
 
-const pricingTiers = [
-  {
-    name: "Basic",
-    price: "$9.99",
-    period: "/mo",
-    desc: "Start growing with the essentials.",
-    features: [
-      "Upload Kit Generator (10 kits/month)",
-      "Title Tester (10 tests/month)",
-      "Keyword Heat Map",
-      "Cancel anytime",
-    ],
-    cta: "Join the waitlist — founding member pricing available",
-    highlight: false,
-  },
-  {
-    name: "Growth",
-    price: "$19.99",
-    period: "/mo",
-    desc: "Everything you need to understand and grow your niche.",
-    features: [
-      "Everything in Basic (unlimited)",
-      "Monthly Report",
-      "Action Plan",
-      "Competitor Tracker (3 channels)",
-      "TALLY Score",
-      "Rising Artists",
-      "Cancel anytime",
-    ],
-    cta: "Join the waitlist — founding member pricing available",
-    highlight: true,
-  },
-  {
-    name: "Pro",
-    price: "$34.99",
-    period: "/mo",
-    desc: "The full toolkit for serious YouTube growth.",
-    features: [
-      "Everything in Growth",
-      "Competitor Tracker (10 channels)",
-      "Growth Forecast",
-      "Priority support",
-      "Cancel anytime",
-    ],
-    cta: "Join the waitlist — founding member pricing available",
-    highlight: false,
-  },
-];
 
 const testimonials = [
   { initials: "JR", name: "JR Beats", genre: "Trap / Drill" },
@@ -142,29 +92,7 @@ const faqs = [
   },
 ];
 
-async function getWaitlistSignups(): Promise<{
-  initials: string[];
-  count: number;
-}> {
-  try {
-    const supabase = createServerClient();
-    const { data, count } = await supabase
-      .from("waitlist")
-      .select("name", { count: "exact" })
-      .order("created_at", { ascending: false })
-      .limit(5);
-
-    const initials = (data ?? []).map(({ name }: { name: string }) =>
-      name.trim().charAt(0).toUpperCase()
-    );
-    return { initials, count: count ?? 0 };
-  } catch {
-    return { initials: [], count: 0 };
-  }
-}
-
-export default async function HomePage() {
-  const signups = await getWaitlistSignups();
+export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
       {/* Sticky Nav */}
@@ -173,10 +101,11 @@ export default async function HomePage() {
           <span className="text-3xl font-bold tracking-[0.3em]">TALLY</span>
           <div className="flex items-center gap-6">
             <a href="#tools" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Tools</a>
-            <Link href="/dashboard/upload-kit" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Upload Kit</Link>
-            <Link href="/dashboard/report" className="text-sm text-[#94a3b8] hover:text-white transition-colors hidden md:block">Monthly Report</Link>
-            <a href="#membership" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Membership</a>
-            <Link href="/login" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Login</Link>
+            <a href="#membership" className="text-sm text-[#94a3b8] hover:text-white transition-colors hidden md:block">Pricing</a>
+            <Link href="/login" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Log in</Link>
+            <Link href="/pricing" className="text-sm bg-white text-black font-semibold px-4 py-2 hover:bg-[#e8e8e8] transition-colors">
+              Start free trial
+            </Link>
           </div>
         </div>
       </nav>
@@ -213,44 +142,17 @@ export default async function HomePage() {
             Paste in your beat details. TALLY gives you an optimized title, description, tags, and thumbnail ideas based on what&apos;s actually working in your niche right now.
           </p>
           <div className="flex flex-wrap items-center gap-4 mb-10">
-            <a
-              href="#waitlist"
+            <Link
+              href="/pricing"
               className="inline-block bg-white text-black text-sm font-semibold px-7 py-3.5 hover:bg-[#e8e8e8] transition-colors"
             >
-              Join the waitlist — founding member pricing available
-            </a>
-            <span className="text-[#94a3b8] text-sm">Plans from $9.99/mo</span>
+              Start 7-Day Free Trial
+            </Link>
+            <Link href="/login" className="text-[#94a3b8] text-sm hover:text-white transition-colors">
+              Already a member? Log in →
+            </Link>
           </div>
 
-          {/* Social proof bar */}
-          <div className="flex items-center gap-4 mb-12">
-            {signups.initials.length > 0 && (
-              <div className="flex -space-x-2">
-                {signups.initials.map((initial, i) => (
-                  <div
-                    key={i}
-                    className="w-8 h-8 rounded-full bg-[#1a1a1a] border-2 border-[#0a0a0a] flex items-center justify-center text-[10px] font-semibold text-[#94a3b8]"
-                  >
-                    {initial}
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="text-[#64748b] text-sm">
-              {signups.count === 0 ? (
-                "Be the first to join the waitlist"
-              ) : (
-                <>
-                  Join{" "}
-                  <span className="text-white font-semibold">
-                    {signups.count}{" "}
-                    {signups.count === 1 ? "producer" : "producers"}
-                  </span>{" "}
-                  already on the waitlist
-                </>
-              )}
-            </p>
-          </div>
 
           {/* Product mockup */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-[#1a1a1a] border border-[#1a1a1a]">
@@ -553,67 +455,56 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Membership / Pricing */}
+      {/* Pricing */}
       <section id="membership" className="border-t border-[#1a1a1a] py-20">
         <div className="max-w-5xl mx-auto px-6">
           <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-4">
-            Membership
+            Pricing
           </p>
           <h2 className="text-3xl font-bold mb-12">
-            Pick the plan
+            One plan.
             <br />
-            that fits your grind.
+            Every tool.
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-px bg-[#1a1a1a]">
-            {pricingTiers.map(
-              ({ name, price, period, desc, features, cta, highlight }) => (
-                <div
-                  key={name}
-                  className={`p-8 flex flex-col ${
-                    highlight ? "bg-[#0f0f0f]" : "bg-[#0a0a0a]"
-                  }`}
-                >
-                  {highlight && (
-                    <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#94a3b8] mb-4">
-                      Most popular
-                    </p>
-                  )}
-                  <p className="text-sm font-semibold tracking-[0.1em] uppercase mb-4">
-                    {name}
-                  </p>
-                  <div className="flex items-baseline gap-1 mb-2">
-                    <span className="text-4xl font-bold tracking-tight">
-                      {price}
-                    </span>
-                    <span className="text-[#94a3b8] text-sm">{period}</span>
-                  </div>
-                  <p className="text-[#64748b] text-xs mb-8">{desc}</p>
-                  <ul className="space-y-3 mb-8 flex-1">
-                    {features.map((item) => (
-                      <li
-                        key={item}
-                        className="flex items-start gap-3 text-sm text-[#94a3b8]"
-                      >
-                        <span className="text-[#64748b] mt-px leading-none shrink-0">
-                          —
-                        </span>
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                  <a
-                    href="#waitlist"
-                    className={`block text-center text-xs font-semibold py-3.5 transition-colors leading-snug px-3 ${
-                      highlight
-                        ? "bg-white text-black hover:bg-[#e8e8e8]"
-                        : "border border-[#2a2a2a] text-white hover:border-[#444]"
-                    }`}
-                  >
-                    {cta}
-                  </a>
+          <div className="max-w-md">
+            <div className="border border-white/20 p-8">
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <div>
+                  <p className="text-sm font-semibold tracking-[0.1em] uppercase mb-1">TALLY Pro</p>
+                  <p className="text-[#64748b] text-xs">All 7 tools. Unlimited uses.</p>
                 </div>
-              )
-            )}
+                <div className="text-right shrink-0">
+                  <span className="text-4xl font-bold tracking-tight">$19.99</span>
+                  <span className="text-[#94a3b8] text-sm">/mo</span>
+                </div>
+              </div>
+              <ul className="space-y-3 mb-8">
+                {[
+                  "Upload Kit Generator — unlimited",
+                  "Title Tester — unlimited",
+                  "Keyword Heat Map",
+                  "Monthly Report + Action Plan",
+                  "Competitor Tracker — 5 channels",
+                  "TALLY Score + history",
+                  "Growth Forecast",
+                  "Cancel anytime",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-3 text-sm text-[#94a3b8]">
+                    <span className="text-[#4ade80] mt-px leading-none shrink-0">✓</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href="/pricing"
+                className="block text-center bg-white text-black text-sm font-bold py-4 hover:bg-[#e8e8e8] transition-colors"
+              >
+                Start 7-Day Free Trial
+              </Link>
+              <p className="text-center text-xs text-[#475569] mt-3">
+                No credit card required. Cancel anytime.
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -665,28 +556,27 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Waitlist */}
-      <section id="waitlist" className="border-t border-[#1a1a1a] py-20">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-16 items-start">
-            <div>
-              <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-6">
-                Early access
-              </p>
-              <h2 className="text-3xl font-bold mb-4">
-                Get notified
-                <br />
-                when we launch.
-              </h2>
-              <p className="text-[#94a3b8] text-sm leading-relaxed">
-                We&apos;re onboarding producers in batches. Join the waitlist
-                and we&apos;ll reach out when your spot opens. No spam — just
-                one email when it&apos;s your turn.
-              </p>
-            </div>
-            <div>
-              <WaitlistForm />
-            </div>
+      {/* CTA */}
+      <section className="border-t border-[#1a1a1a] py-20">
+        <div className="max-w-5xl mx-auto px-6 text-center">
+          <h2 className="text-3xl font-bold mb-4">
+            Start packaging your beats
+            <br />
+            for maximum discovery.
+          </h2>
+          <p className="text-[#94a3b8] text-sm mb-8 max-w-md mx-auto">
+            7-day free trial. No credit card required. Cancel anytime.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link
+              href="/pricing"
+              className="bg-white text-black text-sm font-bold px-8 py-4 hover:bg-[#e8e8e8] transition-colors"
+            >
+              Start Free Trial
+            </Link>
+            <Link href="/login" className="text-sm text-[#94a3b8] hover:text-white transition-colors">
+              Already have an account? Log in →
+            </Link>
           </div>
         </div>
       </section>

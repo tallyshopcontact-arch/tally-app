@@ -3,6 +3,8 @@ import { createAuthClient } from "@/lib/supabase-server";
 import { anthropic } from "@/lib/anthropic";
 import { extractKeywords } from "@/lib/keywords";
 import { scoreTitle } from "@/lib/title-scorer";
+import { checkRateLimit } from "@/lib/rate-limit";
+import { sanitizeInput } from "@/lib/sanitize";
 import type { NicheVideo } from "@/lib/keywords";
 
 interface ClaudeAnalysis {
@@ -20,21 +22,31 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { title, genre: genreOverride } = await req.json() as { title: string; genre?: string };
-  if (!title?.trim()) return NextResponse.json({ error: "Title is required" }, { status: 400 });
+  const rl = await checkRateLimit(user.id, "/api/title-tester", 30);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Daily limit reached. Resets at midnight.", resetAt: rl.resetAt },
+      { status: 429 }
+    );
+  }
+
+  const body = await req.json() as { title: string; genre?: string };
+  const title = sanitizeInput(body.title ?? "", 200);
+  const genreOverride = body.genre ? sanitizeInput(body.genre, 60) : undefined;
+  if (!title) return NextResponse.json({ error: "Title is required" }, { status: 400 });
 
   const [profileRes, channelRes] = await Promise.all([
     supabase.from("profiles").select("genre, top_artist_1, top_artist_2, top_artist_3").eq("id", user.id).single(),
     supabase.from("channel_data").select("niche_data").eq("producer_id", user.id).order("year", { ascending: false }).order("month", { ascending: false }).limit(1).single(),
   ]);
 
-  const genre = genreOverride?.trim() || profileRes.data?.genre || "hip hop";
+  const genre = genreOverride || profileRes.data?.genre || "hip hop";
   const artists = [profileRes.data?.top_artist_1, profileRes.data?.top_artist_2, profileRes.data?.top_artist_3].filter((a): a is string => !!a);
   const nicheData: NicheVideo[] = channelRes.data?.niche_data ?? [];
   const topKeywords = extractKeywords(nicheData).slice(0, 10).map((k) => k.tag);
 
   // Deterministic score
-  const { score, breakdown, tip } = scoreTitle(title.trim(), topKeywords, artists);
+  const { score, breakdown, tip } = scoreTitle(title, topKeywords, artists);
 
   // Claude for verdict, improvements, rewrites only
   const artistsStr = artists.join(", ") || "various artists";
@@ -84,12 +96,12 @@ Respond with ONLY valid JSON. No markdown no code blocks.
     improvements: analysis.improvements,
     rewrites: analysis.rewrites,
     tip,
-    original_title: title.trim(),
+    original_title: title,
   };
 
   await supabase.from("title_tests").insert({
     producer_id: user.id,
-    original_title: title.trim(),
+    original_title: title,
     score,
     result,
   });

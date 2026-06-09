@@ -236,7 +236,6 @@ For youtube_url, replace CHANNEL+NAME with the actual channel name URL-encoded (
     600
   );
 
-  console.log("[TALLY:report] generateRisingArtists raw:", raw.slice(0, 400));
 
   const clean = stripJson(raw);
   try {
@@ -285,7 +284,6 @@ Schema (exactly 3 items):
     600
   );
 
-  console.log("[TALLY:report] generateWhatToAvoid raw:", raw.slice(0, 400));
 
   const clean = stripJson(raw);
   try {
@@ -397,7 +395,6 @@ priority must be exactly "High", "Medium", or "Low".`,
     900
   );
 
-  console.log("[TALLY:report] generateActionPlan raw:", raw.slice(0, 400));
 
   const clean = stripJson(raw);
   try {
@@ -497,7 +494,6 @@ Schema (exactly 3 items):
     1500
   );
 
-  console.log("[TALLY:report] generateUploadKit raw:", raw.slice(0, 400));
 
   const clean = stripJson(raw);
   try {

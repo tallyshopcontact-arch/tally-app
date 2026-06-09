@@ -6,6 +6,7 @@ import {
   getMonthlyStats,
   searchNicheVideos,
 } from "@/lib/youtube";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export async function POST(_req: NextRequest) {
   const supabase = await createAuthClient();
@@ -15,6 +16,14 @@ export async function POST(_req: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rl = await checkRateLimit(user.id, "/api/youtube/pull", 5);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Daily limit reached. Resets at midnight.", resetAt: rl.resetAt },
+      { status: 429 }
+    );
   }
 
   const { data: profile } = await supabase

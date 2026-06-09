@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { useSubscription } from "@/lib/hooks/useSubscription";
+import { UpgradePrompt } from "@/components/UpgradePrompt";
 import { ArrowLeft, ArrowRight, Check, Copy, Lightbulb, Clock, Loader2 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -305,6 +307,7 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
 
 export default function UploadKitPage() {
   const router = useRouter();
+  const { isPaid, loading: subLoading } = useSubscription();
 
   // Form state
   const [beatName, setBeatName] = useState("");
@@ -326,6 +329,10 @@ export default function UploadKitPage() {
   const [error, setError] = useState<string | null>(null);
   const [recentKits, setRecentKits] = useState<RecentKit[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [showUpgrade, setShowUpgrade] = useState(false);
+
+  const KIT_USES_KEY = "tally_kit_uses";
+  const FREE_LIMIT = 3;
 
   const toggleVibe = (v: string) =>
     setVibes((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
@@ -356,6 +363,13 @@ export default function UploadKitPage() {
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
   const handleGenerate = async () => {
+    if (!isPaid() && !subLoading) {
+      const uses = parseInt(localStorage.getItem(KIT_USES_KEY) ?? "0", 10);
+      if (uses >= FREE_LIMIT) {
+        setShowUpgrade(true);
+        return;
+      }
+    }
     setLoading(true);
     setError(null);
     setKit(null);
@@ -378,6 +392,10 @@ export default function UploadKitPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Generation failed");
       setKit(json as GeneratedKit);
+      if (!isPaid()) {
+        const uses = parseInt(localStorage.getItem(KIT_USES_KEY) ?? "0", 10);
+        localStorage.setItem(KIT_USES_KEY, String(uses + 1));
+      }
       loadHistory();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -574,10 +592,22 @@ export default function UploadKitPage() {
             />
           </div>
 
+          {showUpgrade && (
+            <div className="py-4">
+              <UpgradePrompt feature="Upload Kit Generator" description="You've used your 3 free kits. Upgrade to generate unlimited upload kits." />
+            </div>
+          )}
+
+          {!isPaid() && !subLoading && !showUpgrade && (
+            <p className="text-xs text-[#475569] text-center">
+              {Math.max(0, FREE_LIMIT - parseInt(typeof window !== "undefined" ? (localStorage.getItem(KIT_USES_KEY) ?? "0") : "0", 10))} free kits remaining
+            </p>
+          )}
+
           {/* Generate button */}
           <button
             onClick={handleGenerate}
-            disabled={loading}
+            disabled={loading || showUpgrade}
             className="w-full flex items-center justify-center gap-2 bg-white text-black text-sm font-semibold py-4 hover:bg-[#e8e8e8] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             {loading ? (

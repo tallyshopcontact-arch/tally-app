@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
 import { getTopNicheVideos } from "@/lib/keywords";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { NicheVideo } from "@/lib/keywords";
 import {
   generateChannelSummary,
@@ -21,6 +22,14 @@ export async function POST(_req: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rl = await checkRateLimit(user.id, "/api/report/generate", 3);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Daily limit reached. Resets at midnight.", resetAt: rl.resetAt },
+      { status: 429 }
+    );
   }
 
   const now = new Date();
@@ -73,14 +82,6 @@ export async function POST(_req: NextRequest) {
     generateTALLYScore(channelData, nicheData),
   ]);
 
-  console.log(
-    "[report/generate] allSettled results:",
-    `rising_artists=${s3.status === "fulfilled" ? (s3.value as unknown[]).length : "REJECTED:" + (s3 as PromiseRejectedResult).reason}`,
-    `what_to_avoid=${s4.status === "fulfilled" ? (s4.value as unknown[]).length : "REJECTED:" + (s4 as PromiseRejectedResult).reason}`,
-    `action_plan=${s5.status === "fulfilled" ? (s5.value as unknown[]).length : "REJECTED:" + (s5 as PromiseRejectedResult).reason}`,
-    `upload_kits=${s6.status === "fulfilled" ? (s6.value as unknown[]).length : "REJECTED:" + (s6 as PromiseRejectedResult).reason}`
-  );
-
   const ok = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
     r.status === "fulfilled" ? r.value : fallback;
 
@@ -122,11 +123,7 @@ export async function POST(_req: NextRequest) {
       );
     if (histError) {
       console.error("[report/generate] scores_history upsert error:", histError.message);
-    } else {
-      console.log(`[report/generate] scores_history saved: score=${tallyScore.total} for ${month}/${year}`);
     }
-  } else {
-    console.log("[report/generate] skipping scores_history: tallyScore.total=0");
   }
 
   return NextResponse.json(saved);

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { extractKeywords } from "@/lib/keywords";
 import type { NicheVideo } from "@/lib/keywords";
@@ -47,6 +47,28 @@ const scoreColor = (s: number) =>
   s >= 80 ? "text-[#4ade80]" : s >= 60 ? "text-[#fbbf24]" : "text-[#f87171]";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
+
+function SubscribedBanner() {
+  const searchParams = useSearchParams();
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("subscribed") === "true") {
+      setShow(true);
+      const t = setTimeout(() => setShow(false), 6000);
+      return () => clearTimeout(t);
+    }
+  }, [searchParams]);
+
+  if (!show) return null;
+  return (
+    <div className="bg-[#0a1a0a] border-b border-[#1a3a1a] px-6 py-3 text-center">
+      <p className="text-sm text-[#4ade80] font-medium">
+        Welcome to TALLY Pro! Your trial has started — explore all 7 tools.
+      </p>
+    </div>
+  );
+}
 
 export default function DashboardHome() {
   const router = useRouter();
@@ -153,6 +175,10 @@ export default function DashboardHome() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
+      <Suspense fallback={null}>
+        <SubscribedBanner />
+      </Suspense>
+
       {/* Header */}
       <nav className="h-14 border-b border-[#1a1a1a] px-6 flex items-center justify-between">
         <Link href="/" className="text-sm font-bold tracking-[0.25em]">TALLY</Link>
