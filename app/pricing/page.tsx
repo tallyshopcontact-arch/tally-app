@@ -40,7 +40,6 @@ const tiers = [
     desc: "The full toolkit for serious YouTube growth.",
     features: [
       "Everything in Growth",
-      "Thumbnail Studio",
       "Competitor Tracker (10 channels)",
       "Growth Forecast",
       "Priority support",

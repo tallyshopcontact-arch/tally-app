@@ -12,7 +12,7 @@ import {
   IconTag,
   IconUsers,
 } from "@tabler/icons-react";
-import { ArrowUpRight, Image, RefreshCw, Type } from "lucide-react";
+import { ArrowUpRight, RefreshCw, Type } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -145,15 +145,6 @@ export default function DashboardHome() {
       cta: "Test a Title",
       ctaStyle: "secondary",
     },
-    {
-      label: "Thumbnail Studio",
-      description: "AI thumbnail concepts built for your niche",
-      href: "/dashboard/thumbnail-studio",
-      icon: <Image className="w-[18px] h-[18px] text-[#f97316]" />,
-      iconColor: "text-[#f97316]",
-      cta: "Generate Concepts",
-      ctaStyle: "secondary",
-    },
   ];
 
   return (
@@ -270,7 +261,6 @@ export default function DashboardHome() {
           <Link href="/dashboard/report" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Monthly Report</Link>
           <Link href="/dashboard/upload-kit" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Upload Kit Generator</Link>
           <Link href="/dashboard/title-tester" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Title Tester</Link>
-          <Link href="/dashboard/thumbnail-studio" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Thumbnail Studio</Link>
           <Link href="/dashboard/competitors" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Competitor Tracker</Link>
           <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Settings</Link>
         </div>

@@ -3,7 +3,6 @@ import {
   BarChart2,
   TrendingUp,
   Zap,
-  Image,
   Star,
   Type,
   Users,
@@ -33,13 +32,6 @@ const tools = [
     title: "Keyword Heat Map",
     desc: "Top 20 trending tags in your niche each month, ranked by frequency. Know exactly what to include in your titles and tags.",
     pro: false,
-    featured: false,
-  },
-  {
-    icon: Image,
-    title: "Thumbnail Studio",
-    desc: "AI-generated thumbnail concepts tailored to your style preferences and niche data. With Canva instructions for each concept.",
-    pro: true,
     featured: false,
   },
   {
@@ -111,7 +103,6 @@ const pricingTiers = [
     desc: "The full toolkit for serious YouTube growth.",
     features: [
       "Everything in Growth",
-      "Thumbnail Studio",
       "Competitor Tracker (10 channels)",
       "Growth Forecast",
       "Priority support",
