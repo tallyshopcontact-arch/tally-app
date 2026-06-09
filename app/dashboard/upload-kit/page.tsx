@@ -79,6 +79,9 @@ const KEYS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const VIBES = [
   "Dark", "Soulful", "Aggressive", "Melodic", "Cinematic",
   "Grimy", "Emotional", "Hard", "Smooth", "Eerie",
+  "Haunting", "Triumphant", "Nostalgic", "Hypnotic", "Raw",
+  "Epic", "Minimal", "Bouncy", "Chill", "Ethereal",
+  "Drill", "Trappy", "Wavy", "Boom Bap", "Jazzy",
 ];
 
 // ── Helper components ─────────────────────────────────────────────────────────
@@ -344,7 +347,10 @@ export default function UploadKitPage() {
   // Form state
   const [beatName, setBeatName] = useState("");
   const [genre, setGenre] = useState("Trap");
+  const [customGenre, setCustomGenre] = useState("");
   const [vibes, setVibes] = useState<string[]>([]);
+  const [customVibeInput, setCustomVibeInput] = useState("");
+  const [showCustomVibeInput, setShowCustomVibeInput] = useState(false);
   const [artist1, setArtist1] = useState("");
   const [artist2, setArtist2] = useState("");
   const [artist3, setArtist3] = useState("");
@@ -361,6 +367,13 @@ export default function UploadKitPage() {
 
   const toggleVibe = (v: string) =>
     setVibes((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
+
+  const addCustomVibe = () => {
+    const v = customVibeInput.trim();
+    if (v && !vibes.includes(v)) setVibes((prev) => [...prev, v]);
+    setCustomVibeInput("");
+    setShowCustomVibeInput(false);
+  };
 
   const loadHistory = useCallback(async () => {
     const supabase = createSupabaseBrowserClient();
@@ -390,7 +403,7 @@ export default function UploadKitPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           beat_name: beatName,
-          genre,
+          genre: genre === "Other" ? (customGenre.trim() || "hip hop") : genre,
           vibes,
           artist_1: artist1,
           artist_2: artist2,
@@ -465,11 +478,21 @@ export default function UploadKitPage() {
             <label className={labelCls}>Genre</label>
             <select
               value={genre}
-              onChange={(e) => setGenre(e.target.value)}
+              onChange={(e) => { setGenre(e.target.value); if (e.target.value !== "Other") setCustomGenre(""); }}
               className={inputCls + " cursor-pointer"}
             >
               {GENRES.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
+            {genre === "Other" && (
+              <input
+                type="text"
+                value={customGenre}
+                onChange={(e) => setCustomGenre(e.target.value)}
+                placeholder="Enter your genre (e.g. Phonk, Cloud Rap, Dancehall...)"
+                className={inputCls + " mt-2"}
+                autoFocus
+              />
+            )}
           </div>
 
           {/* Vibe pills */}
@@ -490,6 +513,42 @@ export default function UploadKitPage() {
                   {v}
                 </button>
               ))}
+              {/* Custom vibes added via Other + */}
+              {vibes.filter((v) => !VIBES.includes(v)).map((cv) => (
+                <button
+                  key={cv}
+                  type="button"
+                  onClick={() => toggleVibe(cv)}
+                  className="text-xs px-3 py-1.5 border border-white text-white bg-[#1a1a1a] transition-colors cursor-pointer"
+                >
+                  {cv} ×
+                </button>
+              ))}
+              {showCustomVibeInput ? (
+                <div className="flex gap-2 w-full mt-1">
+                  <input
+                    autoFocus
+                    value={customVibeInput}
+                    onChange={(e) => setCustomVibeInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); addCustomVibe(); }
+                      if (e.key === "Escape") setShowCustomVibeInput(false);
+                    }}
+                    placeholder="Type a vibe..."
+                    className="flex-1 bg-[#0d0d0d] border border-[#1e1e1e] text-white text-xs px-3 py-1.5 focus:outline-none focus:border-[#333] placeholder:text-[#475569]"
+                  />
+                  <button onClick={addCustomVibe} className="text-xs border border-white text-white px-3 py-1.5 hover:bg-white hover:text-black transition-colors cursor-pointer">Add</button>
+                  <button onClick={() => { setShowCustomVibeInput(false); setCustomVibeInput(""); }} className="text-xs text-[#475569] hover:text-white transition-colors cursor-pointer">Cancel</button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowCustomVibeInput(true)}
+                  className="text-xs px-3 py-1.5 border border-dashed border-[#2a2a2a] text-[#475569] hover:border-[#444] hover:text-[#94a3b8] transition-colors cursor-pointer"
+                >
+                  Other +
+                </button>
+              )}
             </div>
           </div>
 

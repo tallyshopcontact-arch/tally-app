@@ -7,7 +7,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { extractKeywords, getTopNicheVideos } from "@/lib/keywords";
 import type { NicheVideo } from "@/lib/keywords";
 import { AlertTriangle, ArrowUpRight, Check, Copy, Lock, Menu, RefreshCw, TrendingDown, TrendingUp, Minus, X } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
   IconLayoutDashboard,
   IconChartBar,
@@ -289,32 +289,47 @@ function OverviewTab({
       ) : null}
 
       {/* Score history chart */}
-      {chartData.length >= 2 && (
+      {chartData.length >= 1 && (
         <div className="border border-[#1a1a1a] p-6">
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs text-[#94a3b8] uppercase tracking-widest">TALLY Score History</p>
-            <div className="flex items-center gap-1.5 text-xs">
-              {trend > 0 ? (
-                <><TrendingUp className="w-3.5 h-3.5 text-[#4ade80]" /><span className="text-[#4ade80]">+{trend} improving</span></>
-              ) : trend < 0 ? (
-                <><TrendingDown className="w-3.5 h-3.5 text-[#f87171]" /><span className="text-[#f87171]">{trend} declining</span></>
-              ) : (
-                <><Minus className="w-3.5 h-3.5 text-[#475569]" /><span className="text-[#475569]">stable</span></>
-              )}
-            </div>
+            {chartData.length >= 2 && (
+              <div className="flex items-center gap-1.5 text-xs">
+                {trend > 0 ? (
+                  <><TrendingUp className="w-3.5 h-3.5 text-[#4ade80]" /><span className="text-[#4ade80]">+{trend} improving</span></>
+                ) : trend < 0 ? (
+                  <><TrendingDown className="w-3.5 h-3.5 text-[#f87171]" /><span className="text-[#f87171]">{trend} declining</span></>
+                ) : (
+                  <><Minus className="w-3.5 h-3.5 text-[#475569]" /><span className="text-[#475569]">stable</span></>
+                )}
+              </div>
+            )}
           </div>
           <ResponsiveContainer width="100%" height={120}>
             <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" vertical={false} />
               <XAxis dataKey="label" tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
               <YAxis domain={[0, 100]} tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
               <Tooltip
-                contentStyle={{ background: "#111", border: "1px solid #1a1a1a", borderRadius: 0, fontSize: 12 }}
-                itemStyle={{ color: "#4ade80" }}
+                contentStyle={{ background: "#0d0d0d", border: "1px solid #1a1a1a", borderRadius: 0, fontSize: 12 }}
+                itemStyle={{ color: "#ffffff" }}
                 labelStyle={{ color: "#94a3b8" }}
               />
-              <Line type="monotone" dataKey="score" stroke="#4ade80" strokeWidth={2} dot={{ fill: "#4ade80", r: 3 }} activeDot={{ r: 4 }} />
+              <Line
+                type="monotone"
+                dataKey="score"
+                stroke="#ffffff"
+                strokeWidth={2}
+                dot={{ fill: "#ffffff", r: 3, strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: "#ffffff" }}
+              />
             </LineChart>
           </ResponsiveContainer>
+          {chartData.length === 1 && (
+            <p className="text-xs text-[#475569] mt-3 text-center">
+              Your score history builds each month — keep uploading
+            </p>
+          )}
         </div>
       )}
 

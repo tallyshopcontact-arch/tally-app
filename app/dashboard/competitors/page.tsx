@@ -258,7 +258,7 @@ export default function CompetitorsPage() {
                           <div className="flex flex-wrap gap-1.5 mt-1">
                             {ld.top_tags.length > 0 ? ld.top_tags.map((tag) => (
                               <span key={tag} className="text-xs text-[#94a3b8] bg-[#111] border border-[#1e1e1e] px-2 py-0.5">{tag}</span>
-                            )) : <span className="text-xs text-[#475569]">No tags found</span>}
+                            )) : <span className="text-xs text-[#475569]">No public tags found</span>}
                           </div>
                         </div>
                       </div>

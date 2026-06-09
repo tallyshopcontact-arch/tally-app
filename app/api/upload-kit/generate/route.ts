@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
 import { extractKeywords } from "@/lib/keywords";
+import { searchNicheVideos } from "@/lib/youtube";
 import { anthropic } from "@/lib/anthropic";
 import { scoreTitle } from "@/lib/title-scorer";
 import type { NicheVideo } from "@/lib/keywords";
@@ -17,7 +18,9 @@ interface ThumbnailAnalysisResult {
 
 async function analyzeThumbnails(
   topVideos: { videoId: string; title: string; viewCount: number; thumbnailUrl: string }[],
-  genre: string
+  genre: string,
+  artists: string[],
+  vibes: string[]
 ): Promise<ThumbnailAnalysisResult | null> {
   if (!topVideos.length) return null;
   try {
@@ -29,6 +32,14 @@ async function analyzeThumbnails(
     const videoList = topVideos
       .map((v, i) => `${i + 1}. "${v.title}" — ${(v.viewCount / 1000).toFixed(0)}K views`)
       .join("\n");
+
+    const beatContext = [
+      ...vibes,
+      genre,
+    ].filter(Boolean).join(", ");
+    const artistContext = artists.length > 0
+      ? ` with a ${artists.slice(0, 2).join("/")} influence`
+      : "";
 
     const analysisPrompt = `I'm showing you the top ${topVideos.length} highest-performing YouTube beat video thumbnails from the ${genre} niche, ordered by view count (highest first):
 
@@ -43,10 +54,10 @@ Analyze the visual patterns across these thumbnails. Look at:
 - Overall aesthetic (atmospheric, aggressive, clean, etc.)
 
 Write one short sentence per thumbnail describing the key visual choice that likely drives clicks.
-Then write one overall recommendation for a producer in this niche — be specific about what's working right now.
+Then write one overall recommendation specifically for a producer making ${beatContext} beats${artistContext} — what EXACTLY should they do with their thumbnails right now based on what's working in this niche?
 
 Respond with ONLY valid JSON. No markdown.
-{"notes":[{"videoId":"<id>","note":"<1 sentence>"},...],"recommendation":"<1-2 sentences specific to ${genre} niche right now>"}`;
+{"notes":[{"videoId":"<id>","note":"<1 sentence>"},...],"recommendation":"<1-2 sentences specific to ${beatContext} beats${artistContext}>"}`;
 
     const msg = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -113,10 +124,10 @@ export async function POST(req: NextRequest) {
   const nicheData: NicheVideo[] = channelData?.niche_data ?? [];
   const topKeywords = extractKeywords(nicheData).slice(0, 12).map((k) => k.tag);
 
-  const artists = [artist_1, artist_2, artist_3].filter(Boolean);
+  const artistsList = [artist_1, artist_2, artist_3].filter((a): a is string => !!a?.trim());
   const artistList =
-    artists.length > 0
-      ? artists.join(", ")
+    artistsList.length > 0
+      ? artistsList.join(", ")
       : [profile?.top_artist_1, profile?.top_artist_2, profile?.top_artist_3]
           .filter(Boolean)
           .join(", ") || "various artists";
@@ -132,7 +143,7 @@ export async function POST(req: NextRequest) {
     ? topKeywords.join(", ")
     : `${resolvedGenre} type beat, free type beat`;
 
-  // Top niche videos for pattern analysis and thumbnail inspiration
+  // Profile genre niche videos for prompt context (title patterns + keywords)
   const topNicheVideos = [...nicheData]
     .sort((a, b) => b.viewCount - a.viewCount)
     .slice(0, 5);
@@ -146,7 +157,6 @@ export async function POST(req: NextRequest) {
         .join("\n")
     : "- No niche video data available";
 
-  // Build description template instructions with BPM/Key lines
   const bpmKeyLine =
     bpmStr && keyStr
       ? `BPM: ${bpmStr} | Key: ${keyStr}`
@@ -219,7 +229,7 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
   "description": "Full description following the EXACT format above. Use \\n for line breaks within the JSON string.",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12"],
   "thumbnail_concepts": [
-    {"style": "concept name", "background": "specific visual — colors, textures, imagery", "text_treatment": "exactly what text appears and how (size, weight, position)", "color_palette": "3-4 specific hex colors e.g. #0a0a0a, #e8e8e8, #c0392b", "why_it_works": "1 sentence specific to ${resolvedGenre}"},
+    {"style": "concept name", "background": "specific visual — colors, textures, imagery", "text_treatment": "exactly what text appears and how (size, weight, position)", "color_palette": "3-4 specific hex colors e.g. #0a0a0a, #e8e8e8, #c0392b", "why_it_works": "1 sentence specific to ${resolvedGenre} + ${vibeStr}"},
     {"style": "concept name", "background": "background description", "text_treatment": "text details", "color_palette": "3-4 hex colors", "why_it_works": "reason"},
     {"style": "concept name", "background": "background description", "text_treatment": "text details", "color_palette": "3-4 hex colors", "why_it_works": "reason"}
   ],
@@ -231,15 +241,12 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
   "niche_tip": "One specific, actionable tip based on the niche data above — what is working right now in this exact niche"
 }`;
 
-  // Run kit generation and thumbnail analysis concurrently
-  const top5ForAnalysis = topNicheVideos.map((v) => ({
-    videoId: v.videoId,
-    title: v.title,
-    viewCount: v.viewCount,
-    thumbnailUrl: v.thumbnailUrl,
-  }));
+  // Determine if we need to search for genre-specific thumbnail data
+  const profileGenre = profile?.genre ?? "";
+  const needsGenreSearch = !!profileGenre && resolvedGenre.toLowerCase() !== profileGenre.toLowerCase();
 
-  const [kitMsg, thumbnailAnalysis] = await Promise.all([
+  // Run Claude generation + genre thumbnail search concurrently
+  const [kitMsg, thumbnailNicheVideos] = await Promise.all([
     anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 2500,
@@ -247,8 +254,20 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
         "You are a YouTube SEO expert for beat producers. Output only valid JSON with no markdown or code blocks.",
       messages: [{ role: "user", content: prompt }],
     }),
-    analyzeThumbnails(top5ForAnalysis, resolvedGenre),
+    needsGenreSearch
+      ? searchNicheVideos(resolvedGenre, artistsList).catch(() => nicheData)
+      : Promise.resolve(nicheData),
   ]);
+
+  const top5ForAnalysis = [...thumbnailNicheVideos]
+    .sort((a, b) => b.viewCount - a.viewCount)
+    .slice(0, 5)
+    .map((v) => ({
+      videoId: v.videoId,
+      title: v.title,
+      viewCount: v.viewCount,
+      thumbnailUrl: v.thumbnailUrl,
+    }));
 
   let generatedKit: Record<string, unknown>;
   try {
@@ -260,8 +279,13 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
     return NextResponse.json({ error: "Failed to generate kit" }, { status: 500 });
   }
 
+  // Generate thumbnail analysis with genre + artists + vibes context
+  const thumbnailAnalysis = await analyzeThumbnails(top5ForAnalysis, resolvedGenre, artistsList, vibes ?? []);
+
   // Score each title with the shared deterministic scorer
-  const artistsForScoring = [artist_1, artist_2, artist_3].filter((a): a is string => !!a?.trim());
+  const artistsForScoring = artistsList.length > 0
+    ? artistsList
+    : [profile?.top_artist_1, profile?.top_artist_2, profile?.top_artist_3].filter((a): a is string => !!a);
   if (Array.isArray(generatedKit.titles)) {
     const scored = (generatedKit.titles as Array<{ title: string; reason: string }>).map(t => ({
       ...t,
@@ -276,7 +300,6 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
     });
   }
 
-  // Save to upload_kits table (without niche_thumbnails — those are derived from current niche data)
   const { data: saved, error: saveErr } = await supabase
     .from("upload_kits")
     .insert({
