@@ -371,6 +371,7 @@ function ProspectFinderSection({ password }: { password: string }) {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loadingProspects, setLoadingProspects] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusTab>("all");
+  const [contactFilter, setContactFilter] = useState<"all" | "email" | "instagram" | "none">("all");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMessage, setEditMessage] = useState("");
@@ -465,10 +466,24 @@ function ProspectFinderSection({ password }: { password: string }) {
     rejected: prospects.filter((p) => p.status === "rejected").length,
   };
 
-  const filtered =
+  const byStatus =
     statusFilter === "all"
       ? prospects
       : prospects.filter((p) => p.status === statusFilter);
+
+  const filtered = byStatus.filter((p) => {
+    if (contactFilter === "email") return !!p.email;
+    if (contactFilter === "instagram") return !p.email && !!p.instagram_handle;
+    if (contactFilter === "none") return !p.email && !p.instagram_handle;
+    return true;
+  });
+
+  const contactCounts = {
+    all: byStatus.length,
+    email: byStatus.filter((p) => !!p.email).length,
+    instagram: byStatus.filter((p) => !p.email && !!p.instagram_handle).length,
+    none: byStatus.filter((p) => !p.email && !p.instagram_handle).length,
+  };
 
   return (
     <div>
@@ -532,7 +547,7 @@ function ProspectFinderSection({ password }: { password: string }) {
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex gap-1 mb-4 flex-wrap border-b border-[#1a1a1a] pb-3">
+      <div className="flex gap-1 mb-3 flex-wrap border-b border-[#1a1a1a] pb-3">
         {STATUS_TABS.map((s) => (
           <button
             key={s}
@@ -550,6 +565,38 @@ function ProspectFinderSection({ password }: { password: string }) {
         ))}
       </div>
 
+      {/* Contact filter */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-[10px] text-[#475569] uppercase tracking-widest">Contact:</span>
+        {(
+          [
+            { key: "all", label: "All" },
+            { key: "email", label: "Email" },
+            { key: "instagram", label: "Instagram" },
+            { key: "none", label: "None" },
+          ] as const
+        ).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setContactFilter(key)}
+            className={`text-xs px-3 py-1 border transition-colors ${
+              contactFilter === key
+                ? key === "email"
+                  ? "bg-[#60a5fa]/10 border-[#60a5fa]/40 text-[#60a5fa]"
+                  : key === "instagram"
+                  ? "bg-[#c084fc]/10 border-[#c084fc]/40 text-[#c084fc]"
+                  : key === "none"
+                  ? "bg-[#475569]/10 border-[#475569]/40 text-[#94a3b8]"
+                  : "bg-[#1a1a1a] border-[#333] text-white"
+                : "border-[#1a1a1a] text-[#475569] hover:border-[#333] hover:text-[#94a3b8]"
+            }`}
+          >
+            {label}{" "}
+            <span className="opacity-60">({contactCounts[key]})</span>
+          </button>
+        ))}
+      </div>
+
       {/* Prospects table */}
       {loadingProspects ? (
         <div className="border border-[#1a1a1a] p-8 text-center">
@@ -560,6 +607,8 @@ function ProspectFinderSection({ password }: { password: string }) {
           <p className="text-[#94a3b8] text-sm">
             {prospects.length === 0
               ? 'No prospects yet. Select genres and click "Find Producers".'
+              : contactFilter !== "all"
+              ? `No prospects with ${contactFilter === "none" ? "no contact info" : `${contactFilter} contact`} in this view.`
               : "No prospects in this status."}
           </p>
         </div>
