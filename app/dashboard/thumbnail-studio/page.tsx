@@ -89,9 +89,22 @@ const TEXT_OPTIONS = [
   { id: "never", label: "Never", desc: "No text overlays" },
 ];
 
+const DEFAULT_STYLE: ThumbnailStyle = {
+  style: "Dark Minimal",
+  color: "#0a0a0a",
+  text_preference: "sometimes",
+  producer_tag: false,
+};
+
 // ── Setup Wizard ──────────────────────────────────────────────────────────────
 
-function SetupWizard({ onComplete }: { onComplete: (style: ThumbnailStyle) => void }) {
+function SetupWizard({
+  onComplete,
+  onSkip,
+}: {
+  onComplete: (style: ThumbnailStyle) => void;
+  onSkip: () => void;
+}) {
   const [step, setStep] = useState(1);
   const [selectedStyle, setSelectedStyle] = useState("");
   const [selectedColor, setSelectedColor] = useState("#0a0a0a");
@@ -100,9 +113,11 @@ function SetupWizard({ onComplete }: { onComplete: (style: ThumbnailStyle) => vo
   const [producerTag, setProducerTag] = useState(false);
   const [tagName, setTagName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleFinish = async () => {
     setSaving(true);
+    setSaveError(null);
     const style: ThumbnailStyle = {
       style: selectedStyle,
       color: selectedColor === "custom" ? customColor : selectedColor,
@@ -110,25 +125,52 @@ function SetupWizard({ onComplete }: { onComplete: (style: ThumbnailStyle) => vo
       producer_tag: producerTag,
       producer_tag_name: producerTag ? tagName : undefined,
     };
-    const supabase = createSupabaseBrowserClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) await supabase.from("profiles").update({ thumbnail_style: style }).eq("id", user.id);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase
+          .from("profiles")
+          .update({ thumbnail_style: style })
+          .eq("id", user.id);
+        if (error) {
+          console.warn("[ThumbnailStudio] Could not save style to profiles:", error.message);
+        } else {
+          console.log("[ThumbnailStudio] Style saved to profiles successfully");
+        }
+      }
+    } catch (err) {
+      console.warn("[ThumbnailStudio] handleFinish error:", err);
+    }
+    // Always proceed even if Supabase fails — style is held in React state
     onComplete(style);
   };
 
   return (
     <div className="max-w-2xl mx-auto">
-      {/* Progress */}
-      <div className="flex items-center gap-2 mb-10">
-        {[1, 2, 3, 4].map((s) => (
-          <React.Fragment key={s}>
-            <div className={`w-8 h-8 flex items-center justify-center text-xs font-bold border ${s <= step ? "bg-white text-black border-white" : "border-[#2a2a2a] text-[#475569]"}`}>
-              {s < step ? <Check className="w-3.5 h-3.5" /> : s}
-            </div>
-            {s < 4 && <div className={`flex-1 h-px ${s < step ? "bg-white" : "bg-[#1a1a1a]"}`} />}
-          </React.Fragment>
-        ))}
+      {/* Progress + skip */}
+      <div className="flex items-center justify-between mb-10">
+        <div className="flex items-center gap-2 flex-1">
+          {[1, 2, 3, 4].map((s) => (
+            <React.Fragment key={s}>
+              <div className={`w-8 h-8 flex items-center justify-center text-xs font-bold border ${s <= step ? "bg-white text-black border-white" : "border-[#2a2a2a] text-[#475569]"}`}>
+                {s < step ? <Check className="w-3.5 h-3.5" /> : s}
+              </div>
+              {s < 4 && <div className={`flex-1 h-px ${s < step ? "bg-white" : "bg-[#1a1a1a]"}`} />}
+            </React.Fragment>
+          ))}
+        </div>
+        <button
+          onClick={onSkip}
+          className="ml-6 text-xs text-[#475569] hover:text-[#94a3b8] transition-colors cursor-pointer shrink-0"
+        >
+          Skip setup →
+        </button>
       </div>
+
+      {saveError && (
+        <div className="mb-5 border border-[#f87171]/30 px-4 py-2 text-[#f87171] text-xs">{saveError}</div>
+      )}
 
       {step === 1 && (
         <div>
@@ -277,7 +319,6 @@ function ImageCard({
       document.body.removeChild(a);
       URL.revokeObjectURL(objectUrl);
     } catch {
-      // Fallback: open in new tab
       window.open(image.url, "_blank");
     } finally {
       setDownloading(false);
@@ -288,7 +329,6 @@ function ImageCard({
 
   return (
     <div className="border border-[#1a1a1a]">
-      {/* Label row */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-[#1a1a1a]">
         <div>
           <p className="text-xs text-[#475569] uppercase tracking-widest">{`Concept ${idx + 1}`}</p>
@@ -303,7 +343,6 @@ function ImageCard({
         </button>
       </div>
 
-      {/* Image */}
       <div className="relative w-full aspect-video bg-[#111]">
         {image.url ? (
           <img src={image.url} alt={image.label} className="w-full h-full object-cover" />
@@ -318,7 +357,6 @@ function ImageCard({
         )}
       </div>
 
-      {/* Description + actions */}
       <div className="p-5">
         <p className="text-[#94a3b8] text-sm leading-relaxed mb-4">{image.description}</p>
 
@@ -340,7 +378,6 @@ function ImageCard({
           </button>
         </div>
 
-        {/* Canva text overlay instructions */}
         {showCanva && (
           <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-4 text-sm">
             <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Add Beat Name in Canva</p>
@@ -373,14 +410,18 @@ function Generator({
   profileGenre,
   profileArtists,
   onEditStyle,
+  styleIsDefault,
 }: {
   thumbnailStyle: ThumbnailStyle;
   profileGenre: string;
   profileArtists: string[];
   onEditStyle: () => void;
+  styleIsDefault: boolean;
 }) {
+  const effectiveGenre = profileGenre || "Trap";
+
   const [beatName, setBeatName] = useState("");
-  const [genre, setGenre] = useState(profileGenre);
+  const [genre, setGenre] = useState(effectiveGenre);
   const [selectedVibes, setSelectedVibes] = useState<string[]>([]);
   const [artist1, setArtist1] = useState(profileArtists[0] ?? "");
   const [artist2, setArtist2] = useState(profileArtists[1] ?? "");
@@ -392,16 +433,24 @@ function Generator({
   const [recentGens, setRecentGens] = useState<RecentGeneration[]>([]);
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  console.log("[ThumbnailStudio] Generator rendered — beatName:", JSON.stringify(beatName), "genre:", genre, "loading:", loading);
+
   useEffect(() => {
+    console.log("[ThumbnailStudio] Fetching recent generations...");
     const supabase = createSupabaseBrowserClient();
     supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return;
-      const { data } = await supabase
+      if (!user) {
+        console.log("[ThumbnailStudio] No user for recent generations fetch");
+        return;
+      }
+      const { data, error } = await supabase
         .from("thumbnail_generations")
         .select("id, beat_name, image_urls, created_at")
         .eq("producer_id", user.id)
         .order("created_at", { ascending: false })
         .limit(5);
+      if (error) console.warn("[ThumbnailStudio] Recent generations error:", error.message);
+      else console.log("[ThumbnailStudio] Recent generations loaded:", data?.length ?? 0);
       if (data) setRecentGens(data as RecentGeneration[]);
     });
   }, []);
@@ -410,16 +459,20 @@ function Generator({
     setSelectedVibes((prev) => prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]);
 
   const handleGenerate = async () => {
-    if (!beatName.trim()) return;
+    console.log("[ThumbnailStudio] handleGenerate called — beatName:", beatName, "genre:", genre);
+    if (!beatName.trim()) {
+      console.warn("[ThumbnailStudio] handleGenerate blocked — beatName is empty");
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
     setImages([]);
 
-    // Scroll to results
     setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
 
     try {
+      console.log("[ThumbnailStudio] Calling /api/thumbnail-studio/generate...");
       const res = await fetch("/api/thumbnail-studio/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -431,12 +484,13 @@ function Generator({
         }),
       });
       const json = await res.json();
+      console.log("[ThumbnailStudio] API response status:", res.status, "ok:", res.ok);
       if (!res.ok) throw new Error(json.error ?? "Generation failed");
       const data = json as GenerateResult;
       setResult(data);
       setImages(data.images);
+      console.log("[ThumbnailStudio] Generation complete — images:", data.images.length);
 
-      // Refresh recent generations
       const supabase = createSupabaseBrowserClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -449,7 +503,9 @@ function Generator({
         if (recents) setRecentGens(recents as RecentGeneration[]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      const msg = e instanceof Error ? e.message : "Something went wrong";
+      console.error("[ThumbnailStudio] Generation error:", msg);
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -459,9 +515,7 @@ function Generator({
     if (!result) return;
     const image = images[idx];
     if (!image) return;
-
     setImages((prev) => prev.map((im, i) => i === idx ? { ...im, url: null, error: null } : im));
-
     try {
       const res = await fetch("/api/thumbnail-studio/generate", {
         method: "POST",
@@ -484,6 +538,8 @@ function Generator({
     }
   };
 
+  const canGenerate = !loading && beatName.trim().length > 0;
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* ── Left: Input form ── */}
@@ -493,21 +549,37 @@ function Generator({
           <div className="flex items-center gap-4">
             <div className="w-6 h-6 border border-[#2a2a2a] shrink-0" style={{ background: thumbnailStyle.color }} />
             <div>
-              <p className="text-white text-sm font-medium">{thumbnailStyle.style}</p>
-              <p className="text-[#475569] text-xs capitalize">{thumbnailStyle.text_preference} text · {thumbnailStyle.producer_tag ? "with producer tag" : "no tag"}</p>
+              {styleIsDefault ? (
+                <p className="text-[#94a3b8] text-sm">Using default style</p>
+              ) : (
+                <p className="text-white text-sm font-medium">{thumbnailStyle.style}</p>
+              )}
+              <p className="text-[#475569] text-xs capitalize">
+                {styleIsDefault
+                  ? "Complete style setup for better results"
+                  : `${thumbnailStyle.text_preference} text · ${thumbnailStyle.producer_tag ? "with producer tag" : "no tag"}`}
+              </p>
             </div>
           </div>
-          <button onClick={onEditStyle} className="text-xs text-[#475569] hover:text-[#94a3b8] transition-colors cursor-pointer shrink-0">
-            Edit style →
+          <button
+            onClick={onEditStyle}
+            className="text-xs text-[#475569] hover:text-[#94a3b8] transition-colors cursor-pointer shrink-0"
+          >
+            {styleIsDefault ? "Set up style →" : "Edit style →"}
           </button>
         </div>
 
         {/* Beat name */}
         <div>
-          <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Beat Name</label>
+          <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">
+            Beat Name <span className="text-[#475569] normal-case tracking-normal">(required)</span>
+          </label>
           <input
             value={beatName}
-            onChange={(e) => setBeatName(e.target.value)}
+            onChange={(e) => {
+              console.log("[ThumbnailStudio] beatName changed:", JSON.stringify(e.target.value));
+              setBeatName(e.target.value);
+            }}
             placeholder='e.g. "Phantom"'
             className="w-full bg-[#111] border border-[#1e1e1e] text-white text-sm px-4 py-3 placeholder-[#2a2a2a] focus:outline-none focus:border-[#2a2a2a]"
           />
@@ -518,9 +590,16 @@ function Generator({
           <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Genre</label>
           <select
             value={genre}
-            onChange={(e) => setGenre(e.target.value)}
+            onChange={(e) => {
+              console.log("[ThumbnailStudio] genre changed:", e.target.value);
+              setGenre(e.target.value);
+            }}
             className="w-full bg-[#111] border border-[#1e1e1e] text-white text-sm px-4 py-3 focus:outline-none focus:border-[#2a2a2a] cursor-pointer appearance-none"
-            style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 14px center" }}
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "right 14px center",
+            }}
           >
             {GENRES.map((g) => <option key={g} value={g}>{g}</option>)}
           </select>
@@ -548,23 +627,47 @@ function Generator({
         <div>
           <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Sounds Like</label>
           <div className="space-y-2">
-            {[
-              { val: artist1, set: setArtist1, ph: "Artist 1 (e.g. Travis Scott)" },
-              { val: artist2, set: setArtist2, ph: "Artist 2 (e.g. Future)" },
-              { val: artist3, set: setArtist3, ph: "Artist 3 (optional)" },
-            ].map(({ val, set, ph }) => (
-              <input key={ph} value={val} onChange={(e) => set(e.target.value)} placeholder={ph}
-                className="w-full bg-[#111] border border-[#1e1e1e] text-white text-sm px-4 py-2.5 placeholder-[#2a2a2a] focus:outline-none focus:border-[#2a2a2a]" />
-            ))}
+            <input
+              value={artist1}
+              onChange={(e) => setArtist1(e.target.value)}
+              placeholder="Artist 1 (e.g. Travis Scott)"
+              className="w-full bg-[#111] border border-[#1e1e1e] text-white text-sm px-4 py-2.5 placeholder-[#2a2a2a] focus:outline-none focus:border-[#2a2a2a]"
+            />
+            <input
+              value={artist2}
+              onChange={(e) => setArtist2(e.target.value)}
+              placeholder="Artist 2 (e.g. Future)"
+              className="w-full bg-[#111] border border-[#1e1e1e] text-white text-sm px-4 py-2.5 placeholder-[#2a2a2a] focus:outline-none focus:border-[#2a2a2a]"
+            />
+            <input
+              value={artist3}
+              onChange={(e) => setArtist3(e.target.value)}
+              placeholder="Artist 3 (optional)"
+              className="w-full bg-[#111] border border-[#1e1e1e] text-white text-sm px-4 py-2.5 placeholder-[#2a2a2a] focus:outline-none focus:border-[#2a2a2a]"
+            />
           </div>
         </div>
 
         {/* Generate button */}
         <div className="pt-2">
+          {!beatName.trim() && (
+            <p className="text-xs text-[#475569] mb-2 text-center">
+              Enter a beat name above to enable generation
+            </p>
+          )}
           <button
-            onClick={handleGenerate}
-            disabled={loading || !beatName.trim()}
-            className="w-full flex items-center justify-center gap-2 bg-white text-black text-sm font-bold py-4 hover:bg-[#e8e8e8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            type="button"
+            onClick={() => {
+              console.log("[ThumbnailStudio] Generate button clicked — canGenerate:", canGenerate, "beatName:", JSON.stringify(beatName));
+              handleGenerate();
+            }}
+            disabled={!canGenerate}
+            style={{ pointerEvents: canGenerate ? "auto" : "none" }}
+            className={`w-full flex items-center justify-center gap-2 text-sm font-bold py-4 transition-colors ${
+              canGenerate
+                ? "bg-white text-black hover:bg-[#e8e8e8] cursor-pointer"
+                : "bg-[#1a1a1a] text-[#475569] cursor-not-allowed"
+            }`}
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpRight className="w-4 h-4" />}
             {loading ? "Generating thumbnails..." : "Generate Thumbnails →"}
@@ -572,7 +675,6 @@ function Generator({
           <p className="text-xs text-[#475569] text-center mt-2">3 AI-generated thumbnail variations · DALL-E 3</p>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="border border-[#f87171]/30 px-4 py-3 text-[#f87171] text-sm">{error}</div>
         )}
@@ -583,7 +685,7 @@ function Generator({
             <p className="text-xs text-[#475569] uppercase tracking-widest mb-3">Recent Generations</p>
             <div className="space-y-2">
               {recentGens.map((gen) => {
-                const firstUrl = gen.image_urls?.find((u) => u != null);
+                const firstUrl = Array.isArray(gen.image_urls) ? gen.image_urls.find((u) => u != null) : null;
                 return (
                   <div key={gen.id} className="flex items-center gap-3 border border-[#1a1a1a] p-2 hover:bg-[#0d0d0d] transition-colors">
                     <div className="w-16 h-9 bg-[#111] shrink-0 overflow-hidden">
@@ -611,7 +713,9 @@ function Generator({
               <ArrowUpRight className="w-4 h-4 text-[#475569]" />
             </div>
             <p className="text-white text-sm font-medium mb-1">Your thumbnails will appear here</p>
-            <p className="text-[#475569] text-xs max-w-xs leading-relaxed">Fill in your beat details and click Generate — 3 AI images arrive in about 30 seconds.</p>
+            <p className="text-[#475569] text-xs max-w-xs leading-relaxed">
+              Enter your beat name and click Generate — 3 AI images arrive in about 30 seconds.
+            </p>
           </div>
         )}
 
@@ -650,7 +754,6 @@ function Generator({
               />
             ))}
 
-            {/* Canva workflow */}
             <div className="border border-[#1a1a1a] p-6">
               <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-4">Add Your Beat Title in Canva</p>
               <ol className="space-y-3">
@@ -682,36 +785,72 @@ export default function ThumbnailStudioPage() {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [thumbnailStyle, setThumbnailStyle] = useState<ThumbnailStyle | null>(null);
+  const [styleIsDefault, setStyleIsDefault] = useState(false);
   const [profileGenre, setProfileGenre] = useState("");
   const [profileArtists, setProfileArtists] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingStyle, setEditingStyle] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
 
   useEffect(() => {
+    console.log("[ThumbnailStudio] Page mounting, loading profile...");
     const params = new URLSearchParams(window.location.search);
     const reset = params.get("reset") === "1";
 
     const supabase = createSupabaseBrowserClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { router.push("/login"); return; }
+    supabase.auth.getUser().then(async ({ data: { user }, error: authError }) => {
+      if (authError) console.error("[ThumbnailStudio] Auth error:", authError.message);
+      if (!user) {
+        console.log("[ThumbnailStudio] No user — redirecting to login");
+        router.push("/login");
+        return;
+      }
+      console.log("[ThumbnailStudio] User found:", user.id);
       setUserEmail(user.email ?? null);
 
-      const { data } = await supabase
+      // Select profile basics first (never fails due to unknown columns)
+      const { data: basicData, error: basicError } = await supabase
         .from("profiles")
-        .select("genre, top_artist_1, top_artist_2, top_artist_3, thumbnail_style")
+        .select("genre, top_artist_1, top_artist_2, top_artist_3")
         .eq("id", user.id)
         .single();
 
-      if (data) {
-        setProfileGenre(data.genre ?? "");
-        setProfileArtists([data.top_artist_1, data.top_artist_2, data.top_artist_3].filter(Boolean) as string[]);
-        if (!reset && data.thumbnail_style) {
-          setThumbnailStyle(data.thumbnail_style as ThumbnailStyle);
+      if (basicError) {
+        console.warn("[ThumbnailStudio] Profile basics error:", basicError.message);
+      } else if (basicData) {
+        console.log("[ThumbnailStudio] Profile basics loaded — genre:", basicData.genre);
+        setProfileGenre(basicData.genre ?? "");
+        setProfileArtists(
+          [basicData.top_artist_1, basicData.top_artist_2, basicData.top_artist_3].filter(Boolean) as string[]
+        );
+      }
+
+      // Select thumbnail_style separately so a missing column doesn't break the page
+      if (!reset) {
+        const { data: styleData, error: styleError } = await supabase
+          .from("profiles")
+          .select("thumbnail_style")
+          .eq("id", user.id)
+          .single();
+
+        if (styleError) {
+          console.warn("[ThumbnailStudio] thumbnail_style fetch error (column may not exist yet):", styleError.message);
+        } else if (styleData?.thumbnail_style) {
+          console.log("[ThumbnailStudio] thumbnail_style loaded from profile");
+          setThumbnailStyle(styleData.thumbnail_style as ThumbnailStyle);
+          setStyleIsDefault(false);
+        } else {
+          console.log("[ThumbnailStudio] No thumbnail_style saved — using defaults, showing wizard");
         }
       }
+
       setLoading(false);
+      console.log("[ThumbnailStudio] Loading complete");
     });
   }, [router]);
+
+  // If no style is set after loading, use defaults so the Generator is not blocked
+  const effectiveStyle = thumbnailStyle ?? DEFAULT_STYLE;
+  const effectiveStyleIsDefault = thumbnailStyle === null;
 
   const handleSignOut = async () => {
     const supabase = createSupabaseBrowserClient();
@@ -754,19 +893,26 @@ export default function ThumbnailStudioPage() {
             <div className="w-4 h-4 border border-[#475569] border-t-[#4ade80] rounded-full animate-spin shrink-0" />
             Loading your preferences...
           </div>
-        ) : !thumbnailStyle || editingStyle ? (
+        ) : showWizard ? (
           <SetupWizard
             onComplete={(style) => {
+              console.log("[ThumbnailStudio] Wizard complete — style:", style);
               setThumbnailStyle(style);
-              setEditingStyle(false);
+              setStyleIsDefault(false);
+              setShowWizard(false);
+            }}
+            onSkip={() => {
+              console.log("[ThumbnailStudio] Wizard skipped");
+              setShowWizard(false);
             }}
           />
         ) : (
           <Generator
-            thumbnailStyle={thumbnailStyle}
+            thumbnailStyle={effectiveStyle}
             profileGenre={profileGenre}
             profileArtists={profileArtists}
-            onEditStyle={() => setEditingStyle(true)}
+            onEditStyle={() => setShowWizard(true)}
+            styleIsDefault={effectiveStyleIsDefault}
           />
         )}
       </div>
