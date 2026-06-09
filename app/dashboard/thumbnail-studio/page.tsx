@@ -302,22 +302,34 @@ function ImageCard({
     if (!image.url) return;
     setDownloading(true);
     try {
-      const res = await fetch("/api/thumbnail-studio/proxy-download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: image.url }),
-      });
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
       const slug = beatName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-      a.href = objectUrl;
-      a.download = `tally-thumbnail-${slug}-${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
+      const filename = `tally-thumbnail-${slug}-${Date.now()}.png`;
+      const a = document.createElement("a");
+
+      if (image.url.startsWith("data:")) {
+        // Base64 data URL — download directly without fetch
+        a.href = image.url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        // Remote URL — proxy through server to avoid CORS
+        const res = await fetch("/api/thumbnail-studio/proxy-download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: image.url }),
+        });
+        if (!res.ok) throw new Error("Download failed");
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        a.href = objectUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objectUrl);
+      }
     } catch {
       window.open(image.url, "_blank");
     } finally {

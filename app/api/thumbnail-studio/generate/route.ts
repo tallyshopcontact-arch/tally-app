@@ -108,22 +108,23 @@ export async function POST(req: NextRequest) {
     nicheInsights,
   });
 
-  // Generate all 3 images in parallel with DALL-E 3
+  // Generate all 3 images in parallel with gpt-image-1
   const imageResults = await Promise.all(
     promptResults.map(async (p) => {
       try {
         const response = await openai.images.generate({
-          model: "dall-e-3",
+          model: "gpt-image-1",
           prompt: p.prompt,
           size: "1024x1024",
-          quality: "standard",
+          output_format: "png",
           n: 1,
-        });
+        } as Parameters<typeof openai.images.generate>[0]) as { data: Array<{ b64_json?: string | null }> };
+        const b64 = response.data?.[0]?.b64_json ?? null;
         return {
           label: p.label,
           description: p.description,
           prompt: p.prompt,
-          url: response.data?.[0]?.url ?? null,
+          url: b64 ? `data:image/png;base64,${b64}` : null,
           error: null,
         };
       } catch (e) {
