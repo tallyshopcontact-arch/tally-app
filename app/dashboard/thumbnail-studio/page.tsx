@@ -343,7 +343,7 @@ function ImageCard({
         </button>
       </div>
 
-      <div className="relative w-full aspect-video bg-[#111]">
+      <div className="relative w-full aspect-square bg-[#111]">
         {image.url ? (
           <img src={image.url} alt={image.label} className="w-full h-full object-cover" />
         ) : image.error ? (
@@ -733,7 +733,7 @@ function Generator({
                 <div className="px-5 py-3 border-b border-[#1a1a1a]">
                   <div className="h-3 w-24 bg-[#1a1a1a] animate-pulse" />
                 </div>
-                <div className="aspect-video bg-[#0d0d0d] flex items-center justify-center">
+                <div className="aspect-square bg-[#0d0d0d] flex items-center justify-center">
                   <div className="w-5 h-5 border border-[#2a2a2a] border-t-[#475569] rounded-full animate-spin" />
                 </div>
               </div>
