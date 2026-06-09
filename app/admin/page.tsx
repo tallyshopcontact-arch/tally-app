@@ -359,11 +359,17 @@ const STATUS_TABS = [
 
 type StatusTab = (typeof STATUS_TABS)[number];
 
+function getTemplateMessage(channelName: string, genre: string | null): string {
+  return `Hey ${channelName} — I'm a fellow producer and I built a tool called TALLY that helps beat producers package their YouTube uploads for maximum discovery. Optimized titles, tags, and monthly niche data${genre ? ` specific to your ${genre} style` : ""}. I'd like to give you free access for 30 days — would you be open to trying it? tallyagc.com`;
+}
+
 function ProspectFinderSection({ password }: { password: string }) {
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([
-    "Trap",
-    "Drill",
-  ]);
+  // Search mode
+  const [searchMode, setSearchMode] = useState<"genre" | "artist">("genre");
+  const [selectedGenres, setSelectedGenres] = useState<string[]>(["Trap", "Drill"]);
+  const [artists, setArtists] = useState<string[]>([]);
+  const [artistInput, setArtistInput] = useState("");
+
   const [finding, setFinding] = useState(false);
   const [findError, setFindError] = useState("");
   const [findResult, setFindResult] = useState<string | null>(null);
@@ -377,6 +383,7 @@ function ProspectFinderSection({ password }: { password: string }) {
   const [editMessage, setEditMessage] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [generatingMessageId, setGeneratingMessageId] = useState<string | null>(null);
 
   const loadProspects = useCallback(async () => {
     setLoadingProspects(true);
@@ -400,18 +407,20 @@ function ProspectFinderSection({ password }: { password: string }) {
   }, [loadProspects]);
 
   const handleFind = async () => {
-    if (selectedGenres.length === 0) return;
+    if (searchMode === "genre" && selectedGenres.length === 0) return;
+    if (searchMode === "artist" && artists.length === 0) return;
     setFinding(true);
     setFindError("");
     setFindResult(null);
     try {
+      const body =
+        searchMode === "artist"
+          ? { mode: "artist", artists, maxResults: 30 }
+          : { mode: "genre", genres: selectedGenres, maxResults: 30 };
       const res = await fetch("/api/admin/find-producers", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-password": password,
-        },
-        body: JSON.stringify({ genres: selectedGenres, maxResults: 30 }),
+        headers: { "Content-Type": "application/json", "x-admin-password": password },
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
@@ -439,10 +448,7 @@ function ProspectFinderSection({ password }: { password: string }) {
     try {
       const res = await fetch("/api/admin/prospects", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-password": password,
-        },
+        headers: { "Content-Type": "application/json", "x-admin-password": password },
         body: JSON.stringify({ id, ...updates }),
       });
       if (res.ok) await loadProspects();
@@ -472,6 +478,39 @@ function ProspectFinderSection({ password }: { password: string }) {
     }
   };
 
+  const handleGenerateMessage = async (prospectId: string, prospect: Prospect) => {
+    setGeneratingMessageId(prospectId);
+    try {
+      const res = await fetch("/api/admin/generate-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-password": password },
+        body: JSON.stringify({ prospect_id: prospectId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.message) {
+        setEditMessage(data.message);
+        await loadProspects();
+      }
+    } catch {
+      // silently fail — edit message stays as-is
+    } finally {
+      setGeneratingMessageId(null);
+    }
+    // keep prospect in scope for linter
+    void prospect;
+  };
+
+  const handleAddArtist = () => {
+    const trimmed = artistInput.trim();
+    if (trimmed && !artists.includes(trimmed) && artists.length < 5) {
+      setArtists((prev) => [...prev, trimmed]);
+      setArtistInput("");
+    }
+  };
+
+  const handleRemoveArtist = (name: string) =>
+    setArtists((prev) => prev.filter((a) => a !== name));
+
   const toggleGenre = (g: string) =>
     setSelectedGenres((prev) =>
       prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g]
@@ -495,8 +534,7 @@ function ProspectFinderSection({ password }: { password: string }) {
   const filtered = byStatus.filter((p) => {
     if (contactFilter === "email") return !!p.email;
     if (contactFilter === "instagram") return !p.email && !!p.instagram_handle;
-    if (contactFilter === "check_manually")
-      return !p.email && !p.instagram_handle;
+    if (contactFilter === "check_manually") return !p.email && !p.instagram_handle;
     return true;
   });
 
@@ -507,43 +545,116 @@ function ProspectFinderSection({ password }: { password: string }) {
     check_manually: byStatus.filter((p) => !p.email && !p.instagram_handle).length,
   };
 
+  const findDisabled =
+    finding ||
+    (searchMode === "genre" ? selectedGenres.length === 0 : artists.length === 0);
+
   return (
     <div>
       {/* Header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <h2 className="text-xl font-bold mb-1">Producer Finder</h2>
-        <p className="text-[#94a3b8] text-sm">
-          Search YouTube for beat producers (200–5,000 subs) and generate personalized outreach.
+        <p className="text-[#94a3b8] text-sm mb-2">
+          Find beat producers on YouTube and reach out with personalized messages.
         </p>
+        <p className="text-[10px] text-[#475569]">
+          Finding producers: Free (YouTube API only) · Generating personalized message: ~$0.03/message (Claude API)
+        </p>
+      </div>
+
+      {/* Search mode tabs */}
+      <div className="flex gap-1 border-b border-[#1a1a1a] mb-6">
+        {(["genre", "artist"] as const).map((mode) => (
+          <button
+            key={mode}
+            onClick={() => setSearchMode(mode)}
+            className={`text-xs px-4 py-2.5 border-b-2 -mb-px transition-colors ${
+              searchMode === mode
+                ? "border-white text-white font-semibold"
+                : "border-transparent text-[#94a3b8] hover:text-white"
+            }`}
+          >
+            {mode === "genre" ? "Genre Search" : "Artist Search"}
+          </button>
+        ))}
       </div>
 
       {/* Genre selector */}
-      <div className="mb-5">
-        <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">
-          Genres
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {GENRES.map((g) => (
-            <button
-              key={g}
-              onClick={() => toggleGenre(g)}
-              className={`text-xs px-3 py-1.5 border transition-colors ${
-                selectedGenres.includes(g)
-                  ? "bg-white text-black border-white"
-                  : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
-              }`}
-            >
-              {g}
-            </button>
-          ))}
+      {searchMode === "genre" && (
+        <div className="mb-5">
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Genres</p>
+          <div className="flex flex-wrap gap-2">
+            {GENRES.map((g) => (
+              <button
+                key={g}
+                onClick={() => toggleGenre(g)}
+                className={`text-xs px-3 py-1.5 border transition-colors ${
+                  selectedGenres.includes(g)
+                    ? "bg-white text-black border-white"
+                    : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Find button */}
+      {/* Artist selector */}
+      {searchMode === "artist" && (
+        <div className="mb-5">
+          <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">
+            Artists (up to 5)
+          </p>
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              value={artistInput}
+              onChange={(e) => setArtistInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAddArtist()}
+              placeholder="e.g. Nas, Drake, J Cole"
+              className="flex-1 bg-[#111] border border-[#1e1e1e] px-3 py-2 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors"
+            />
+            <button
+              onClick={handleAddArtist}
+              disabled={!artistInput.trim() || artists.length >= 5}
+              className="text-xs border border-[#1a1a1a] px-4 py-2 text-[#94a3b8] hover:text-white hover:border-[#333] disabled:opacity-30 transition-colors"
+            >
+              Add
+            </button>
+          </div>
+          {artists.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {artists.map((a) => (
+                <span
+                  key={a}
+                  className="flex items-center gap-2 text-xs bg-[#111] border border-[#1e1e1e] px-3 py-1.5"
+                >
+                  {a}
+                  <button
+                    onClick={() => handleRemoveArtist(a)}
+                    className="text-[#475569] hover:text-[#f87171] transition-colors leading-none"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {searchMode === "artist" && (
+            <p className="text-[10px] text-[#475569] mt-2">
+              Searches &ldquo;[artist] type beat&rdquo;, &ldquo;[artist] type beat 2026&rdquo;, and &ldquo;[artist] instrumental&rdquo; · Sub range 200–2,000
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Find button row */}
       <div className="flex items-center gap-4 mb-8 flex-wrap">
         <button
           onClick={handleFind}
-          disabled={finding || selectedGenres.length === 0}
+          disabled={findDisabled}
           className="text-sm font-semibold bg-white text-black px-6 py-2.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors"
         >
           {finding ? "Searching YouTube..." : "Find Producers"}
@@ -555,12 +666,8 @@ function ProspectFinderSection({ password }: { password: string }) {
         >
           Clear All Prospects
         </button>
-        {findResult && (
-          <p className="text-sm text-[#4ade80]">{findResult}</p>
-        )}
-        {findError && (
-          <p className="text-sm text-[#f87171]">{findError}</p>
-        )}
+        {findResult && <p className="text-sm text-[#4ade80]">{findResult}</p>}
+        {findError && <p className="text-sm text-[#f87171]">{findError}</p>}
       </div>
 
       {/* Stats bar */}
@@ -734,7 +841,10 @@ function ProspectFinderSection({ password }: { password: string }) {
                               setEditingId(null);
                             } else {
                               setEditingId(p.id);
-                              setEditMessage(p.personalized_message ?? "");
+                              setEditMessage(
+                                p.personalized_message ??
+                                  getTemplateMessage(p.channel_name, p.genre)
+                              );
                             }
                           }}
                           className="text-[10px] text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-2 py-1 hover:border-[#333] transition-colors"
@@ -742,19 +852,18 @@ function ProspectFinderSection({ password }: { password: string }) {
                           {editingId === p.id ? "Close" : "Edit"}
                         </button>
 
-                        {/* Copy message */}
-                        {p.personalized_message && (
-                          <button
-                            onClick={() =>
-                              navigator.clipboard.writeText(
-                                p.personalized_message!
-                              )
-                            }
-                            className="text-[10px] text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-2 py-1 hover:border-[#333] transition-colors"
-                          >
-                            Copy
-                          </button>
-                        )}
+                        {/* Copy message (always available — uses template as fallback) */}
+                        <button
+                          onClick={() =>
+                            navigator.clipboard.writeText(
+                              p.personalized_message ??
+                                getTemplateMessage(p.channel_name, p.genre)
+                            )
+                          }
+                          className="text-[10px] text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-2 py-1 hover:border-[#333] transition-colors"
+                        >
+                          Copy
+                        </button>
 
                         {/* Approve */}
                         {p.status === "pending" && (
@@ -832,16 +941,29 @@ function ProspectFinderSection({ password }: { password: string }) {
                     <tr className="border-b border-[#1a1a1a] bg-[#0d0d0d]">
                       <td colSpan={6} className="px-4 py-4">
                         <div className="space-y-3 max-w-2xl">
-                          <p className="text-xs text-[#94a3b8] uppercase tracking-widest">
-                            Outreach Message
-                            {p.message_type ? ` · ${p.message_type}` : ""}
-                          </p>
+                          <div className="flex items-center justify-between gap-4">
+                            <p className="text-xs text-[#94a3b8] uppercase tracking-widest">
+                              {p.personalized_message
+                                ? `Personalized Message${p.message_type ? ` · ${p.message_type}` : ""}`
+                                : "Template Message (free)"}
+                            </p>
+                            <button
+                              onClick={() => handleGenerateMessage(p.id, p)}
+                              disabled={generatingMessageId === p.id}
+                              className="text-[10px] text-[#a78bfa] border border-[#a78bfa]/30 px-3 py-1 hover:border-[#a78bfa] hover:text-white transition-colors disabled:opacity-40 whitespace-nowrap shrink-0"
+                            >
+                              {generatingMessageId === p.id
+                                ? "Writing message..."
+                                : p.personalized_message
+                                ? "Regenerate (~$0.03)"
+                                : "Generate personalized (~$0.03)"}
+                            </button>
+                          </div>
                           <textarea
                             value={editMessage}
                             onChange={(e) => setEditMessage(e.target.value)}
                             rows={6}
                             className="w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors resize-none"
-                            placeholder="No message generated yet."
                           />
                           <div className="flex gap-3">
                             <button
