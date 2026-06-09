@@ -29,6 +29,22 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ prospects: data ?? [] });
 }
 
+export async function DELETE(req: NextRequest) {
+  if (!checkAdmin(req))
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const supabase = getServiceClient();
+  // Delete all rows — neq matches every non-null id
+  const { error, count } = await supabase
+    .from("prospects")
+    .delete({ count: "exact" })
+    .neq("id", "00000000-0000-0000-0000-000000000000");
+
+  if (error)
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ deleted: count ?? 0 });
+}
+
 export async function POST(req: NextRequest) {
   if (!checkAdmin(req))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

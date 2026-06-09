@@ -451,6 +451,27 @@ function ProspectFinderSection({ password }: { password: string }) {
     }
   };
 
+  const handleClearAll = async () => {
+    if (!confirm("Delete all prospects? This cannot be undone.")) return;
+    setFindResult(null);
+    setFindError("");
+    try {
+      const res = await fetch("/api/admin/prospects", {
+        method: "DELETE",
+        headers: { "x-admin-password": password },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFindResult(`Deleted ${data.deleted} prospect${data.deleted === 1 ? "" : "s"}`);
+        await loadProspects();
+      } else {
+        setFindError(data.error ?? "Failed to clear prospects");
+      }
+    } catch {
+      setFindError("Network error");
+    }
+  };
+
   const toggleGenre = (g: string) =>
     setSelectedGenres((prev) =>
       prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g]
@@ -518,13 +539,20 @@ function ProspectFinderSection({ password }: { password: string }) {
       </div>
 
       {/* Find button */}
-      <div className="flex items-center gap-4 mb-8">
+      <div className="flex items-center gap-4 mb-8 flex-wrap">
         <button
           onClick={handleFind}
           disabled={finding || selectedGenres.length === 0}
           className="text-sm font-semibold bg-white text-black px-6 py-2.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors"
         >
           {finding ? "Searching YouTube..." : "Find Producers"}
+        </button>
+        <button
+          onClick={handleClearAll}
+          disabled={finding || prospects.length === 0}
+          className="text-xs text-[#f87171] border border-[#f87171]/30 px-4 py-2 hover:border-[#f87171] hover:text-white transition-colors disabled:opacity-30"
+        >
+          Clear All Prospects
         </button>
         {findResult && (
           <p className="text-sm text-[#4ade80]">{findResult}</p>

@@ -21,34 +21,63 @@ function getServiceClient() {
 }
 
 async function runFinder(genres: string[], maxResults: number) {
+  console.log(`[find-producers] starting — genres=${genres.join(",")} maxResults=${maxResults}`);
+  console.log(`[find-producers] ANTHROPIC_API_KEY set: ${!!process.env.ANTHROPIC_API_KEY}`);
+  console.log(`[find-producers] SUPABASE_URL set: ${!!process.env.SUPABASE_URL}`);
+
   const prospects = await findProducers(genres, maxResults);
+  console.log(`[find-producers] findProducers returned ${prospects.length} new prospects`);
+
+  if (prospects.length === 0) {
+    console.log("[find-producers] no new prospects — skipping message generation");
+    return 0;
+  }
 
   const supabase = getServiceClient();
-  await Promise.all(
-    prospects.map(async (p) => {
-      try {
-        const messageType = p.contact_method === "email" ? "email" : "dm";
-        const message = await generateOutreachMessage(
-          {
-            channel_name: p.channel_name,
-            channel_url: p.channel_url,
-            subscriber_count: p.subscriber_count,
-            latest_video_title: p.latest_video_title,
-            genre: p.genre,
-            contact_method: p.contact_method,
-          },
-          messageType
-        );
-        await supabase
-          .from("prospects")
-          .update({ personalized_message: message, message_type: messageType })
-          .eq("id", p.id);
-      } catch {
-        // Non-fatal: prospect saved without message
-      }
-    })
-  );
 
+  // Sequential processing to avoid Anthropic rate limits
+  let messagesGenerated = 0;
+  for (const p of prospects) {
+    console.log(`[find-producers] generating message for "${p.channel_name}" (id=${p.id}, contact_method=${p.contact_method})`);
+    try {
+      const messageType = p.contact_method === "email" ? "email" : "dm";
+      console.log(`[find-producers] calling generateOutreachMessage type=${messageType}`);
+
+      const message = await generateOutreachMessage(
+        {
+          channel_name: p.channel_name,
+          channel_url: p.channel_url,
+          subscriber_count: p.subscriber_count,
+          latest_video_title: p.latest_video_title,
+          genre: p.genre,
+          contact_method: p.contact_method,
+        },
+        messageType
+      );
+
+      console.log(`[find-producers] message generated (${message.length} chars) for "${p.channel_name}"`);
+
+      const { error: updateErr } = await supabase
+        .from("prospects")
+        .update({ personalized_message: message, message_type: messageType })
+        .eq("id", p.id);
+
+      if (updateErr) {
+        console.error(`[find-producers] supabase update failed for id=${p.id}:`, updateErr.message);
+      } else {
+        messagesGenerated++;
+        console.log(`[find-producers] saved message for "${p.channel_name}" (${messagesGenerated}/${prospects.length})`);
+      }
+    } catch (err) {
+      console.error(`[find-producers] message generation failed for "${p.channel_name}":`, err);
+      if (err instanceof Error) {
+        console.error(`[find-producers] error name: ${err.name}, message: ${err.message}`);
+        if ("status" in err) console.error(`[find-producers] HTTP status: ${(err as { status: number }).status}`);
+      }
+    }
+  }
+
+  console.log(`[find-producers] done — ${prospects.length} prospects found, ${messagesGenerated} messages generated`);
   return prospects.length;
 }
 

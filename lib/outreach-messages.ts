@@ -13,6 +13,9 @@ export async function generateOutreachMessage(
   prospect: ProspectForMessage,
   messageType: "dm" | "email"
 ): Promise<string> {
+  console.log(`[outreach] generateOutreachMessage called for "${prospect.channel_name}" type=${messageType}`);
+  console.log(`[outreach] ANTHROPIC_API_KEY available: ${!!process.env.ANTHROPIC_API_KEY}`);
+
   const context = [
     `Channel: ${prospect.channel_name}`,
     `Subscribers: ${prospect.subscriber_count.toLocaleString()}`,
@@ -57,12 +60,18 @@ ${context}
 
 Return only the subject line and body.`;
 
+  console.log(`[outreach] calling anthropic.messages.create for "${prospect.channel_name}"`);
+
   const msg = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 350,
     messages: [{ role: "user", content: prompt }],
   });
 
+  console.log(`[outreach] anthropic response received, stop_reason=${msg.stop_reason}, content blocks=${msg.content.length}`);
+
   const block = msg.content[0];
-  return block.type === "text" ? block.text.trim() : "";
+  const result = block.type === "text" ? block.text.trim() : "";
+  console.log(`[outreach] message extracted (${result.length} chars)`);
+  return result;
 }
