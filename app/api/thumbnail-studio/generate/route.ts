@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
+import { openai } from "@/lib/openai";
 import { anthropic } from "@/lib/anthropic";
-import { extractKeywords } from "@/lib/keywords";
+import { generateThumbnailPrompts } from "@/lib/thumbnail-prompts";
 import type { NicheVideo } from "@/lib/keywords";
 
 interface ThumbnailStyle {
@@ -12,16 +13,43 @@ interface ThumbnailStyle {
   producer_tag_name?: string;
 }
 
-interface ThumbnailConcept {
-  style_name: string;
-  visual_brief: string;
-  color_palette: string[];
-  canva_instructions: string;
-  why_it_fits: string;
-}
-
 function stripJson(raw: string): string {
   return raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+}
+
+async function analyzeNicheThumbnails(
+  topVideos: { videoId: string; title: string; viewCount: number; thumbnailUrl: string }[],
+  genre: string
+): Promise<string> {
+  if (!topVideos.length) return `No niche data available — use ${genre} genre best practices.`;
+  try {
+    const imageBlocks = topVideos.map((v) => ({
+      type: "image" as const,
+      source: { type: "url" as const, url: v.thumbnailUrl },
+    }));
+    const videoList = topVideos
+      .map((v, i) => `${i + 1}. "${v.title}" — ${Math.round(v.viewCount / 1000)}K views`)
+      .join("\n");
+
+    const msg = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 400,
+      system: "You analyze YouTube thumbnail visual trends. Be specific and concise.",
+      messages: [{
+        role: "user",
+        content: [
+          ...imageBlocks,
+          {
+            type: "text",
+            text: `Analyze these top ${topVideos.length} ${genre} beat producer thumbnails (ordered by view count):\n${videoList}\n\nIn 3-4 sentences, describe the dominant visual patterns: color palette, composition style, use of text vs no text, dark vs bright, atmospheric vs bold. Focus on what visual choices appear most in the highest-performing videos. Be specific.`,
+          },
+        ],
+      }],
+    });
+    return msg.content[0].type === "text" ? msg.content[0].text.trim() : "";
+  } catch {
+    return `Dark atmospheric visuals dominate ${genre} thumbnails — minimal text, moody lighting, strong contrast.`;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -29,74 +57,100 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { beat_name, vibe, ideas } = await req.json() as {
+  const body = await req.json() as {
     beat_name: string;
-    vibe: string;
-    ideas?: string;
+    genre?: string;
+    vibe?: string[];
+    artists?: string[];
   };
 
+  const { beat_name, vibe = [], artists = [] } = body;
+  if (!beat_name?.trim()) return NextResponse.json({ error: "beat_name is required" }, { status: 400 });
+
   const [profileRes, channelRes] = await Promise.all([
-    supabase.from("profiles").select("genre, thumbnail_style").eq("id", user.id).single(),
-    supabase.from("channel_data").select("niche_data").eq("producer_id", user.id).order("year", { ascending: false }).order("month", { ascending: false }).limit(1).single(),
+    supabase.from("profiles")
+      .select("genre, top_artist_1, top_artist_2, top_artist_3, thumbnail_style")
+      .eq("id", user.id).single(),
+    supabase.from("channel_data")
+      .select("niche_data")
+      .eq("producer_id", user.id)
+      .order("year", { ascending: false })
+      .order("month", { ascending: false })
+      .limit(1).single(),
   ]);
 
-  const genre = profileRes.data?.genre ?? "hip hop";
+  const genre = body.genre?.trim() || profileRes.data?.genre || "hip hop";
   const thumbnailStyle = profileRes.data?.thumbnail_style as ThumbnailStyle | null;
-  const nicheData: NicheVideo[] = channelRes.data?.niche_data ?? [];
-  const topKeywords = extractKeywords(nicheData).slice(0, 8).map((k) => k.tag).join(", ");
+  const profileArtists = artists.length > 0 ? artists : [
+    profileRes.data?.top_artist_1,
+    profileRes.data?.top_artist_2,
+    profileRes.data?.top_artist_3,
+  ].filter(Boolean) as string[];
 
-  const topNicheVideos = [...nicheData]
+  const nicheData: NicheVideo[] = channelRes.data?.niche_data ?? [];
+  const topVideos = [...nicheData]
     .sort((a, b) => b.viewCount - a.viewCount)
     .slice(0, 5)
-    .map((v) => `"${v.title}" (${Math.round(v.viewCount / 1000)}K views)`);
+    .map((v) => ({ videoId: v.videoId, title: v.title, viewCount: v.viewCount, thumbnailUrl: v.thumbnailUrl }));
 
-  const styleContext = thumbnailStyle
-    ? `Producer's style preferences:
-- Visual style: ${thumbnailStyle.style}
-- Color palette preference: ${thumbnailStyle.color}
-- Text usage: ${thumbnailStyle.text_preference}
-- Producer tag: ${thumbnailStyle.producer_tag ? `Yes — "${thumbnailStyle.producer_tag_name}"` : "No"}`
-    : "No style preferences set — use genre defaults.";
+  // Analyze niche thumbnails with Claude vision
+  const nicheInsights = await analyzeNicheThumbnails(topVideos, genre);
 
-  const prompt = `You are a YouTube thumbnail strategist for beat producers. Generate 3 thumbnail concepts for this beat.
-
-Beat details:
-- Beat name: ${beat_name}
-- Vibe/mood: ${vibe}
-- Genre: ${genre}
-- Additional ideas: ${ideas || "none"}
-
-${styleContext}
-
-Top niche videos for reference:
-${topNicheVideos.length ? topNicheVideos.join("\n") : "No niche data available"}
-
-Hot keywords in niche: ${topKeywords || "N/A"}
-
-For each of the 3 concepts, think about what visually performs in this specific niche. Each concept must be distinct in style.
-
-Respond with ONLY valid JSON. No markdown no code blocks.
-{"concepts":[{"style_name":"string","visual_brief":"detailed description of the full visual — background, composition, lighting, mood, any text overlay","color_palette":["#hex1","#hex2","#hex3"],"canva_instructions":"step-by-step instructions for recreating this in Canva (3-5 steps)","why_it_fits":"why this works for ${genre} right now"},{"style_name":"string","visual_brief":"string","color_palette":["#hex1","#hex2","#hex3"],"canva_instructions":"string","why_it_fits":"string"},{"style_name":"string","visual_brief":"string","color_palette":["#hex1","#hex2","#hex3"],"canva_instructions":"string","why_it_fits":"string"}],"niche_inspiration":["observation about top video 1","observation about top video 2","observation about top video 3","observation about top video 4","observation about top video 5"]}`;
-
-  const msg = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 2000,
-    system: "You are a YouTube thumbnail strategist for beat producers. Output only valid JSON.",
-    messages: [{ role: "user", content: prompt }],
+  // Generate DALL-E prompts via Claude
+  const promptResults = await generateThumbnailPrompts({
+    beatName: beat_name.trim(),
+    genre,
+    vibe,
+    artists: profileArtists,
+    producerStyle: thumbnailStyle
+      ? { style: thumbnailStyle.style, color: thumbnailStyle.color, text_preference: thumbnailStyle.text_preference }
+      : null,
+    nicheInsights,
   });
 
-  const raw = msg.content[0].type === "text" ? msg.content[0].text : "";
-  try {
-    const parsed = JSON.parse(stripJson(raw)) as {
-      concepts: ThumbnailConcept[];
-      niche_inspiration: string[];
-    };
-    return NextResponse.json({
-      concepts: parsed.concepts,
-      niche_inspiration: parsed.niche_inspiration,
-      niche_thumbnails: [...nicheData].sort((a, b) => b.viewCount - a.viewCount).slice(0, 5),
-    });
-  } catch {
-    return NextResponse.json({ error: "Failed to parse AI response" }, { status: 500 });
-  }
+  // Generate all 3 images in parallel with DALL-E 3
+  const imageResults = await Promise.all(
+    promptResults.map(async (p) => {
+      try {
+        const response = await openai.images.generate({
+          model: "dall-e-3",
+          prompt: p.prompt,
+          size: "1792x1024",
+          quality: "standard",
+          response_format: "url",
+          n: 1,
+        });
+        return {
+          label: p.label,
+          description: p.description,
+          prompt: p.prompt,
+          url: response.data?.[0]?.url ?? null,
+          error: null,
+        };
+      } catch (e) {
+        return {
+          label: p.label,
+          description: p.description,
+          prompt: p.prompt,
+          url: null,
+          error: e instanceof Error ? e.message : "Generation failed",
+        };
+      }
+    })
+  );
+
+  // Save to thumbnail_generations
+  await supabase.from("thumbnail_generations").insert({
+    producer_id: user.id,
+    beat_name: beat_name.trim(),
+    prompts: promptResults,
+    image_urls: imageResults.map((r) => r.url),
+  });
+
+  return NextResponse.json({
+    beat_name: beat_name.trim(),
+    genre,
+    images: imageResults,
+    niche_insights: nicheInsights,
+  });
 }
