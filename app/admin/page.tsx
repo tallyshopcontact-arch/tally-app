@@ -371,7 +371,7 @@ function ProspectFinderSection({ password }: { password: string }) {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [loadingProspects, setLoadingProspects] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusTab>("all");
-  const [contactFilter, setContactFilter] = useState<"all" | "email" | "instagram" | "none">("all");
+  const [contactFilter, setContactFilter] = useState<"all" | "email" | "instagram" | "check_manually">("all");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMessage, setEditMessage] = useState("");
@@ -495,7 +495,8 @@ function ProspectFinderSection({ password }: { password: string }) {
   const filtered = byStatus.filter((p) => {
     if (contactFilter === "email") return !!p.email;
     if (contactFilter === "instagram") return !p.email && !!p.instagram_handle;
-    if (contactFilter === "none") return !p.email && !p.instagram_handle;
+    if (contactFilter === "check_manually")
+      return !p.email && !p.instagram_handle;
     return true;
   });
 
@@ -503,7 +504,7 @@ function ProspectFinderSection({ password }: { password: string }) {
     all: byStatus.length,
     email: byStatus.filter((p) => !!p.email).length,
     instagram: byStatus.filter((p) => !p.email && !!p.instagram_handle).length,
-    none: byStatus.filter((p) => !p.email && !p.instagram_handle).length,
+    check_manually: byStatus.filter((p) => !p.email && !p.instagram_handle).length,
   };
 
   return (
@@ -598,24 +599,18 @@ function ProspectFinderSection({ password }: { password: string }) {
         <span className="text-[10px] text-[#475569] uppercase tracking-widest">Contact:</span>
         {(
           [
-            { key: "all", label: "All" },
-            { key: "email", label: "Email" },
-            { key: "instagram", label: "Instagram" },
-            { key: "none", label: "None" },
+            { key: "all", label: "All", activeClass: "bg-[#1a1a1a] border-[#333] text-white" },
+            { key: "email", label: "Email", activeClass: "bg-[#60a5fa]/10 border-[#60a5fa]/40 text-[#60a5fa]" },
+            { key: "instagram", label: "Instagram", activeClass: "bg-[#4ade80]/10 border-[#4ade80]/40 text-[#4ade80]" },
+            { key: "check_manually", label: "Check Manually", activeClass: "bg-[#fbbf24]/10 border-[#fbbf24]/40 text-[#fbbf24]" },
           ] as const
-        ).map(({ key, label }) => (
+        ).map(({ key, label, activeClass }) => (
           <button
             key={key}
             onClick={() => setContactFilter(key)}
             className={`text-xs px-3 py-1 border transition-colors ${
               contactFilter === key
-                ? key === "email"
-                  ? "bg-[#60a5fa]/10 border-[#60a5fa]/40 text-[#60a5fa]"
-                  : key === "instagram"
-                  ? "bg-[#c084fc]/10 border-[#c084fc]/40 text-[#c084fc]"
-                  : key === "none"
-                  ? "bg-[#475569]/10 border-[#475569]/40 text-[#94a3b8]"
-                  : "bg-[#1a1a1a] border-[#333] text-white"
+                ? activeClass
                 : "border-[#1a1a1a] text-[#475569] hover:border-[#333] hover:text-[#94a3b8]"
             }`}
           >
@@ -636,7 +631,7 @@ function ProspectFinderSection({ password }: { password: string }) {
             {prospects.length === 0
               ? 'No prospects yet. Select genres and click "Find Producers".'
               : contactFilter !== "all"
-              ? `No prospects with ${contactFilter === "none" ? "no contact info" : `${contactFilter} contact`} in this view.`
+              ? `No prospects with ${contactFilter === "check_manually" ? "no direct contact" : `${contactFilter} contact`} in this view.`
               : "No prospects in this status."}
           </p>
         </div>
@@ -698,13 +693,33 @@ function ProspectFinderSection({ password }: { password: string }) {
                     </td>
                     <td className="px-4 py-3">
                       {p.email ? (
-                        <span className="text-xs text-[#60a5fa]">{p.email}</span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] font-semibold text-[#60a5fa] bg-[#60a5fa]/10 px-1.5 py-0.5 w-fit">
+                            Email
+                          </span>
+                          <span className="text-[11px] text-[#94a3b8]">{p.email}</span>
+                        </div>
                       ) : p.instagram_handle ? (
-                        <span className="text-xs text-[#c084fc]">
-                          @{p.instagram_handle}
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] font-semibold text-[#4ade80] bg-[#4ade80]/10 px-1.5 py-0.5 w-fit">
+                            Instagram
+                          </span>
+                          <span className="text-[11px] text-[#94a3b8]">@{p.instagram_handle}</span>
+                        </div>
                       ) : (
-                        <span className="text-xs text-[#475569]">—</span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] font-semibold text-[#fbbf24] bg-[#fbbf24]/10 px-1.5 py-0.5 w-fit">
+                            Check manually
+                          </span>
+                          <a
+                            href={p.channel_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] text-[#475569] hover:text-[#94a3b8] transition-colors"
+                          >
+                            Visit channel ↗
+                          </a>
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3">

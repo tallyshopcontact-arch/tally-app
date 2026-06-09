@@ -11,6 +11,7 @@ interface RawChannel {
   channelId: string;
   channelName: string;
   description: string;
+  keywords: string;
   subscriberCount: number;
   genre: string;
 }
@@ -31,7 +32,11 @@ export interface SavedProspect {
   contact_method: string;
 }
 
-function scorePriority(subs: number, contactMethod: string, videoViews: number): number {
+function scorePriority(
+  subs: number,
+  contactMethod: string,
+  videoViews: number
+): number {
   let s = 0;
   if (subs >= 500 && subs <= 2000) s += 40;
   else if (subs > 2000 && subs <= 3500) s += 25;
@@ -39,6 +44,7 @@ function scorePriority(subs: number, contactMethod: string, videoViews: number):
   else s += 10;
   if (contactMethod === "email") s += 30;
   else if (contactMethod === "instagram") s += 20;
+  else s += 5; // check_manually still worth outreach
   if (videoViews >= 2000) s += 20;
   else if (videoViews >= 500) s += 10;
   return s;
@@ -59,6 +65,8 @@ export async function findProducers(
     Date.now() - 60 * 24 * 60 * 60 * 1000
   ).toISOString();
 
+  console.log(`[finder] searching ${genres.length} genres: ${genres.join(", ")}`);
+
   await Promise.all(
     genres.map(async (genre) => {
       try {
@@ -75,12 +83,14 @@ export async function findProducers(
             channelGenreMap.set(cid, genre);
           }
         }
-      } catch {
-        // continue if one genre search fails
+        console.log(`[finder] genre "${genre}" returned ${channelGenreMap.size} unique channels so far`);
+      } catch (err) {
+        console.error(`[finder] search failed for genre "${genre}":`, err);
       }
     })
   );
 
+  console.log(`[finder] total unique channel IDs collected: ${channelGenreMap.size}`);
   if (channelGenreMap.size === 0) return [];
 
   // Skip channels already in prospects table
@@ -93,34 +103,39 @@ export async function findProducers(
   const newIds = [...channelGenreMap.keys()].filter(
     (id) => !existingIds.has(id)
   );
+  console.log(`[finder] ${newIds.length} new channels after skipping ${existingIds.size} existing`);
   if (newIds.length === 0) return [];
 
-  // Fetch channel stats in batches of 50
+  // Fetch channel stats + brandingSettings in batches of 50
   const rawChannels: RawChannel[] = [];
   for (let i = 0; i < newIds.length; i += 50) {
     const chunk = newIds.slice(i, i + 50);
     try {
       const res = await fetch(
-        `${YT}/channels?part=snippet,statistics&id=${chunk.join(",")}&key=${KEY}`
+        `${YT}/channels?part=snippet,statistics,brandingSettings&id=${chunk.join(",")}&key=${KEY}`
       );
       const data = await res.json();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const item of (data.items ?? []) as any[]) {
         const subs = parseInt(item.statistics?.subscriberCount ?? "0");
         if (subs < MIN_SUBS || subs > MAX_SUBS) continue;
+        const keywords: string =
+          item.brandingSettings?.channel?.keywords ?? "";
         rawChannels.push({
           channelId: item.id as string,
           channelName: (item.snippet?.title ?? "") as string,
           description: (item.snippet?.description ?? "") as string,
+          keywords,
           subscriberCount: subs,
           genre: channelGenreMap.get(item.id as string) ?? genres[0],
         });
       }
-    } catch {
-      // continue on chunk failure
+    } catch (err) {
+      console.error(`[finder] channels batch fetch failed:`, err);
     }
   }
 
+  console.log(`[finder] ${rawChannels.length} channels in 200–5000 sub range`);
   if (rawChannels.length === 0) return [];
 
   // Cap at 25 channels before video fetching to limit API quota
@@ -138,12 +153,7 @@ export async function findProducers(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const item = (pData.items ?? [])[0] as any;
         if (!item) {
-          return {
-            ...ch,
-            latestVideoTitle: null,
-            latestVideoUrl: null,
-            latestVideoViews: 0,
-          };
+          return { ...ch, latestVideoTitle: null, latestVideoUrl: null, latestVideoViews: 0 };
         }
 
         const videoId: string = item.snippet?.resourceId?.videoId ?? "";
@@ -164,35 +174,37 @@ export async function findProducers(
         return {
           ...ch,
           latestVideoTitle: videoTitle || null,
-          latestVideoUrl: videoId
-            ? `https://youtube.com/watch?v=${videoId}`
-            : null,
+          latestVideoUrl: videoId ? `https://youtube.com/watch?v=${videoId}` : null,
           latestVideoViews: views,
         };
       } catch {
-        return {
-          ...ch,
-          latestVideoTitle: null,
-          latestVideoUrl: null,
-          latestVideoViews: 0,
-        };
+        return { ...ch, latestVideoTitle: null, latestVideoUrl: null, latestVideoViews: 0 };
       }
     })
   );
 
-  // Score, sort, take top N
+  // Score, sort, take top N — search combined description + keywords for contact
   const scored = enriched
     .map((ch) => {
-      const { email, instagram, contactMethod } = extractContactInfo(
-        ch.description
+      const searchText = [ch.description, ch.keywords]
+        .filter(Boolean)
+        .join(" ");
+      console.log(
+        `[finder] "${ch.channelName}" — desc=${ch.description.length}chars, keywords="${ch.keywords.slice(0, 80)}"`
       );
-      return {
-        ch,
-        email,
-        instagram,
+      const { email, instagram, contactMethod } = extractContactInfo(
+        searchText,
+        ch.channelName
+      );
+      const score = scorePriority(
+        ch.subscriberCount,
         contactMethod,
-        score: scorePriority(ch.subscriberCount, contactMethod, ch.latestVideoViews),
-      };
+        ch.latestVideoViews
+      );
+      console.log(
+        `[finder] "${ch.channelName}" — contact=${contactMethod} score=${score}`
+      );
+      return { ch, email, instagram, contactMethod, score };
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, maxResults);
@@ -223,8 +235,11 @@ export async function findProducers(
 
     if (!error && data) {
       saved.push(data as SavedProspect);
+    } else if (error) {
+      console.error(`[finder] insert failed for "${ch.channelName}":`, error.message);
     }
   }
 
+  console.log(`[finder] saved ${saved.length} new prospects`);
   return saved;
 }
