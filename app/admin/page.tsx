@@ -1048,8 +1048,6 @@ function FinancialsSection({ password }: { password: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Founding coupon state
-  const [couponCreating, setCouponCreating] = useState(false);
   const [couponMsg, setCouponMsg] = useState("");
 
   const loadData = useCallback(async (month: string) => {
@@ -1071,8 +1069,7 @@ function FinancialsSection({ password }: { password: string }) {
 
   useEffect(() => { loadData(selectedMonth); }, [loadData, selectedMonth]);
 
-  const handleCreateCoupon = async () => {
-    setCouponCreating(true);
+  const handleCheckCoupon = async () => {
     setCouponMsg("");
     try {
       const res = await fetch("/api/admin/create-founding-coupon", {
@@ -1081,19 +1078,13 @@ function FinancialsSection({ password }: { password: string }) {
       });
       const d = await res.json();
       if (res.ok) {
-        if (d.already_exists) {
-          setCouponMsg("FOUNDING20 coupon already exists in Stripe.");
-        } else {
-          setCouponMsg("FOUNDING20 coupon + promo code created successfully.");
-        }
+        setCouponMsg("FOUNDING20 is active in Stripe.");
         await loadData(selectedMonth);
       } else {
-        setCouponMsg(`Error: ${d.error}`);
+        setCouponMsg(d.error ?? "Not found.");
       }
     } catch {
       setCouponMsg("Network error");
-    } finally {
-      setCouponCreating(false);
     }
   };
 
@@ -1304,29 +1295,39 @@ function FinancialsSection({ password }: { password: string }) {
           </div>
         ) : (
           <div>
-            <p className="text-sm text-[#94a3b8] mb-4">
-              FOUNDING20 coupon has not been created in Stripe yet.
+            <p className="text-sm text-[#94a3b8] mb-3">
+              FOUNDING20 promotion code not found in Stripe.
             </p>
             <p className="text-xs text-[#475569] mb-4">
-              Creates: 100% off first invoice · 14-day trial · Max 20 redemptions · No credit card required
+              Go to the{" "}
+              <a
+                href="https://dashboard.stripe.com/coupons"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white underline underline-offset-2 hover:text-[#94a3b8] transition-colors"
+              >
+                Stripe Coupons dashboard
+              </a>
+              {" "}→ open your FOUNDING20 coupon → Add promotion code → set code to{" "}
+              <span className="font-mono text-white">FOUNDING20</span>.
+              Then click Refresh below.
             </p>
             {couponMsg && (
-              <p className={`text-xs mb-4 ${couponMsg.startsWith("Error") ? "text-[#f87171]" : "text-[#4ade80]"}`}>
+              <p className={`text-xs mb-4 ${couponMsg.startsWith("FOUNDING20 is") ? "text-[#4ade80]" : "text-[#f87171]"}`}>
                 {couponMsg}
               </p>
             )}
             <button
-              onClick={handleCreateCoupon}
-              disabled={couponCreating}
-              className="text-sm font-semibold border border-white px-5 py-2.5 hover:bg-white hover:text-black disabled:opacity-40 transition-colors"
+              onClick={handleCheckCoupon}
+              className="text-sm border border-[#1a1a1a] px-5 py-2.5 text-[#94a3b8] hover:border-[#333] hover:text-white transition-colors"
             >
-              {couponCreating ? "Creating…" : "Create FOUNDING20 coupon in Stripe"}
+              Refresh
             </button>
           </div>
         )}
 
         {foundingMember && couponMsg && (
-          <p className={`text-xs mt-4 ${couponMsg.startsWith("Error") ? "text-[#f87171]" : "text-[#4ade80]"}`}>
+          <p className={`text-xs mt-4 ${couponMsg.startsWith("FOUNDING20 is") ? "text-[#4ade80]" : "text-[#f87171]"}`}>
             {couponMsg}
           </p>
         )}

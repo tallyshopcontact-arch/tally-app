@@ -94,7 +94,9 @@ export async function GET(req: NextRequest) {
   if (foundingCode) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const raw = foundingCode as any;
-    const couponId = typeof raw.coupon === "string" ? raw.coupon : raw.coupon?.id ?? "";
+    // API v2026 uses coupon_id; older versions embed coupon as string or object
+    const couponId: string =
+      raw.coupon_id ?? (typeof raw.coupon === "string" ? raw.coupon : raw.coupon?.id ?? "");
     const coupon = await stripe.coupons.retrieve(couponId).catch(() => null);
     foundingInfo = coupon
       ? {
