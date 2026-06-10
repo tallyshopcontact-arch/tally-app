@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   const { data: prospect, error: fetchErr } = await supabase
     .from("prospects")
-    .select("id, channel_name, genre, email, instagram_handle, contact_preference, channel_snapshot")
+    .select("id, channel_name, genre, email, instagram_handle, contact_preference, channel_snapshot, offer_type")
     .eq("id", prospect_id)
     .single();
 
@@ -46,14 +46,18 @@ export async function POST(req: NextRequest) {
       : (prospect.contact_preference as "instagram" | "email" | null) ??
         ((prospect.email as string | null) ? "email" : "instagram");
 
-  console.log(`[generate-sequence] format=${resolvedFormat} for "${prospect.channel_name}"`);
+  const offerType: "founding" | "standard" =
+    (prospect.offer_type as string | null) === "standard" ? "standard" : "founding";
+
+  console.log(`[generate-sequence] format=${resolvedFormat} offerType=${offerType} for "${prospect.channel_name}"`);
 
   try {
     const sequence = await generateOutreachSequence(
       prospect.channel_name as string,
       prospect.genre as string | null,
       snapshot,
-      resolvedFormat
+      resolvedFormat,
+      offerType
     );
 
     const { error: saveErr } = await supabase

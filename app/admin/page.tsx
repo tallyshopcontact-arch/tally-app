@@ -38,6 +38,7 @@ interface Prospect {
   instagram_handle: string | null;
   contact_method: string | null;
   contact_preference: "instagram" | "email" | null;
+  offer_type: "founding" | "standard" | null;
   channel_snapshot: ChannelSnapshot | null;
   outreach_sequence: OutreachSequence | null;
   status: string;
@@ -498,6 +499,10 @@ function ProspectFinderSection({ password }: { password: string }) {
     await updateProspect(p.id, { contact_preference: pref });
   };
 
+  const handleSetOfferType = async (p: Prospect, offerType: "founding" | "standard") => {
+    await updateProspect(p.id, { offer_type: offerType });
+  };
+
   const handleGenerateSequence = async (p: Prospect) => {
     setSequenceLoadingId(p.id);
     setSequenceError((e) => { const n = { ...e }; delete n[p.id]; return n; });
@@ -862,6 +867,30 @@ function ProspectFinderSection({ password }: { password: string }) {
                                 : "text-[#475569] hover:text-[#94a3b8]"
                             }`}>
                             Email
+                          </button>
+                        </div>
+
+                        {/* Offer type toggle */}
+                        <div className="flex border border-[#1a1a1a]">
+                          <button
+                            onClick={() => handleSetOfferType(p, "founding")}
+                            disabled={actionId === p.id}
+                            className={`text-[10px] px-2.5 py-1 transition-colors ${
+                              (p.offer_type ?? "founding") === "founding"
+                                ? "bg-[#fbbf24]/15 text-[#fbbf24] border-r border-[#1a1a1a]"
+                                : "text-[#475569] border-r border-[#1a1a1a] hover:text-[#94a3b8]"
+                            }`}>
+                            Founding
+                          </button>
+                          <button
+                            onClick={() => handleSetOfferType(p, "standard")}
+                            disabled={actionId === p.id}
+                            className={`text-[10px] px-2.5 py-1 transition-colors ${
+                              (p.offer_type ?? "founding") === "standard"
+                                ? "bg-[#94a3b8]/15 text-[#94a3b8]"
+                                : "text-[#475569] hover:text-[#94a3b8]"
+                            }`}>
+                            Standard
                           </button>
                         </div>
 

@@ -75,14 +75,21 @@ export async function generateOutreachSequence(
   channelName: string,
   genre: string | null,
   snapshot: ChannelSnapshot,
-  format: "instagram" | "email"
+  format: "instagram" | "email",
+  offerType: "founding" | "standard" = "founding"
 ): Promise<OutreachSequence> {
-  console.log(`[sequence] generating ${format} sequence for "${channelName}"`);
+  console.log(`[sequence] generating ${format} sequence for "${channelName}" offerType=${offerType}`);
 
   const { top_insight, raw_data } = snapshot;
   const genreLine = genre ?? "type beat";
 
   const msg2Body = await generateMsg2(channelName, genre, snapshot, format);
+
+  const msg4BodyFounding =
+    `I'll give you founding member access — 14 days completely free, no credit card needed, and your rate is locked at $19.99/month for life even if we raise prices later. Only available to the first 20 producers. Sign up at tallyagc.com and use code FOUNDING20 at checkout.`;
+  const msg4BodyStandard =
+    `I'll give you full free access for 7 days — sign up at tallyagc.com and try it before your next upload. No commitment.`;
+  const msg4Body = offerType === "founding" ? msg4BodyFounding : msg4BodyStandard;
 
   const messages: OutreachMessage[] =
     format === "instagram"
@@ -104,14 +111,14 @@ export async function generateOutreachSequence(
           {
             label: "Message 3 — Product intro",
             subject: null,
-            body: `This is actually what my platform automates before every upload — it catches these patterns and gives you optimized titles, tags and niche data specific to your style. I can give you access to run it before your next beat. tallyagc.com`,
+            body: `This is actually what my platform automates before every upload — it catches these patterns and gives you optimized titles, tags and niche data specific to your style. It's called TALLY.`,
             sent: false,
             sent_at: null,
           },
           {
             label: "Message 4 — Trial close",
             subject: null,
-            body: `I'll give you full free access — no card needed. Just sign up at tallyagc.com and I'll activate it for you personally.`,
+            body: msg4Body,
             sent: false,
             sent_at: null,
           },
@@ -141,7 +148,7 @@ export async function generateOutreachSequence(
           {
             label: "Message 4 — Product intro",
             subject: `How to fix this automatically`,
-            body: `The patterns in your report are exactly what my platform catches before every upload. It gives you optimized titles, tags, and monthly niche data so every beat is positioned for discovery. I'd like to give you free access — no card needed. tallyagc.com\n\nFellow producer`,
+            body: `The patterns in your report are exactly what my platform catches before every upload. It gives you optimized titles, tags, and monthly niche data so every beat is positioned for discovery.\n\n${msg4Body}\n\nFellow producer`,
             sent: false,
             sent_at: null,
           },
