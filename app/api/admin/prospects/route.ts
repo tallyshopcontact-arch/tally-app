@@ -8,10 +8,7 @@ function checkAdmin(req: NextRequest): boolean {
 }
 
 function getServiceClient() {
-  return createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SECRET_KEY!
-  );
+  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!);
 }
 
 export async function GET(req: NextRequest) {
@@ -34,7 +31,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = getServiceClient();
-  // Delete all rows — neq matches every non-null id
   const { error, count } = await supabase
     .from("prospects")
     .delete({ count: "exact" })
@@ -49,22 +45,43 @@ export async function POST(req: NextRequest) {
   if (!checkAdmin(req))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json();
-  const { id, ...updates } = body as {
-    id: string;
-    [key: string]: string | null;
-  };
+  const body = await req.json() as Record<string, unknown>;
+  const { id, grant_beta, ...updates } = body;
 
   if (!id)
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
   const supabase = getServiceClient();
-  const { error } = await supabase
-    .from("prospects")
-    .update(updates)
-    .eq("id", id);
 
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // Update the prospect row
+  if (Object.keys(updates).length > 0) {
+    const { error } = await supabase
+      .from("prospects")
+      .update(updates)
+      .eq("id", id as string);
+
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Optionally grant beta access to the profile matching prospect email
+  if (grant_beta && updates.email) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", updates.email as string)
+      .single();
+
+    if (profile) {
+      await supabase
+        .from("profiles")
+        .update({ beta_access: true, subscription_status: "beta" })
+        .eq("id", profile.id as string);
+      console.log(`[prospects] granted beta to profile with email ${updates.email}`);
+    } else {
+      console.log(`[prospects] grant_beta: no profile found for email ${updates.email}`);
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }
