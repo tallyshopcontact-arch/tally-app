@@ -132,8 +132,19 @@ export default function OnboardingPage() {
     setSaving(false);
     setStep(5);
 
-    // Fire-and-forget — don't block the UI on email delivery
-    fetch("/api/email/send-welcome", { method: "POST" }).catch(() => {});
+    // Send welcome email — awaited so errors appear in console
+    console.log("[onboarding] attempting to send welcome email");
+    try {
+      const emailRes = await fetch("/api/email/send-welcome", { method: "POST" });
+      const emailData = await emailRes.json();
+      if (!emailRes.ok) {
+        console.error("[onboarding] welcome email API error:", emailRes.status, emailData);
+      } else {
+        console.log("[onboarding] welcome email sent:", emailData);
+      }
+    } catch (emailErr) {
+      console.error("[onboarding] welcome email fetch failed:", emailErr);
+    }
   };
 
   const handleStartTrial = async () => {
