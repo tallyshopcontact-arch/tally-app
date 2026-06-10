@@ -48,7 +48,7 @@ interface Prospect {
   notes: string | null;
 }
 
-type Tab = "waitlist" | "beta" | "prospects";
+type Tab = "waitlist" | "beta" | "prospects" | "financials";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -993,6 +993,348 @@ function ProspectFinderSection({ password }: { password: string }) {
   );
 }
 
+// ── Financials ────────────────────────────────────────────────────────────────
+
+interface FinancialData {
+  month: string;
+  stripe: {
+    activeCount: number;
+    trialCount: number;
+    cancelledCount: number;
+    newCount: number;
+    mrr: number;
+    churnRate: number;
+    projectedNextMonth: number;
+  };
+  variableCosts: { item: string; type: "variable"; amount: number; count: number }[];
+  fixedCosts: { item: string; type: "fixed"; amount: number }[];
+  summary: {
+    totalVariable: number;
+    totalFixed: number;
+    totalCosts: number;
+    mrr: number;
+    netProfit: number;
+    marginPct: number;
+    costPerSub: number;
+  };
+  foundingMember: {
+    exists: boolean;
+    timesRedeemed: number;
+    maxRedemptions: number;
+    valid: boolean;
+  } | null;
+}
+
+function buildMonthOptions(): { value: string; label: string }[] {
+  const opts = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    opts.push({ value, label });
+  }
+  return opts;
+}
+
+function fmt$(n: number): string {
+  return `$${n.toFixed(2)}`;
+}
+
+function FinancialsSection({ password }: { password: string }) {
+  const monthOptions = buildMonthOptions();
+  const [selectedMonth, setSelectedMonth] = useState(monthOptions[0].value);
+  const [data, setData] = useState<FinancialData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Founding coupon state
+  const [couponCreating, setCouponCreating] = useState(false);
+  const [couponMsg, setCouponMsg] = useState("");
+
+  const loadData = useCallback(async (month: string) => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/financials?month=${month}`, {
+        headers: { "x-admin-password": password },
+      });
+      const d = await res.json();
+      if (res.ok) setData(d);
+      else setError(d.error ?? "Failed to load financials");
+    } catch {
+      setError("Network error");
+    } finally {
+      setLoading(false);
+    }
+  }, [password]);
+
+  useEffect(() => { loadData(selectedMonth); }, [loadData, selectedMonth]);
+
+  const handleCreateCoupon = async () => {
+    setCouponCreating(true);
+    setCouponMsg("");
+    try {
+      const res = await fetch("/api/admin/create-founding-coupon", {
+        method: "POST",
+        headers: { "x-admin-password": password },
+      });
+      const d = await res.json();
+      if (res.ok) {
+        if (d.already_exists) {
+          setCouponMsg("FOUNDING20 coupon already exists in Stripe.");
+        } else {
+          setCouponMsg("FOUNDING20 coupon + promo code created successfully.");
+        }
+        await loadData(selectedMonth);
+      } else {
+        setCouponMsg(`Error: ${d.error}`);
+      }
+    } catch {
+      setCouponMsg("Network error");
+    } finally {
+      setCouponCreating(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold mb-6">Financials</h2>
+        <div className="border border-[#1a1a1a] p-12 text-center">
+          <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div>
+        <h2 className="text-xl font-bold mb-6">Financials</h2>
+        <p className="text-[#f87171] text-sm">{error}</p>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { stripe, variableCosts, fixedCosts, summary, foundingMember } = data;
+  const isProfit = summary.netProfit >= 0;
+
+  return (
+    <div>
+      {/* Header + month selector */}
+      <div className="flex items-start justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h2 className="text-xl font-bold mb-1">Financials</h2>
+          <p className="text-[#94a3b8] text-sm">Revenue, costs, and margins for TALLY.</p>
+        </div>
+        <select
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="bg-[#111] border border-[#1e1e1e] px-3 py-2 text-sm text-white focus:outline-none focus:border-[#3a3a3a] transition-colors"
+        >
+          {monthOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* 4 stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-[#1a1a1a] mb-8">
+        <div className="bg-[#0a0a0a] px-5 py-5 text-center">
+          <p className={`text-2xl font-bold ${stripe.mrr > 0 ? "text-[#4ade80]" : "text-white"}`}>
+            {fmt$(stripe.mrr)}
+          </p>
+          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mt-1">Monthly Revenue</p>
+        </div>
+        <div className="bg-[#0a0a0a] px-5 py-5 text-center">
+          <p className="text-2xl font-bold">{stripe.activeCount}</p>
+          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mt-1">Active Subscribers</p>
+        </div>
+        <div className="bg-[#0a0a0a] px-5 py-5 text-center">
+          <p className={`text-2xl font-bold ${isProfit ? "text-[#4ade80]" : "text-[#f87171]"}`}>
+            {fmt$(summary.netProfit)}
+          </p>
+          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mt-1">Net Profit</p>
+        </div>
+        <div className="bg-[#0a0a0a] px-5 py-5 text-center">
+          <p className={`text-2xl font-bold ${isProfit ? "text-[#4ade80]" : "text-[#f87171]"}`}>
+            {summary.marginPct.toFixed(1)}%
+          </p>
+          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mt-1">Profit Margin</p>
+        </div>
+      </div>
+
+      {/* Revenue section */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
+        <div className="border border-[#1a1a1a] p-6">
+          <h3 className="text-xs text-[#94a3b8] uppercase tracking-widest mb-5">Revenue</h3>
+          <div className="space-y-3">
+            {[
+              { label: "MRR", value: fmt$(stripe.mrr) },
+              { label: "New this month", value: `${stripe.newCount} subscribers` },
+              { label: "Churned this month", value: `${stripe.cancelledCount} subscribers` },
+              { label: "Trial subscribers", value: `${stripe.trialCount} (not yet paying)` },
+              { label: "Churn rate", value: `${stripe.churnRate.toFixed(1)}%` },
+              { label: "Projected next month", value: fmt$(stripe.projectedNextMonth) },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex items-center justify-between">
+                <span className="text-xs text-[#475569]">{label}</span>
+                <span className="text-xs text-white font-medium">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Summary */}
+        <div className="border border-[#1a1a1a] p-6">
+          <h3 className="text-xs text-[#94a3b8] uppercase tracking-widest mb-5">Profit / Loss</h3>
+          <div className="space-y-3">
+            {[
+              { label: "Revenue", value: fmt$(summary.mrr), color: "text-[#4ade80]" },
+              { label: "Variable costs", value: `−${fmt$(summary.totalVariable)}`, color: "text-[#f87171]" },
+              { label: "Fixed costs", value: `−${fmt$(summary.totalFixed)}`, color: "text-[#f87171]" },
+              { label: "Total costs", value: `−${fmt$(summary.totalCosts)}`, color: "text-[#f87171]" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="flex items-center justify-between border-b border-[#111] pb-2 last:border-0 last:pb-0">
+                <span className="text-xs text-[#475569]">{label}</span>
+                <span className={`text-xs font-medium ${color}`}>{value}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-4 border-t border-[#1a1a1a] flex items-center justify-between">
+            <span className="text-sm font-semibold">Net {isProfit ? "profit" : "loss"}</span>
+            <span className={`text-sm font-bold ${isProfit ? "text-[#4ade80]" : "text-[#f87171]"}`}>
+              {fmt$(summary.netProfit)}
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs text-[#475569]">Margin</span>
+            <span className={`text-xs font-medium ${isProfit ? "text-[#4ade80]" : "text-[#f87171]"}`}>
+              {summary.marginPct.toFixed(1)}%
+            </span>
+          </div>
+          {stripe.activeCount > 0 && (
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-xs text-[#475569]">Cost per subscriber</span>
+              <span className="text-xs text-white">{fmt$(summary.costPerSub)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Cost breakdown table */}
+      <div className="border border-[#1a1a1a] mb-8">
+        <div className="px-5 py-4 border-b border-[#1a1a1a]">
+          <h3 className="text-xs text-[#94a3b8] uppercase tracking-widest">Cost Breakdown</h3>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[#1a1a1a]">
+              <th className="text-left text-[9px] text-[#475569] uppercase tracking-widest px-5 py-3 font-medium">Item</th>
+              <th className="text-left text-[9px] text-[#475569] uppercase tracking-widest px-5 py-3 font-medium">Type</th>
+              <th className="text-right text-[9px] text-[#475569] uppercase tracking-widest px-5 py-3 font-medium">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {variableCosts.map((c) => (
+              <tr key={c.item} className="border-b border-[#111] hover:bg-[#0d0d0d]">
+                <td className="px-5 py-3 text-xs text-[#94a3b8]">
+                  {c.item}
+                  {c.count > 0 && <span className="text-[#475569] ml-2">({c.count} uses)</span>}
+                </td>
+                <td className="px-5 py-3 text-[9px] text-[#fbbf24]">Variable</td>
+                <td className="px-5 py-3 text-xs text-white text-right">{fmt$(c.amount)}</td>
+              </tr>
+            ))}
+            {fixedCosts.map((c) => (
+              <tr key={c.item} className="border-b border-[#111] hover:bg-[#0d0d0d]">
+                <td className="px-5 py-3 text-xs text-[#94a3b8]">{c.item}</td>
+                <td className="px-5 py-3 text-[9px] text-[#60a5fa]">Fixed</td>
+                <td className="px-5 py-3 text-xs text-white text-right">{fmt$(c.amount)}</td>
+              </tr>
+            ))}
+            <tr className="bg-[#111]">
+              <td className="px-5 py-3 text-xs font-semibold">Total costs</td>
+              <td className="px-5 py-3" />
+              <td className="px-5 py-3 text-xs font-semibold text-right text-[#f87171]">
+                {fmt$(summary.totalCosts)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Founding member section */}
+      <div className="border border-[#1a1a1a] p-6">
+        <h3 className="text-xs text-[#94a3b8] uppercase tracking-widest mb-5">Founding Member Coupon</h3>
+
+        {foundingMember ? (
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-semibold font-mono">FOUNDING20</span>
+                <span className={`text-[9px] px-2 py-0.5 font-semibold ${
+                  foundingMember.valid ? "text-[#4ade80] bg-[#4ade80]/10" : "text-[#f87171] bg-[#f87171]/10"
+                }`}>
+                  {foundingMember.valid ? "Active" : "Expired / Max reached"}
+                </span>
+              </div>
+              <p className="text-sm text-[#94a3b8]">
+                {foundingMember.timesRedeemed}/{foundingMember.maxRedemptions} founding member codes used
+              </p>
+              {foundingMember.timesRedeemed >= foundingMember.maxRedemptions && (
+                <p className="text-xs text-[#fbbf24] mt-1">All codes have been redeemed. Remove the banner from the landing page.</p>
+              )}
+            </div>
+            {/* Progress bar */}
+            <div className="flex items-center gap-3">
+              <div className="w-32 h-1.5 bg-[#1a1a1a]">
+                <div
+                  className="h-full bg-[#4ade80] transition-all"
+                  style={{ width: `${Math.min(100, (foundingMember.timesRedeemed / foundingMember.maxRedemptions) * 100)}%` }}
+                />
+              </div>
+              <span className="text-xs text-[#475569]">
+                {foundingMember.timesRedeemed}/{foundingMember.maxRedemptions}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm text-[#94a3b8] mb-4">
+              FOUNDING20 coupon has not been created in Stripe yet.
+            </p>
+            <p className="text-xs text-[#475569] mb-4">
+              Creates: 100% off first invoice · 14-day trial · Max 20 redemptions · No credit card required
+            </p>
+            {couponMsg && (
+              <p className={`text-xs mb-4 ${couponMsg.startsWith("Error") ? "text-[#f87171]" : "text-[#4ade80]"}`}>
+                {couponMsg}
+              </p>
+            )}
+            <button
+              onClick={handleCreateCoupon}
+              disabled={couponCreating}
+              className="text-sm font-semibold border border-white px-5 py-2.5 hover:bg-white hover:text-black disabled:opacity-40 transition-colors"
+            >
+              {couponCreating ? "Creating…" : "Create FOUNDING20 coupon in Stripe"}
+            </button>
+          </div>
+        )}
+
+        {foundingMember && couponMsg && (
+          <p className={`text-xs mt-4 ${couponMsg.startsWith("Error") ? "text-[#f87171]" : "text-[#4ade80]"}`}>
+            {couponMsg}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Admin dashboard ───────────────────────────────────────────────────────────
 
 function AdminDashboard({ initialEntries, password, onSignOut }: {
@@ -1046,6 +1388,7 @@ function AdminDashboard({ initialEntries, password, onSignOut }: {
     { key: "waitlist", label: "Waitlist" },
     { key: "beta", label: "Beta Access" },
     { key: "prospects", label: "Producer Finder" },
+    { key: "financials", label: "Financials" },
   ];
 
   return (
@@ -1079,6 +1422,7 @@ function AdminDashboard({ initialEntries, password, onSignOut }: {
           <BetaSection producers={producers} loading={producersLoading} betaAction={betaAction} onRefresh={loadProducers} onToggle={toggleBeta} />
         )}
         {tab === "prospects" && <ProspectFinderSection password={password} />}
+        {tab === "financials" && <FinancialsSection password={password} />}
       </div>
     </div>
   );

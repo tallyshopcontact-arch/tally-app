@@ -357,16 +357,24 @@ export default function SettingsPage() {
                   <p className="text-[#475569] text-xs">$19.99/month — 7-day free trial</p>
                 )}
               </div>
-              <div className="shrink-0">
+              <div className="shrink-0 flex flex-col items-end gap-2">
                 {status === "beta" ? null : isPaid ? (
-                  <button
-                    onClick={handleBillingPortal}
-                    disabled={billingLoading}
-                    className="border border-[#2a2a2a] text-white text-xs font-semibold px-4 py-2.5 hover:border-[#444] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {billingLoading && <Loader2 className="w-3 h-3 animate-spin" />}
-                    Manage billing
-                  </button>
+                  <>
+                    <button
+                      onClick={handleBillingPortal}
+                      disabled={billingLoading}
+                      className="border border-[#2a2a2a] text-white text-xs font-semibold px-4 py-2.5 hover:border-[#444] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {billingLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                      Manage billing
+                    </button>
+                    <Link
+                      href="/dashboard/cancel"
+                      className="text-xs text-[#475569] hover:text-[#f87171] transition-colors"
+                    >
+                      Cancel subscription
+                    </Link>
+                  </>
                 ) : (
                   <button
                     onClick={handleUpgrade}

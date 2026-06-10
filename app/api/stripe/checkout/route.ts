@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
 import { stripe } from "@/lib/stripe";
 
@@ -10,10 +10,15 @@ export const dynamic = "force-dynamic";
 //   STRIPE_PRICE_ID          → price_live_...
 //   STRIPE_WEBHOOK_SECRET    → whsec_live_...
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const supabase = await createAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({})) as { promoCode?: string };
+  const promoCode = body?.promoCode?.trim().toUpperCase();
 
   try {
     const { data: profile } = await supabase
@@ -36,17 +41,37 @@ export async function POST() {
         .eq("id", user.id);
     }
 
+    // Resolve promo code → Stripe promotion code ID
+    let discounts: { promotion_code: string }[] | undefined;
+    let allowPromoCodes = true;
+
+    if (promoCode) {
+      const codes = await stripe.promotionCodes.list({
+        code: promoCode,
+        active: true,
+        limit: 1,
+      });
+      if (codes.data.length > 0) {
+        discounts = [{ promotion_code: codes.data[0].id }];
+        allowPromoCodes = false;
+      }
+    }
+
+    // FOUNDING20 gets a 14-day trial; default is 7 days
+    const trialDays = promoCode === "FOUNDING20" ? 14 : 7;
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
+      payment_method_collection: "if_required",
       line_items: [{ price: process.env.STRIPE_PRICE_ID!, quantity: 1 }],
       success_url: "https://tallyagc.com/dashboard?subscribed=true",
       cancel_url: "https://tallyagc.com/pricing",
       customer: customerId,
       metadata: { producer_id: user.id },
-      allow_promotion_codes: true,
+      ...(discounts ? { discounts } : { allow_promotion_codes: allowPromoCodes }),
       subscription_data: {
-        trial_period_days: 7,
+        trial_period_days: trialDays,
         metadata: { producer_id: user.id },
       },
     });

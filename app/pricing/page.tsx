@@ -42,13 +42,41 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(false);
   const [checkError, setCheckError] = useState("");
 
+  // Promo code
+  const [promoInput, setPromoInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<string | null>(null);
+  const [promoMessage, setPromoMessage] = useState("");
+  const [promoError, setPromoError] = useState("");
+
+  const handleApplyPromo = () => {
+    const code = promoInput.trim().toUpperCase();
+    setPromoError("");
+    setPromoMessage("");
+    if (!code) return;
+
+    if (code === "FOUNDING20") {
+      setAppliedPromo(code);
+      setPromoMessage(
+        "Founding member offer applied — 14 days free, $19.99/month locked for life."
+      );
+    } else {
+      // Pass unknown codes through to Stripe; it will validate
+      setAppliedPromo(code);
+      setPromoMessage(`Code "${code}" will be applied at checkout.`);
+    }
+    setPromoInput("");
+  };
+
   const handleCheckout = async () => {
     setLoading(true);
     setCheckError("");
     try {
-      const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(appliedPromo ? { promoCode: appliedPromo } : {}),
+      });
 
-      // Not logged in — send to signup so they create an account first
       if (res.status === 401) {
         window.location.href = "/signup";
         return;
@@ -64,6 +92,8 @@ export default function PricingPage() {
       setLoading(false);
     }
   };
+
+  const isFoundingMember = appliedPromo === "FOUNDING20";
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
@@ -91,6 +121,21 @@ export default function PricingPage() {
           </p>
         </div>
 
+        {/* Founding member banner (inline) */}
+        {isFoundingMember && (
+          <div className="border border-[#4ade80]/20 bg-[#4ade80]/5 px-4 py-3 mb-6 flex items-start gap-3">
+            <span className="text-[#4ade80] text-lg leading-none">✓</span>
+            <div>
+              <p className="text-sm font-semibold text-[#4ade80] mb-0.5">
+                Founding member offer applied
+              </p>
+              <p className="text-xs text-[#94a3b8]">
+                14 days free, no credit card required · $19.99/month locked for life
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Plan card */}
         <div className="border border-white/20 p-8 mb-6">
           <div className="flex items-start justify-between gap-4 mb-6">
@@ -113,19 +158,66 @@ export default function PricingPage() {
             ))}
           </ul>
 
+          {/* Promo code input */}
+          {!appliedPromo ? (
+            <div className="mb-6">
+              <p className="text-xs text-[#475569] mb-2">Have a promo code?</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={promoInput}
+                  onChange={(e) => {
+                    setPromoInput(e.target.value);
+                    setPromoError("");
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && handleApplyPromo()}
+                  placeholder="FOUNDING20"
+                  className="flex-1 bg-[#111] border border-[#1e1e1e] px-3 py-2 text-sm text-white placeholder:text-[#333] focus:outline-none focus:border-[#3a3a3a] transition-colors"
+                />
+                <button
+                  onClick={handleApplyPromo}
+                  disabled={!promoInput.trim()}
+                  className="text-xs font-semibold border border-[#1e1e1e] px-4 py-2 text-[#94a3b8] hover:text-white hover:border-[#333] disabled:opacity-30 transition-colors"
+                >
+                  Apply
+                </button>
+              </div>
+              {promoError && <p className="text-[#f87171] text-xs mt-2">{promoError}</p>}
+            </div>
+          ) : (
+            <div className="mb-6 flex items-center justify-between">
+              <p className="text-xs text-[#4ade80]">{promoMessage}</p>
+              <button
+                onClick={() => {
+                  setAppliedPromo(null);
+                  setPromoMessage("");
+                }}
+                className="text-xs text-[#475569] hover:text-[#94a3b8] ml-4 transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          )}
+
           <button
             onClick={handleCheckout}
             disabled={loading}
             className="w-full bg-white text-black text-sm font-bold py-4 hover:bg-white/90 transition disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {loading ? "Redirecting…" : "Start 7-Day Free Trial"}
+            {loading
+              ? "Redirecting…"
+              : isFoundingMember
+              ? "Claim Founding Member Offer"
+              : "Start 7-Day Free Trial"}
           </button>
           {checkError && (
             <p className="text-[#f87171] text-xs mt-3 text-center">{checkError}</p>
           )}
           <p className="text-center text-xs text-[#475569] mt-3">
-            No credit card required for trial. Cancel anytime.
+            {isFoundingMember
+              ? "14 days free, no credit card required. $19.99/month after."
+              : "No credit card required for trial. Cancel anytime."}
           </p>
         </div>
 

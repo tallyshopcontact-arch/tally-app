@@ -9,6 +9,7 @@ import {
   LineChart,
 } from "lucide-react";
 import GenreTags from "./components/GenreTags";
+import FoundingBanner from "@/components/FoundingBanner";
 
 const tools = [
   {
@@ -89,6 +90,8 @@ const faqs = [
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
+      <FoundingBanner />
+
       {/* Sticky Nav */}
       <nav className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#1a1a1a] px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
