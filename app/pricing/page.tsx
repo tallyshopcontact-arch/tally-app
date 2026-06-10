@@ -78,7 +78,12 @@ export default function PricingPage() {
       });
 
       if (res.status === 401) {
-        window.location.href = "/signup";
+        if (appliedPromo) {
+          try { localStorage.setItem("tally_promo_code", appliedPromo); } catch { /* ignore */ }
+          window.location.href = `/signup?promo=${encodeURIComponent(appliedPromo)}`;
+        } else {
+          window.location.href = "/signup";
+        }
         return;
       }
 

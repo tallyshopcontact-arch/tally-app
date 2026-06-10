@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
@@ -35,6 +35,11 @@ export default function OnboardingPage() {
   const [saving, setSaving] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
+  const [pendingPromo, setPendingPromo] = useState<string | null>(null);
+
+  useEffect(() => {
+    try { setPendingPromo(localStorage.getItem("tally_promo_code")); } catch { /* ignore */ }
+  }, []);
   const [form, setForm] = useState<FormData>({
     youtubeUrl: "",
     genre: "",
@@ -130,10 +135,18 @@ export default function OnboardingPage() {
 
   const handleStartTrial = async () => {
     setCheckingOut(true);
+    let promoCode: string | null = null;
+    try { promoCode = localStorage.getItem("tally_promo_code"); } catch { /* ignore */ }
+
     try {
-      const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(promoCode ? { promoCode } : {}),
+      });
       const { url, error: checkoutError } = await res.json();
       if (checkoutError) throw new Error(checkoutError);
+      try { localStorage.removeItem("tally_promo_code"); } catch { /* ignore */ }
       window.location.href = url;
     } catch (e) {
       console.error("[onboarding] checkout error:", e);
@@ -370,13 +383,24 @@ export default function OnboardingPage() {
           <div className="space-y-6">
             <div>
               <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">You&apos;re all set</p>
-              <h1 className="text-2xl font-bold mb-2">Start your free trial</h1>
-              <p className="text-[#94a3b8] text-sm">
-                7 days free. No charge until the trial ends. Cancel anytime.
-              </p>
+              {pendingPromo === "FOUNDING20" ? (
+                <>
+                  <h1 className="text-2xl font-bold mb-2">Claim your founding member offer</h1>
+                  <p className="text-[#4ade80] text-sm">
+                    14 days free · $19.99/month locked for life · No credit card required.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="text-2xl font-bold mb-2">Start your free trial</h1>
+                  <p className="text-[#94a3b8] text-sm">
+                    7 days free. No charge until the trial ends. Cancel anytime.
+                  </p>
+                </>
+              )}
             </div>
 
-            <div className="border border-white/20 p-6">
+            <div className={`border p-6 ${pendingPromo === "FOUNDING20" ? "border-[#4ade80]/30" : "border-white/20"}`}>
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
                   <p className="text-sm font-bold">TALLY Pro</p>
@@ -410,7 +434,11 @@ export default function OnboardingPage() {
                 className="w-full bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {checkingOut && <Loader2 className="w-4 h-4 animate-spin" />}
-                {checkingOut ? "Redirecting…" : "Start 7-Day Free Trial →"}
+                {checkingOut
+                  ? "Redirecting…"
+                  : pendingPromo === "FOUNDING20"
+                  ? "Claim Founding Member Offer →"
+                  : "Start 7-Day Free Trial →"}
               </button>
               <p className="text-center text-xs text-[#475569] mt-3">
                 No card required for trial period.

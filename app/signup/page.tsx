@@ -1,14 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 
 export default function SignupPage() {
   const router = useRouter();
+  const [pendingPromo, setPendingPromo] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+
+  // Persist promo code from URL → localStorage so it survives the full signup+onboarding flow
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const promo = params.get("promo");
+    if (promo) {
+      try { localStorage.setItem("tally_promo_code", promo); } catch { /* ignore */ }
+      setPendingPromo(promo);
+    }
+  }, []);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
@@ -96,9 +107,15 @@ export default function SignupPage() {
         </Link>
 
         <h1 className="text-2xl font-bold mb-2">Create your account</h1>
-        <p className="text-[#94a3b8] text-sm mb-8">
-          Start growing your YouTube channel with monthly data.
-        </p>
+        {pendingPromo === "FOUNDING20" ? (
+          <p className="text-[#4ade80] text-sm mb-8">
+            Founding member offer applied — 14 days free, $19.99/month locked for life.
+          </p>
+        ) : (
+          <p className="text-[#94a3b8] text-sm mb-8">
+            Start growing your YouTube channel with monthly data.
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <input
