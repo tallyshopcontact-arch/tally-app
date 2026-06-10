@@ -40,16 +40,27 @@ const faqs = [
 
 export default function PricingPage() {
   const [loading, setLoading] = useState(false);
+  const [checkError, setCheckError] = useState("");
 
   const handleCheckout = async () => {
     setLoading(true);
+    setCheckError("");
     try {
       const res = await fetch("/api/stripe/checkout", { method: "POST" });
+
+      // Not logged in — send to signup so they create an account first
+      if (res.status === 401) {
+        window.location.href = "/signup";
+        return;
+      }
+
       const { url, error } = await res.json();
       if (error) throw new Error(error);
+      if (!url) throw new Error("No checkout URL returned");
       window.location.href = url;
     } catch (e) {
-      console.error("Checkout error:", e);
+      console.error("[pricing] checkout error:", e);
+      setCheckError("Something went wrong starting checkout. Please try again.");
       setLoading(false);
     }
   };
@@ -110,6 +121,9 @@ export default function PricingPage() {
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {loading ? "Redirecting…" : "Start 7-Day Free Trial"}
           </button>
+          {checkError && (
+            <p className="text-[#f87171] text-xs mt-3 text-center">{checkError}</p>
+          )}
           <p className="text-center text-xs text-[#475569] mt-3">
             No credit card required for trial. Cancel anytime.
           </p>

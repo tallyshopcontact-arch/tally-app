@@ -45,6 +45,7 @@ export default function SettingsPage() {
   const [googleToast, setGoogleToast] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
@@ -131,13 +132,20 @@ export default function SettingsPage() {
 
   const handleUpgrade = async () => {
     setCheckoutLoading(true);
+    setCheckoutError("");
     try {
       const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      if (res.status === 401) {
+        window.location.href = "/signup";
+        return;
+      }
       const { url, error } = await res.json();
       if (error) throw new Error(error);
+      if (!url) throw new Error("No checkout URL returned");
       window.location.href = url;
     } catch (e) {
-      console.error("Checkout error:", e);
+      console.error("[settings] checkout error:", e);
+      setCheckoutError("Something went wrong. Please try again.");
       setCheckoutLoading(false);
     }
   };
@@ -371,6 +379,10 @@ export default function SettingsPage() {
                 )}
               </div>
             </div>
+
+            {checkoutError && (
+              <p className="mt-3 text-xs text-[#f87171]">{checkoutError}</p>
+            )}
 
             {status === "past_due" && (
               <div className="mt-4 flex items-center gap-2 text-xs text-[#f87171] border border-[#f87171]/20 px-4 py-3 bg-[#1a0a0a]">

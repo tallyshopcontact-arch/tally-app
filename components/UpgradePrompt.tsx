@@ -14,16 +14,24 @@ export function UpgradePrompt({
   feature,
 }: UpgradePromptProps) {
   const [loading, setLoading] = useState(false);
+  const [checkError, setCheckError] = useState("");
 
   async function handleUpgrade() {
     setLoading(true);
+    setCheckError("");
     try {
       const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      if (res.status === 401) {
+        window.location.href = "/signup";
+        return;
+      }
       const { url, error } = await res.json();
       if (error) throw new Error(error);
+      if (!url) throw new Error("No checkout URL returned");
       window.location.href = url;
     } catch (e) {
-      console.error("Checkout error:", e);
+      console.error("[upgrade-prompt] checkout error:", e);
+      setCheckError("Something went wrong. Please try again.");
       setLoading(false);
     }
   }
@@ -45,6 +53,9 @@ export function UpgradePrompt({
       >
         {loading ? "Redirecting…" : "Start 7-Day Free Trial — $19.99/mo"}
       </button>
+      {checkError && (
+        <p className="text-[#f87171] text-xs">{checkError}</p>
+      )}
       <p className="text-xs text-white/30">Cancel anytime. No commitment.</p>
     </div>
   );
