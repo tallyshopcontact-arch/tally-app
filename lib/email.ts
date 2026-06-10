@@ -106,16 +106,19 @@ export async function sendWelcomeEmail(
     ${ctaButton(`${BASE_URL}/dashboard`, "Go to your dashboard →")}
   `);
 
-  try {
-    await resend.emails.send({
-      from: FROM,
-      to: [producerEmail],
-      subject: `Welcome to TALLY, ${name}`,
-      html,
-    });
-    console.log(`[email] welcome sent to ${producerEmail}`);
-  } catch (err) {
-    console.error("[email] welcome send failed:", err);
+  console.log(`[email:welcome] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: `Welcome to TALLY, ${name}`,
+    html,
+  });
+
+  if (error) {
+    console.error("[email:welcome] send failed:", JSON.stringify(error));
+  } else {
+    console.log(`[email:welcome] sent to ${producerEmail} id=${data?.id}`);
   }
 }
 
@@ -182,16 +185,19 @@ export async function sendReportReadyEmail(
     ${ctaButton(`${BASE_URL}/dashboard/report`, "View your report →")}
   `);
 
-  try {
-    await resend.emails.send({
-      from: FROM,
-      to: [producerEmail],
-      subject: `Your ${month} TALLY report is ready`,
-      html,
-    });
-    console.log(`[email] report-ready sent to ${producerEmail}`);
-  } catch (err) {
-    console.error("[email] report-ready send failed:", err);
+  console.log(`[email:report-ready] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: `Your ${month} TALLY report is ready`,
+    html,
+  });
+
+  if (error) {
+    console.error("[email:report-ready] send failed:", JSON.stringify(error));
+  } else {
+    console.log(`[email:report-ready] sent to ${producerEmail} id=${data?.id}`);
   }
 }
 
@@ -258,15 +264,18 @@ export async function sendTrialEndingEmail(
     ${ctaButton(`${BASE_URL}/settings`, "Continue your subscription →")}
   `);
 
-  try {
-    await resend.emails.send({
-      from: FROM,
-      to: [producerEmail],
-      subject: `Your TALLY trial ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
-      html,
-    });
-    console.log(`[email] trial-ending sent to ${producerEmail}`);
-  } catch (err) {
-    console.error("[email] trial-ending send failed:", err);
+  console.log(`[email:trial-ending] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: `Your TALLY trial ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
+    html,
+  });
+
+  if (error) {
+    console.error("[email:trial-ending] send failed:", JSON.stringify(error));
+  } else {
+    console.log(`[email:trial-ending] sent to ${producerEmail} id=${data?.id}`);
   }
 }
