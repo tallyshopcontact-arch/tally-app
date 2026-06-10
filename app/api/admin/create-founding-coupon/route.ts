@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     if (err?.code === "resource_missing") {
       return NextResponse.json({ exists: false });
     }
-    console.error("[create-founding-coupon] GET error:", e);
+    console.error("[create-founding-coupon] GET error:", JSON.stringify(e, null, 2));
     return NextResponse.json({ error: "Stripe error" }, { status: 500 });
   }
 }
@@ -41,40 +41,63 @@ export async function POST(req: NextRequest) {
   if (!checkAdmin(req))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Step 1 — create coupon
+  let coupon;
   try {
-    // Check if already exists
     const existing = await stripe.coupons.retrieve("FOUNDING20").catch(() => null);
     if (existing) {
-      return NextResponse.json({
-        already_exists: true,
-        coupon: {
-          id: existing.id,
-          valid: existing.valid,
-          times_redeemed: existing.times_redeemed,
-          max_redemptions: existing.max_redemptions,
-        },
+      console.log("[create-founding-coupon] coupon already exists:", existing.id);
+      coupon = existing;
+    } else {
+      coupon = await stripe.coupons.create({
+        id: "FOUNDING20",
+        name: "Founding Member - $19.99/mo forever",
+        percent_off: 100,
+        duration: "once",
+        max_redemptions: 20,
+        metadata: { type: "founding_member" },
       });
+      console.log("[create-founding-coupon] created coupon:", coupon.id);
     }
-
-    const coupon = await stripe.coupons.create({
-      id: "FOUNDING20",
-      percent_off: 100,
-      duration: "once",
-      max_redemptions: 20,
-      name: "Founding Member - $19.99/mo forever",
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const promoCode = await (stripe.promotionCodes.create as any)({
-      coupon: coupon.id,
-      code: "FOUNDING20",
-    });
-
-    console.log("[create-founding-coupon] created FOUNDING20 coupon + promo code");
-    return NextResponse.json({ coupon, promoCode });
   } catch (e) {
-    console.error("[create-founding-coupon] POST error:", e);
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[create-founding-coupon] coupon create error:", JSON.stringify(e, null, 2));
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `Coupon creation failed: ${msg}`, detail: e }, { status: 500 });
   }
+
+  // Step 2 — create promotion code
+  let promoCode;
+  try {
+    // Check if the promo code already exists for this coupon
+    const existingCodes = await stripe.promotionCodes.list({ code: "FOUNDING20", limit: 1 });
+    if (existingCodes.data.length > 0) {
+      console.log("[create-founding-coupon] promo code already exists:", existingCodes.data[0].id);
+      promoCode = existingCodes.data[0];
+    } else {
+      const params = {
+        coupon: coupon.id,
+        code: "FOUNDING20",
+        max_redemptions: 20,
+        metadata: { type: "founding_member" },
+      };
+      console.log("[create-founding-coupon] creating promo code with params:", JSON.stringify(params));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      promoCode = await (stripe.promotionCodes.create as any)(params);
+      console.log("[create-founding-coupon] created promo code:", promoCode.id);
+    }
+  } catch (e) {
+    console.error("[create-founding-coupon] promo code create error:", JSON.stringify(e, null, 2));
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `Promo code creation failed: ${msg}`, detail: e }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    coupon: {
+      id: coupon.id,
+      valid: coupon.valid,
+      times_redeemed: coupon.times_redeemed,
+      max_redemptions: coupon.max_redemptions,
+    },
+    promoCode,
+  });
 }
