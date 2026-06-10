@@ -69,8 +69,7 @@ export default function SignupPage() {
           id: user.id,
           email: user.email,
           name,
-          subscription_tier: "free",
-          onboarding_complete: false,
+          subscription_status: "free",
         });
         if (profileError) {
           console.error("[signup] Profile insert error:", profileError.message);

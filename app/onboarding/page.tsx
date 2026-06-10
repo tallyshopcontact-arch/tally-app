@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { Check } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 
 const GENRES = [
   "Boom Bap",
@@ -33,6 +33,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState<FormData>({
     youtubeUrl: "",
@@ -125,6 +126,20 @@ export default function OnboardingPage() {
 
     setSaving(false);
     setStep(5);
+  };
+
+  const handleStartTrial = async () => {
+    setCheckingOut(true);
+    try {
+      const res = await fetch("/api/stripe/checkout", { method: "POST" });
+      const { url, error: checkoutError } = await res.json();
+      if (checkoutError) throw new Error(checkoutError);
+      window.location.href = url;
+    } catch (e) {
+      console.error("[onboarding] checkout error:", e);
+      setCheckingOut(false);
+      setError("Failed to start checkout. Please try from the pricing page.");
+    }
   };
 
   const displayGenre = form.genre === "Other"
@@ -350,75 +365,69 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* Step 5 — Choose plan */}
+        {/* Step 5 — Start trial */}
         {step === 5 && (
           <div className="space-y-6">
             <div>
-              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">Step 5 of 5</p>
-              <h1 className="text-2xl font-bold mb-2">Choose your plan</h1>
+              <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">You&apos;re all set</p>
+              <h1 className="text-2xl font-bold mb-2">Start your free trial</h1>
               <p className="text-[#94a3b8] text-sm">
-                All plans include a 30-day free trial. No card needed to start.
+                7 days free. No charge until the trial ends. Cancel anytime.
               </p>
             </div>
 
-            <div className="space-y-px bg-[#1e1e1e]">
-              {[
-                {
-                  name: "Basic",
-                  price: "$9.99/mo",
-                  features: ["Upload kit generator (10/month)", "Keyword heat map", "Trending videos", "Public channel stats"],
-                },
-                {
-                  name: "Growth",
-                  price: "$19.99/mo",
-                  features: ["Everything in Basic", "Unlimited upload kits", "Full monthly report (all 10 sections)", "Channel score, action plan, what to avoid"],
-                  highlight: true,
-                },
-                {
-                  name: "Pro",
-                  price: "$34.99/mo",
-                  features: ["Everything in Growth", "Google Analytics (watch time + subscribers)", "Thumbnail generator", "Upload scheduler"],
-                },
-              ].map(({ name, price, features, highlight }) => (
-                <div
-                  key={name}
-                  className={`p-5 flex flex-col gap-3 ${highlight ? "bg-[#111]" : "bg-[#0a0a0a]"}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold">{name}</p>
-                      <p className="text-[#94a3b8] text-xs mt-0.5">{price}</p>
-                    </div>
-                    {highlight && (
-                      <span className="text-[10px] font-semibold tracking-[0.15em] uppercase text-[#94a3b8] border border-[#2a2a2a] px-2 py-0.5">
-                        Popular
-                      </span>
-                    )}
-                  </div>
-                  <ul className="space-y-1.5">
-                    {features.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-xs text-[#94a3b8]">
-                        <Check className="w-3 h-3 text-[#475569] shrink-0 mt-0.5" />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
+            <div className="border border-white/20 p-6">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div>
+                  <p className="text-sm font-bold">TALLY Pro</p>
+                  <p className="text-[#94a3b8] text-xs mt-0.5">All 7 tools. Unlimited uses.</p>
                 </div>
-              ))}
+                <div className="text-right shrink-0">
+                  <p className="text-2xl font-bold">$19.99</p>
+                  <p className="text-xs text-[#94a3b8]">per month</p>
+                </div>
+              </div>
+              <ul className="space-y-2 mb-6">
+                {[
+                  "Upload Kit Generator — unlimited",
+                  "Title Tester — unlimited",
+                  "Keyword Heat Map",
+                  "Monthly Report — full channel analysis",
+                  "Action Plan — 7 monthly priorities",
+                  "Competitor Tracker",
+                  "TALLY Score",
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-xs text-[#94a3b8]">
+                    <Check className="w-3 h-3 text-[#475569] shrink-0 mt-0.5" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={handleStartTrial}
+                disabled={checkingOut}
+                className="w-full bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {checkingOut && <Loader2 className="w-4 h-4 animate-spin" />}
+                {checkingOut ? "Redirecting…" : "Start 7-Day Free Trial →"}
+              </button>
+              <p className="text-center text-xs text-[#475569] mt-3">
+                No card required for trial period.
+              </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => { router.push("/dashboard"); router.refresh(); }}
-              className="w-full bg-white text-black text-sm font-semibold py-3.5 hover:bg-[#e8e8e8] transition-colors cursor-pointer"
-            >
-              Start with Basic — free for 30 days →
-            </button>
-            <p className="text-center text-xs text-[#94a3b8]">
-              <Link href="/pricing" className="hover:text-white transition-colors underline underline-offset-2">
-                View all plans
-              </Link>
-              {" "}· Stripe integration coming soon
+            {error && <p className="text-[#f87171] text-xs">{error}</p>}
+
+            <p className="text-center text-xs text-[#475569]">
+              Want to explore first?{" "}
+              <button
+                type="button"
+                onClick={() => { router.push("/dashboard"); router.refresh(); }}
+                className="text-white/60 hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
+              >
+                Go to dashboard
+              </button>
             </p>
           </div>
         )}

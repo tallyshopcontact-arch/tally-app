@@ -8,7 +8,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
   }
 
-  const supabase = createServerClient();
+  let supabase;
+  try {
+    supabase = createServerClient();
+  } catch (e) {
+    console.error("[signup] Supabase client init failed:", e);
+    return NextResponse.json({ error: "Server configuration error. Please contact support." }, { status: 500 });
+  }
 
   const { data, error } = await supabase.auth.admin.createUser({
     email,
@@ -18,6 +24,7 @@ export async function POST(request: NextRequest) {
   });
 
   if (error) {
+    console.error("[signup] createUser error:", error.message);
     // Map Supabase admin error messages to user-friendly text
     const msg = error.message.toLowerCase();
     if (msg.includes("already registered") || msg.includes("already been registered") || msg.includes("duplicate")) {
