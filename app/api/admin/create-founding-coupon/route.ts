@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       console.log("[create-founding-coupon] promo code already exists:", existingCodes.data[0].id);
       promoCode = existingCodes.data[0];
     } else {
-      const params = { coupon: coupon.id, code: "FOUNDING20" };
+      const params = { coupon_id: coupon.id, code: "FOUNDING20" };
       console.log("[create-founding-coupon] creating promo code with params:", JSON.stringify(params));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       promoCode = await (stripe.promotionCodes.create as any)(params);
