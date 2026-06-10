@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
       percent_off: 100,
       duration: "once",
       max_redemptions: 20,
-      name: "Founding Member — Locked at $19.99/month forever",
+      name: "Founding Member - $19.99/mo forever",
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
