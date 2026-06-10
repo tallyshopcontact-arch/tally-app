@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       const coupon = await stripe.coupons.create({
         percent_off: 50,
         duration: "once",
-        name: "Retention offer — 50% off",
+        name: "Retention offer - 50% off",
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (stripe.subscriptions.update as any)(subId, {
