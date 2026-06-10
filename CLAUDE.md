@@ -31,6 +31,7 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 STRIPE_WEBHOOK_SECRET
 STRIPE_PRICE_ID
 ADMIN_PASSWORD
+RESEND_API_KEY
 
 ## Database Tables
 - profiles — producer accounts (includes stripe_customer_id, stripe_subscription_id, subscription_status, trial_ends_at, subscription_ends_at, beta_access)

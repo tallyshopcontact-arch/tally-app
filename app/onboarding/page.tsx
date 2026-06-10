@@ -131,6 +131,9 @@ export default function OnboardingPage() {
 
     setSaving(false);
     setStep(5);
+
+    // Fire-and-forget — don't block the UI on email delivery
+    fetch("/api/email/send-welcome", { method: "POST" }).catch(() => {});
   };
 
   const handleStartTrial = async () => {

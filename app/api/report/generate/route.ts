@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
 import { getTopNicheVideos } from "@/lib/keywords";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { sendReportReadyEmail } from "@/lib/email";
 import type { NicheVideo } from "@/lib/keywords";
 import {
   generateChannelSummary,
@@ -111,6 +112,17 @@ export async function POST(_req: NextRequest) {
   if (saveError) {
     console.error("[report/generate] save error:", saveError.message);
     return NextResponse.json(report);
+  }
+
+  // Send report-ready email (fire-and-forget)
+  if (user.email) {
+    const monthName = new Date(year, month - 1).toLocaleString("en-US", { month: "long" });
+    const actionItems = Array.isArray(report.action_plan)
+      ? (report.action_plan as { action: string }[]).slice(0, 3).map((item) => item.action)
+      : [];
+    sendReportReadyEmail(profile.name ?? "", user.email, report.tally_score, monthName, actionItems).catch(
+      (err) => console.error("[report/generate] email error:", err)
+    );
   }
 
   // Record score in history table
