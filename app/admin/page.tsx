@@ -346,6 +346,11 @@ function SequencePanel({ sequence, onMarkSent }: {
                 <pre className="text-xs text-white whitespace-pre-wrap font-sans leading-relaxed bg-[#0d0d0d] border border-[#1a1a1a] px-3 py-3">
                   {msg.body}
                 </pre>
+                {sequence.format === "instagram" && (
+                  <p className={`text-[9px] text-right mt-1 ${msg.body.length > 900 ? "text-[#f87171]" : "text-[#475569]"}`}>
+                    {msg.body.length}/1000
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -402,6 +407,10 @@ function ProspectFinderSection({ password }: { password: string }) {
   const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
   const [snapshotError, setSnapshotError] = useState<Record<string, string>>({});
   const [sequenceError, setSequenceError] = useState<Record<string, string>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"date" | "subs">("date");
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [tabVisible, setTabVisible] = useState(true);
 
   const loadProspects = useCallback(async () => {
     setLoadingProspects(true);
@@ -585,18 +594,27 @@ function ProspectFinderSection({ password }: { password: string }) {
     }
   };
 
+  const handleReject = async (p: Prospect) => {
+    setRejectingId(p.id);
+    await new Promise<void>((r) => setTimeout(r, 280));
+    await updateProspect(p.id, { status: "rejected" });
+    setRejectingId(null);
+  };
+
+  const handleTabChange = (tab: StatusFilter) => {
+    setTabVisible(false);
+    setTimeout(() => { setStatusFilter(tab); setTabVisible(true); }, 150);
+  };
+
   // Stats
   const total = prospects.length;
   const contacted = prospects.filter((p) => ["contacted", "responded", "signed_up"].includes(p.status)).length;
   const responded = prospects.filter((p) => ["responded", "signed_up"].includes(p.status)).length;
   const signedUp = prospects.filter((p) => p.status === "signed_up").length;
-  const thisWeek = prospects.filter((p) => {
-    if (!p.contacted_at) return false;
-    return Date.now() - new Date(p.contacted_at).getTime() < 7 * 24 * 60 * 60 * 1000;
-  }).length;
+  const nonRejected = prospects.filter((p) => p.status !== "rejected");
 
   const statusCounts: Record<StatusFilter, number> = {
-    all: total,
+    all: nonRejected.length,
     pending: prospects.filter((p) => p.status === "pending").length,
     contacted: prospects.filter((p) => p.status === "contacted").length,
     responded: prospects.filter((p) => p.status === "responded").length,
@@ -604,31 +622,44 @@ function ProspectFinderSection({ password }: { password: string }) {
     rejected: prospects.filter((p) => p.status === "rejected").length,
   };
 
-  const byStatus = statusFilter === "all" ? prospects : prospects.filter((p) => p.status === statusFilter);
-  const filtered = byStatus.filter((p) => {
-    if (contactFilter === "email") return !!p.email;
-    if (contactFilter === "instagram") return !p.email && !!p.instagram_handle;
-    if (contactFilter === "check_manually") return !p.email && !p.instagram_handle;
-    return true;
-  });
-  const contactCounts = {
-    all: byStatus.length,
-    email: byStatus.filter((p) => !!p.email).length,
-    instagram: byStatus.filter((p) => !p.email && !!p.instagram_handle).length,
-    check_manually: byStatus.filter((p) => !p.email && !p.instagram_handle).length,
-  };
+  const byStatus = statusFilter === "all"
+    ? nonRejected
+    : prospects.filter((p) => p.status === statusFilter);
+
+  const sorted = [...byStatus]
+    .filter((p) => !searchQuery || p.channel_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      if (sortBy === "subs") return (b.subscriber_count ?? 0) - (a.subscriber_count ?? 0);
+      return new Date(b.found_at).getTime() - new Date(a.found_at).getTime();
+    });
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-6">
-        <h2 className="text-xl font-bold mb-1">Producer Finder</h2>
-        <p className="text-[#94a3b8] text-sm mb-1">
-          Find beat producers on YouTube, generate channel snapshots, and run outreach sequences.
-        </p>
-        <p className="text-[10px] text-[#475569]">
-          Finding: Free · Snapshot: ~$0.01 (Claude) · Sequence: ~$0.03 (Claude) · PDF: Free
-        </p>
+      {/* Header + search/sort */}
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
+        <div>
+          <h2 className="text-xl font-bold mb-1">Producer Finder</h2>
+          <p className="text-[10px] text-[#475569]">
+            Finding: Free · Snapshot: ~$0.01 (Claude) · Sequence: ~$0.03 (Claude) · PDF: Free
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search channels..."
+            className="bg-[#111] border border-[#1e1e1e] px-3 py-2 text-xs text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] w-44"
+          />
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "date" | "subs")}
+            className="bg-[#111] border border-[#1e1e1e] px-3 py-2 text-xs text-[#94a3b8] focus:outline-none"
+          >
+            <option value="date">Date found</option>
+            <option value="subs">Subscribers</option>
+          </select>
+        </div>
       </div>
 
       {/* Search mode tabs */}
@@ -691,9 +722,10 @@ function ProspectFinderSection({ password }: { password: string }) {
         </div>
       )}
 
-      {/* Find + clear row */}
+      {/* Find + clear */}
       <div className="flex items-center gap-4 mb-8 flex-wrap">
-        <button onClick={handleFind} disabled={finding || (searchMode === "genre" ? selectedGenres.length === 0 : artists.length === 0)}
+        <button onClick={handleFind}
+          disabled={finding || (searchMode === "genre" ? selectedGenres.length === 0 : artists.length === 0)}
           className="text-sm font-semibold bg-white text-black px-6 py-2.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors">
           {finding ? "Searching YouTube..." : "Find Producers"}
         </button>
@@ -706,69 +738,59 @@ function ProspectFinderSection({ password }: { password: string }) {
       </div>
 
       {/* Stats bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-[#1a1a1a] mb-6">
-        <div className="bg-[#0a0a0a] px-4 py-3 text-center">
-          <p className="text-lg font-bold">{total}</p>
-          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest">Total</p>
-        </div>
-        <div className="bg-[#0a0a0a] px-4 py-3 text-center">
-          <p className="text-lg font-bold">{contacted}</p>
-          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest">Contacted</p>
-        </div>
-        <div className="bg-[#0a0a0a] px-4 py-3 text-center">
-          <p className="text-lg font-bold">{responded}</p>
-          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest">
-            Responded {contacted > 0 ? `(${Math.round((responded / contacted) * 100)}%)` : ""}
-          </p>
-        </div>
-        <div className="bg-[#0a0a0a] px-4 py-3 text-center">
-          <p className="text-lg font-bold">{signedUp}</p>
-          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest">
-            Signed up {total > 0 ? `(${Math.round((signedUp / total) * 100)}%)` : ""}
-          </p>
-        </div>
-        <div className="bg-[#0a0a0a] px-4 py-3 text-center">
-          <p className="text-lg font-bold">{thisWeek}</p>
-          <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest">This week</p>
-        </div>
-      </div>
-
-      {/* Status filter */}
-      <div className="flex gap-1 mb-3 flex-wrap border-b border-[#1a1a1a] pb-3">
-        {STATUS_OPTIONS.map((s) => (
-          <button key={s} onClick={() => setStatusFilter(s)}
-            className={`text-xs px-3 py-1.5 transition-colors ${
-              statusFilter === s ? "bg-[#1a1a1a] text-white" : "text-[#94a3b8] hover:text-white"
-            }`}>
-            {s === "all" ? `All (${total})` : `${s.replace("_", " ")} (${statusCounts[s]})`}
-          </button>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-8">
+        {[
+          { label: "Total Found",    value: total,    color: "text-white" },
+          { label: "Contacted",      value: contacted, color: "text-[#60a5fa]" },
+          { label: "Response Rate",  value: contacted > 0 ? `${Math.round((responded / contacted) * 100)}%` : "—", color: "text-[#a78bfa]" },
+          { label: "Signed Up",      value: signedUp, color: "text-[#4ade80]" },
+          { label: "Conversion",     value: contacted > 0 ? `${Math.round((signedUp / contacted) * 100)}%` : "—", color: "text-[#4ade80]" },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-[#0d0d0d] border border-[#1a1a1a] px-4 py-4">
+            <p className={`text-2xl font-bold ${color}`}>{value}</p>
+            <p className="text-[9px] text-[#475569] uppercase tracking-widest mt-1">{label}</p>
+          </div>
         ))}
       </div>
 
-      {/* Contact filter */}
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-[10px] text-[#475569] uppercase tracking-widest">Contact:</span>
+      {/* Pill tab navigation */}
+      <div className="flex gap-1.5 mb-6 flex-wrap">
         {([
-          { key: "all", label: "All", ac: "bg-[#1a1a1a] border-[#333] text-white" },
-          { key: "email", label: "Email", ac: "bg-[#60a5fa]/10 border-[#60a5fa]/40 text-[#60a5fa]" },
-          { key: "instagram", label: "Instagram", ac: "bg-[#4ade80]/10 border-[#4ade80]/40 text-[#4ade80]" },
-          { key: "check_manually", label: "Check Manually", ac: "bg-[#fbbf24]/10 border-[#fbbf24]/40 text-[#fbbf24]" },
-        ] as const).map(({ key, label, ac }) => (
-          <button key={key} onClick={() => setContactFilter(key)}
-            className={`text-xs px-3 py-1 border transition-colors ${
-              contactFilter === key ? ac : "border-[#1a1a1a] text-[#475569] hover:border-[#333] hover:text-[#94a3b8]"
-            }`}>
-            {label} <span className="opacity-60">({contactCounts[key]})</span>
-          </button>
-        ))}
+          { key: "all"       as const, label: "All" },
+          { key: "pending"   as const, label: "Pending" },
+          { key: "contacted" as const, label: "Contacted" },
+          { key: "responded" as const, label: "Responded" },
+          { key: "signed_up" as const, label: "Signed Up" },
+          { key: "rejected"  as const, label: "Rejected" },
+        ]).map(({ key, label }) => {
+          const isActive = statusFilter === key;
+          const activeClass =
+            key === "rejected"  ? "bg-[#f87171]/10 border-[#f87171]/40 text-[#f87171]"
+            : key === "signed_up" ? "bg-[#4ade80]/10 border-[#4ade80]/40 text-[#4ade80]"
+            : key === "responded" ? "bg-[#a78bfa]/10 border-[#a78bfa]/40 text-[#a78bfa]"
+            : key === "contacted" ? "bg-[#60a5fa]/10 border-[#60a5fa]/40 text-[#60a5fa]"
+            : "bg-white/10 border-white/20 text-white";
+          return (
+            <button
+              key={key}
+              onClick={() => handleTabChange(key)}
+              className={`text-xs px-4 py-1.5 rounded-full border transition-all duration-200 ${
+                isActive ? activeClass : "border-[#1a1a1a] text-[#475569] hover:border-[#333] hover:text-[#94a3b8]"
+              }`}
+            >
+              {label}
+              <span className="ml-1.5 opacity-50">({statusCounts[key]})</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Prospects list */}
+      {/* Prospect cards */}
       {loadingProspects ? (
-        <div className="border border-[#1a1a1a] p-8 text-center">
-          <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
+        <div className="border border-[#1a1a1a] p-12 text-center">
+          <div className="w-5 h-5 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div className="border border-[#1a1a1a] p-12 text-center">
           <p className="text-[#94a3b8] text-sm">
             {prospects.length === 0
@@ -777,243 +799,279 @@ function ProspectFinderSection({ password }: { password: string }) {
           </p>
         </div>
       ) : (
-        <div className="space-y-px">
-          {filtered.map((p) => {
+        <div
+          className="space-y-2 transition-opacity duration-150"
+          style={{ opacity: tabVisible ? 1 : 0 }}
+        >
+          {sorted.map((p) => {
             const pref = getPreference(p);
             const isExpanded = expandedId === p.id;
             const hasSnapshot = !!p.channel_snapshot;
             const hasSequence = !!p.outreach_sequence;
+            const isRejecting = rejectingId === p.id;
+
+            const statusDotColor =
+              p.status === "signed_up"  ? "bg-[#a78bfa]"
+              : p.status === "responded"  ? "bg-[#4ade80]"
+              : p.status === "contacted"  ? "bg-[#60a5fa]"
+              : p.status === "rejected"   ? "bg-[#f87171]"
+              : "bg-[#2a2a2a]";
+
+            const subScore = Math.min(100, Math.round(((p.subscriber_count ?? 0) / 2000) * 100));
+            const scoreColor = subScore >= 70 ? "#4ade80" : subScore >= 40 ? "#fbbf24" : "#94a3b8";
 
             return (
-              <Fragment key={p.id}>
-                {/* ── Prospect row ── */}
-                <div className="border border-[#1a1a1a] bg-[#0a0a0a]">
-                  {/* Header */}
-                  <div className="px-4 py-3 flex items-start gap-4 flex-wrap">
-                    {/* Channel info */}
-                    <div className="flex-1 min-w-[180px]">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <a href={p.channel_url} target="_blank" rel="noopener noreferrer"
-                          className="text-sm font-semibold text-white hover:text-[#94a3b8] transition-colors">
+              <div
+                key={p.id}
+                className="transition-all duration-300"
+                style={{
+                  opacity: isRejecting ? 0 : 1,
+                  transform: isRejecting ? "translateX(24px)" : "translateX(0)",
+                }}
+              >
+                <div className="border border-[#1a1a1a] bg-[#0d0d0d] hover:border-[#252525] transition-colors duration-200">
+                  <div className="p-5">
+
+                    {/* Row 1: status dot + name + snapshot dot + status badge */}
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${statusDotColor}`} />
+                        <a
+                          href={p.channel_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-white font-bold text-sm hover:text-[#94a3b8] transition-colors truncate"
+                        >
                           {p.channel_name}
                         </a>
-                        <span className="text-[10px] text-[#475569]">
-                          {p.subscriber_count?.toLocaleString() ?? "—"} subs
-                        </span>
-                        {p.genre && (
-                          <span className="text-[10px] text-[#475569]">· {p.genre}</span>
-                        )}
-                      </div>
-                      {/* Badges row */}
-                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        {/* Contact badge */}
-                        {p.email ? (
-                          <span className="text-[9px] font-semibold text-[#60a5fa] bg-[#60a5fa]/10 px-1.5 py-0.5">Email</span>
-                        ) : p.instagram_handle ? (
-                          <span className="text-[9px] font-semibold text-[#4ade80] bg-[#4ade80]/10 px-1.5 py-0.5">Instagram</span>
-                        ) : (
-                          <span className="text-[9px] font-semibold text-[#fbbf24] bg-[#fbbf24]/10 px-1.5 py-0.5">Check manually</span>
-                        )}
-                        {/* Snapshot status */}
-                        <span className={`text-[9px] font-medium ${snapshotStatusColor(p)}`}>
-                          {snapshotStatus(p)}
-                        </span>
-                        {/* Overall status */}
-                        <StatusBadge status={p.status} />
-                      </div>
-                      {/* Contact info */}
-                      {p.email && <p className="text-[10px] text-[#475569] mt-0.5">{p.email}</p>}
-                      {!p.email && p.instagram_handle && <p className="text-[10px] text-[#475569] mt-0.5">@{p.instagram_handle}</p>}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-col gap-2">
-                      {/* Row 1: Snapshot + Contact toggle + Sequence + PDF */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Snapshot button */}
-                        <button
-                          onClick={() => handleGenerateSnapshot(p)}
-                          disabled={snapshotLoadingId === p.id}
-                          className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 ${
-                            hasSnapshot
-                              ? "border-[#fbbf24]/30 text-[#fbbf24] hover:border-[#fbbf24] hover:text-white"
-                              : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
-                          }`}>
-                          {snapshotLoadingId === p.id
-                            ? "Analyzing..."
-                            : hasSnapshot
-                            ? "Re-snapshot"
-                            : "Snapshot (~$0.01)"}
-                        </button>
-
-                        {/* Contact method toggle */}
-                        <div className="flex border border-[#1a1a1a]">
-                          <button
-                            onClick={() => handleSetContactPreference(p, "instagram")}
-                            disabled={actionId === p.id}
-                            className={`text-[10px] px-2.5 py-1 transition-colors ${
-                              pref === "instagram"
-                                ? "bg-[#4ade80]/15 text-[#4ade80] border-r border-[#1a1a1a]"
-                                : "text-[#475569] border-r border-[#1a1a1a] hover:text-[#94a3b8]"
-                            }`}>
-                            IG DM
-                          </button>
-                          <button
-                            onClick={() => handleSetContactPreference(p, "email")}
-                            disabled={actionId === p.id}
-                            className={`text-[10px] px-2.5 py-1 transition-colors ${
-                              pref === "email"
-                                ? "bg-[#60a5fa]/15 text-[#60a5fa]"
-                                : "text-[#475569] hover:text-[#94a3b8]"
-                            }`}>
-                            Email
-                          </button>
-                        </div>
-
-                        {/* Offer type toggle */}
-                        <div className="flex border border-[#1a1a1a]">
-                          <button
-                            onClick={() => handleSetOfferType(p, "founding")}
-                            disabled={actionId === p.id}
-                            className={`text-[10px] px-2.5 py-1 transition-colors ${
-                              (p.offer_type ?? "founding") === "founding"
-                                ? "bg-[#fbbf24]/15 text-[#fbbf24] border-r border-[#1a1a1a]"
-                                : "text-[#475569] border-r border-[#1a1a1a] hover:text-[#94a3b8]"
-                            }`}>
-                            Founding
-                          </button>
-                          <button
-                            onClick={() => handleSetOfferType(p, "standard")}
-                            disabled={actionId === p.id}
-                            className={`text-[10px] px-2.5 py-1 transition-colors ${
-                              (p.offer_type ?? "founding") === "standard"
-                                ? "bg-[#94a3b8]/15 text-[#94a3b8]"
-                                : "text-[#475569] hover:text-[#94a3b8]"
-                            }`}>
-                            Standard
-                          </button>
-                        </div>
-
-                        {/* Sequence button */}
-                        <button
-                          onClick={() => handleGenerateSequence(p)}
-                          disabled={sequenceLoadingId === p.id || !hasSnapshot}
-                          className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 ${
-                            !hasSnapshot
-                              ? "border-[#1a1a1a] text-[#333] cursor-not-allowed"
-                              : hasSequence
-                              ? "border-[#a78bfa]/30 text-[#a78bfa] hover:border-[#a78bfa] hover:text-white"
-                              : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
-                          }`}>
-                          {sequenceLoadingId === p.id
-                            ? "Generating..."
-                            : hasSequence
-                            ? "Regenerate (~$0.03)"
-                            : "Sequence (~$0.03)"}
-                        </button>
-
-                        {/* PDF button */}
-                        <button
-                          onClick={() => handleGeneratePdf(p)}
-                          disabled={pdfLoadingId === p.id || !hasSnapshot}
-                          className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 ${
-                            !hasSnapshot
-                              ? "border-[#1a1a1a] text-[#333] cursor-not-allowed"
-                              : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
-                          }`}>
-                          {pdfLoadingId === p.id ? "Building PDF..." : "PDF"}
-                        </button>
-                      </div>
-
-                      {/* Row 2: Status actions */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {hasSequence && (
-                          <button
-                            onClick={() => setExpandedId(isExpanded ? null : p.id)}
-                            className="text-[10px] text-[#a78bfa] border border-[#a78bfa]/30 px-2.5 py-1 hover:border-[#a78bfa] hover:text-white transition-colors">
-                            {isExpanded ? "Hide Sequence" : "Show Sequence"}
-                          </button>
-                        )}
-                        {p.status === "contacted" && (
-                          <button
-                            onClick={() => updateProspect(p.id, {
-                              status: "responded",
-                              responded_at: new Date().toISOString(),
-                            })}
-                            disabled={actionId === p.id}
-                            className="text-[10px] text-[#a78bfa] border border-[#a78bfa]/30 px-2.5 py-1 hover:border-[#a78bfa] hover:text-white transition-colors disabled:opacity-40">
-                            They replied!
-                          </button>
-                        )}
-                        {!["signed_up", "rejected"].includes(p.status) && (
-                          <button
-                            onClick={() => handleSignedUp(p)}
-                            disabled={actionId === p.id}
-                            className="text-[10px] text-[#4ade80] border border-[#4ade80]/30 px-2.5 py-1 hover:border-[#4ade80] hover:text-white transition-colors disabled:opacity-40">
-                            Signed up!
-                          </button>
-                        )}
-                        {!["rejected", "signed_up"].includes(p.status) && (
-                          <button
-                            onClick={() => updateProspect(p.id, { status: "rejected" })}
-                            disabled={actionId === p.id}
-                            className="text-[10px] text-[#475569] border border-[#1a1a1a] px-2.5 py-1 hover:border-[#f87171]/30 hover:text-[#f87171] transition-colors disabled:opacity-40">
-                            Not interested
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Errors */}
-                      {snapshotError[p.id] && (
-                        <p className="text-[10px] text-[#f87171]">Snapshot: {snapshotError[p.id]}</p>
-                      )}
-                      {sequenceError[p.id] && (
-                        <p className="text-[10px] text-[#f87171]">Sequence: {sequenceError[p.id]}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Snapshot insight (if available, collapsed preview) */}
-                  {hasSnapshot && !isExpanded && (
-                    <div className="px-4 pb-3 border-t border-[#111]">
-                      <p className="text-[10px] text-[#475569] leading-relaxed">
-                        <span className="text-[#94a3b8] font-medium">Insight: </span>
-                        {p.channel_snapshot!.top_insight}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Sequence accordion */}
-                  {isExpanded && p.outreach_sequence && (
-                    <div className="px-4 pb-4 border-t border-[#111]">
-                      <div className="mt-4">
-                        <SequencePanel
-                          sequence={p.outreach_sequence}
-                          onMarkSent={(i) => handleMarkMessageSent(p, i)}
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                            hasSequence ? "bg-[#4ade80]" : hasSnapshot ? "bg-[#fbbf24]" : "bg-[#222]"
+                          }`}
+                          title={hasSequence ? "Sequence ready" : hasSnapshot ? "Snapshot ready" : "No snapshot"}
                         />
                       </div>
+                      <StatusBadge status={p.status} />
+                    </div>
 
-                      {/* Full snapshot data */}
-                      {hasSnapshot && (
-                        <div className="mt-4 space-y-2">
-                          <p className="text-[9px] text-[#475569] uppercase tracking-widest">Channel Analysis</p>
-                          {[
-                            { label: "Top insight", value: p.channel_snapshot!.top_insight },
-                            { label: "Gap", value: p.channel_snapshot!.positioning_gap },
-                            { label: "Title pattern", value: p.channel_snapshot!.title_pattern },
-                            { label: "Recommendation", value: p.channel_snapshot!.recommendation },
-                          ].map(({ label, value }) => (
-                            <div key={label} className="flex gap-3">
-                              <span className="text-[10px] text-[#475569] w-28 shrink-0">{label}</span>
-                              <span className="text-[10px] text-[#94a3b8] leading-relaxed">{value}</span>
-                            </div>
-                          ))}
-                        </div>
+                    {/* Row 2: meta — subs, genre, contact badge */}
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      <span className="text-[11px] text-[#475569]">
+                        {p.subscriber_count?.toLocaleString() ?? "—"} subs
+                      </span>
+                      {p.genre && (
+                        <span className="text-[10px] text-[#475569] bg-[#111] px-2 py-0.5">
+                          {p.genre}
+                        </span>
+                      )}
+                      {p.email ? (
+                        <span className="text-[10px] font-medium text-[#60a5fa] bg-[#60a5fa]/10 px-2 py-0.5">
+                          {p.email}
+                        </span>
+                      ) : p.instagram_handle ? (
+                        <span className="text-[10px] font-medium text-[#4ade80] bg-[#4ade80]/10 px-2 py-0.5">
+                          @{p.instagram_handle}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-[#475569] bg-[#111] px-2 py-0.5">
+                          No contact
+                        </span>
                       )}
                     </div>
-                  )}
+
+                    {/* Subscriber score bar */}
+                    <div className="w-full h-px bg-[#1a1a1a] mb-3">
+                      <div
+                        className="h-full transition-all duration-700"
+                        style={{ width: `${subScore}%`, backgroundColor: scoreColor, opacity: 0.7 }}
+                      />
+                    </div>
+
+                    {/* Latest video */}
+                    {p.latest_video_title && (
+                      <p className="text-[11px] text-[#2e2e2e] truncate mb-2">
+                        {p.latest_video_title}
+                      </p>
+                    )}
+
+                    {/* Insight preview (collapsed) */}
+                    {hasSnapshot && !isExpanded && (
+                      <p className="text-[10px] text-[#3a3a3a] truncate mb-3 leading-relaxed">
+                        ▸ {p.channel_snapshot!.top_insight}
+                      </p>
+                    )}
+
+                    {/* Action row 1 — generate / toggles */}
+                    <div className="flex items-center gap-1.5 flex-wrap border-t border-[#111] pt-3 mt-1">
+                      {/* Contact toggle */}
+                      <div className="flex border border-[#1a1a1a]">
+                        <button
+                          onClick={() => handleSetContactPreference(p, "instagram")}
+                          disabled={actionId === p.id}
+                          className={`text-[10px] px-2.5 py-1 transition-colors ${
+                            pref === "instagram"
+                              ? "bg-[#4ade80]/10 text-[#4ade80] border-r border-[#1a1a1a]"
+                              : "text-[#475569] border-r border-[#1a1a1a] hover:text-[#94a3b8]"
+                          }`}>
+                          IG DM
+                        </button>
+                        <button
+                          onClick={() => handleSetContactPreference(p, "email")}
+                          disabled={actionId === p.id}
+                          className={`text-[10px] px-2.5 py-1 transition-colors ${
+                            pref === "email"
+                              ? "bg-[#60a5fa]/10 text-[#60a5fa]"
+                              : "text-[#475569] hover:text-[#94a3b8]"
+                          }`}>
+                          Email
+                        </button>
+                      </div>
+
+                      {/* Offer toggle */}
+                      <div className="flex border border-[#1a1a1a]">
+                        <button
+                          onClick={() => handleSetOfferType(p, "founding")}
+                          disabled={actionId === p.id}
+                          className={`text-[10px] px-2.5 py-1 transition-colors ${
+                            (p.offer_type ?? "founding") === "founding"
+                              ? "bg-[#fbbf24]/10 text-[#fbbf24] border-r border-[#1a1a1a]"
+                              : "text-[#475569] border-r border-[#1a1a1a] hover:text-[#94a3b8]"
+                          }`}>
+                          Founding
+                        </button>
+                        <button
+                          onClick={() => handleSetOfferType(p, "standard")}
+                          disabled={actionId === p.id}
+                          className={`text-[10px] px-2.5 py-1 transition-colors ${
+                            (p.offer_type ?? "founding") === "standard"
+                              ? "bg-[#94a3b8]/10 text-[#94a3b8]"
+                              : "text-[#475569] hover:text-[#94a3b8]"
+                          }`}>
+                          Standard
+                        </button>
+                      </div>
+
+                      {/* Snapshot */}
+                      <button
+                        onClick={() => handleGenerateSnapshot(p)}
+                        disabled={snapshotLoadingId === p.id}
+                        className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 inline-flex items-center gap-1 ${
+                          hasSnapshot
+                            ? "border-[#fbbf24]/30 text-[#fbbf24] hover:border-[#fbbf24] hover:text-white"
+                            : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
+                        }`}>
+                        {snapshotLoadingId === p.id ? (
+                          <><span className="w-2.5 h-2.5 border border-current border-t-transparent rounded-full animate-spin" />Analyzing</>
+                        ) : hasSnapshot ? "Re-snapshot" : "Snapshot (~$0.01)"}
+                      </button>
+
+                      {/* Sequence */}
+                      <button
+                        onClick={() => handleGenerateSequence(p)}
+                        disabled={sequenceLoadingId === p.id || !hasSnapshot}
+                        className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 inline-flex items-center gap-1 ${
+                          !hasSnapshot
+                            ? "border-[#1a1a1a] text-[#222] cursor-not-allowed"
+                            : hasSequence
+                            ? "border-[#a78bfa]/30 text-[#a78bfa] hover:border-[#a78bfa] hover:text-white"
+                            : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
+                        }`}>
+                        {sequenceLoadingId === p.id ? (
+                          <><span className="w-2.5 h-2.5 border border-current border-t-transparent rounded-full animate-spin" />Generating</>
+                        ) : hasSequence ? "Regenerate (~$0.03)" : "Sequence (~$0.03)"}
+                      </button>
+
+                      {/* PDF */}
+                      <button
+                        onClick={() => handleGeneratePdf(p)}
+                        disabled={pdfLoadingId === p.id || !hasSnapshot}
+                        className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 ${
+                          !hasSnapshot
+                            ? "border-[#1a1a1a] text-[#222] cursor-not-allowed"
+                            : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
+                        }`}>
+                        {pdfLoadingId === p.id ? "Building..." : "PDF"}
+                      </button>
+                    </div>
+
+                    {/* Action row 2 — status transitions */}
+                    <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                      {hasSequence && (
+                        <button
+                          onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                          className="text-[10px] text-[#a78bfa] border border-[#a78bfa]/30 px-2.5 py-1 hover:border-[#a78bfa] hover:text-white transition-colors">
+                          {isExpanded ? "Hide Messages" : "View Messages"}
+                        </button>
+                      )}
+                      {p.status === "contacted" && (
+                        <button
+                          onClick={() => updateProspect(p.id, { status: "responded", responded_at: new Date().toISOString() })}
+                          disabled={actionId === p.id}
+                          className="text-[10px] text-[#a78bfa] border border-[#a78bfa]/30 px-2.5 py-1 hover:border-[#a78bfa] hover:text-white transition-colors disabled:opacity-40">
+                          They replied!
+                        </button>
+                      )}
+                      {!["signed_up", "rejected"].includes(p.status) && (
+                        <button
+                          onClick={() => handleSignedUp(p)}
+                          disabled={actionId === p.id}
+                          className="text-[10px] text-[#4ade80] border border-[#4ade80]/30 px-2.5 py-1 hover:border-[#4ade80] hover:text-white transition-colors disabled:opacity-40">
+                          Signed up!
+                        </button>
+                      )}
+                      {!["rejected", "signed_up"].includes(p.status) && (
+                        <button
+                          onClick={() => handleReject(p)}
+                          disabled={actionId === p.id || isRejecting}
+                          className="text-[10px] text-[#333] hover:text-[#f87171] transition-colors disabled:opacity-40 ml-auto">
+                          Reject
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Errors */}
+                    {snapshotError[p.id] && (
+                      <p className="text-[10px] text-[#f87171] mt-2">Snapshot: {snapshotError[p.id]}</p>
+                    )}
+                    {sequenceError[p.id] && (
+                      <p className="text-[10px] text-[#f87171] mt-1">Sequence: {sequenceError[p.id]}</p>
+                    )}
+                  </div>
+
+                  {/* Sequence accordion — smooth height transition */}
+                  <div
+                    className="overflow-hidden transition-all duration-300"
+                    style={{ maxHeight: isExpanded ? "3000px" : "0" }}
+                  >
+                    {p.outreach_sequence && (
+                      <div className="px-5 pb-5 border-t border-[#111]">
+                        <div className="mt-4">
+                          <SequencePanel
+                            sequence={p.outreach_sequence}
+                            onMarkSent={(i) => handleMarkMessageSent(p, i)}
+                          />
+                        </div>
+                        {hasSnapshot && (
+                          <div className="mt-4 pt-4 border-t border-[#111] space-y-2">
+                            <p className="text-[9px] text-[#475569] uppercase tracking-widest mb-2">Channel Analysis</p>
+                            {[
+                              { label: "Top insight",    value: p.channel_snapshot!.top_insight },
+                              { label: "Gap",            value: p.channel_snapshot!.positioning_gap },
+                              { label: "Title pattern",  value: p.channel_snapshot!.title_pattern },
+                              { label: "Recommendation", value: p.channel_snapshot!.recommendation },
+                            ].map(({ label, value }) => (
+                              <div key={label} className="flex gap-3">
+                                <span className="text-[10px] text-[#475569] w-28 shrink-0">{label}</span>
+                                <span className="text-[10px] text-[#94a3b8] leading-relaxed">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </Fragment>
+              </div>
             );
           })}
         </div>
