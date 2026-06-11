@@ -32,6 +32,8 @@ STRIPE_WEBHOOK_SECRET
 STRIPE_PRICE_ID
 ADMIN_PASSWORD
 RESEND_API_KEY
+GMAIL_USER
+GMAIL_APP_PASSWORD
 
 ## Database Tables
 - profiles — producer accounts (includes stripe_customer_id, stripe_subscription_id, subscription_status, trial_ends_at, subscription_ends_at, beta_access)

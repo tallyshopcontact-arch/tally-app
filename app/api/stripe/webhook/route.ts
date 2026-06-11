@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe";
+import { sendCancellationEmail } from "@/lib/email";
 import type Stripe from "stripe";
 
 export const dynamic = "force-dynamic";
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
 
         const { data: profile, error: findErr } = await supabase
           .from("profiles")
-          .select("id")
+          .select("id, name, email")
           .eq("stripe_subscription_id", sub.id)
           .single();
 
@@ -124,13 +125,27 @@ export async function POST(req: NextRequest) {
           break;
         }
 
+        // canceled_at is when Stripe deleted it; access_ends is best-effort
+        const canceledAt = (sub as unknown as { canceled_at?: number }).canceled_at;
+        const accessEndDate = canceledAt
+          ? new Date(canceledAt * 1000).toISOString()
+          : new Date().toISOString();
+
         const { error } = await supabase.from("profiles").update({
           subscription_status: "cancelled",
-          subscription_ends_at: new Date().toISOString(),
+          subscription_ends_at: accessEndDate,
         }).eq("id", profile.id);
 
-        if (error) console.error("[stripe/webhook] subscription.deleted update error:", error.message);
-        else console.log(`[stripe/webhook] profile ${profile.id} → cancelled`);
+        if (error) {
+          console.error("[stripe/webhook] subscription.deleted update error:", error.message);
+        } else {
+          console.log(`[stripe/webhook] profile ${profile.id} → cancelled`);
+          if (profile.email) {
+            sendCancellationEmail(profile.name ?? "", profile.email, accessEndDate).catch(
+              (err) => console.error("[stripe/webhook] cancellation email error:", err)
+            );
+          }
+        }
         break;
       }
 

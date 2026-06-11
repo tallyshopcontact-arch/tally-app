@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase";
+import { sendEmailConfirmation } from "@/lib/email";
+
+const BASE_URL = "https://tallyagc.com";
 
 export async function POST(request: NextRequest) {
   const { email, password, name } = await request.json();
@@ -25,7 +28,6 @@ export async function POST(request: NextRequest) {
 
   if (error) {
     console.error("[signup] createUser error:", error.message);
-    // Map Supabase admin error messages to user-friendly text
     const msg = error.message.toLowerCase();
     if (msg.includes("already registered") || msg.includes("already been registered") || msg.includes("duplicate")) {
       return NextResponse.json(
@@ -39,5 +41,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  return NextResponse.json({ userId: data.user?.id }, { status: 201 });
+  const userId = data.user?.id;
+
+  // Generate email confirmation token
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  const { error: tokenError } = await supabase.from("email_confirmations").insert({
+    producer_id: userId,
+    token,
+    email,
+    confirmed: false,
+    expires_at: expiresAt,
+  });
+
+  if (tokenError) {
+    console.error("[signup] email_confirmations insert error:", tokenError.message);
+    // Non-blocking — account was created, just log it
+  } else {
+    const confirmationLink = `${BASE_URL}/confirm-email?token=${token}`;
+    sendEmailConfirmation(email, confirmationLink).catch((err) =>
+      console.error("[signup] sendEmailConfirmation failed:", err)
+    );
+    console.log(`[signup] confirmation email queued for ${email}`);
+  }
+
+  return NextResponse.json({ userId }, { status: 201 });
 }

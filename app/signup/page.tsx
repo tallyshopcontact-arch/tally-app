@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 export default function SignupPage() {
   const router = useRouter();
   const [pendingPromo, setPendingPromo] = useState<string | null>(null);
+  const [showCheckEmail, setShowCheckEmail] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
 
@@ -88,8 +89,7 @@ export default function SignupPage() {
         }
       }
 
-      router.push("/onboarding");
-      router.refresh();
+      setShowCheckEmail(true);
     } catch (err) {
       console.error("[signup] Caught error:", err);
       const message = err instanceof Error ? err.message : String(err);
@@ -98,6 +98,34 @@ export default function SignupPage() {
       setLoading(false);
     }
   };
+
+  if (showCheckEmail) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
+        <div className="w-full max-w-sm">
+          <Link href="/" className="block text-sm font-bold tracking-[0.25em] mb-12 hover:text-[#94a3b8] transition-colors">
+            TALLY
+          </Link>
+          <h1 className="text-2xl font-bold mb-3">Check your email</h1>
+          <p className="text-[#94a3b8] text-sm mb-6">
+            We sent a confirmation link to <span className="text-white font-medium">{email}</span>.
+            Click it to activate your account.
+          </p>
+          <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-5 py-4 mb-6">
+            <p className="text-xs text-[#94a3b8] leading-relaxed">
+              Can't find it? Check your spam folder. The link expires in 24 hours.
+            </p>
+          </div>
+          <p className="text-xs text-[#475569]">
+            Already confirmed?{" "}
+            <Link href="/login" className="text-white hover:text-[#94a3b8] transition-colors underline underline-offset-2">
+              Sign in
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
