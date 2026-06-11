@@ -37,35 +37,50 @@ export default function OnboardingPage() {
   const [error, setError] = useState("");
   const [pendingPromo, setPendingPromo] = useState<string | null>(null);
   const [emailCheckDone, setEmailCheckDone] = useState(false);
+  // All state must be declared before any conditional return (React rules of hooks)
+  const [form, setForm] = useState<FormData>({
+    youtubeUrl: "",
+    genre: "",
+    customGenre: "",
+    artist1: "",
+    artist2: "",
+    artist3: "",
+  });
 
   useEffect(() => {
     try { setPendingPromo(localStorage.getItem("tally_promo_code")); } catch { /* ignore */ }
   }, []);
 
-  // Guard: if this producer has a pending unconfirmed email, redirect back to signup
+  // Guard: if this producer has a pending unconfirmed email, redirect to /check-email
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user?.email) { setEmailCheckDone(true); return; }
+    supabase.auth.getUser()
+      .then(async ({ data: { user } }) => {
+        if (!user?.email) { setEmailCheckDone(true); return; }
 
-      // Check if there is an unconfirmed email_confirmation record for this user
-      const { data } = await supabase
-        .from("email_confirmations")
-        .select("confirmed")
-        .eq("producer_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .single();
+        try {
+          const { data } = await supabase
+            .from("email_confirmations")
+            .select("confirmed")
+            .eq("producer_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-      if (data && data.confirmed === false) {
-        // Unconfirmed — restore the pending flag and send them back
-        try { localStorage.setItem("tally_pending_confirmation", user.email); } catch { /* ignore */ }
-        router.replace("/signup");
-        return;
-      }
+          if (data && data.confirmed === false) {
+            router.replace(`/check-email?email=${encodeURIComponent(user.email)}`);
+            return;
+          }
+        } catch {
+          // On any error, allow through — don't throw into the error boundary
+        }
 
-      setEmailCheckDone(true);
-    });
+        setEmailCheckDone(true);
+      })
+      .catch(() => {
+        // Auth error — allow through rather than error boundary
+        setEmailCheckDone(true);
+      });
   }, [router]);
 
   if (!emailCheckDone) {
@@ -75,14 +90,6 @@ export default function OnboardingPage() {
       </div>
     );
   }
-  const [form, setForm] = useState<FormData>({
-    youtubeUrl: "",
-    genre: "",
-    customGenre: "",
-    artist1: "",
-    artist2: "",
-    artist3: "",
-  });
 
   const inputClass =
     "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors";

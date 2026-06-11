@@ -8,9 +8,12 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 export default function SignupPage() {
   const router = useRouter();
   const [pendingPromo, setPendingPromo] = useState<string | null>(null);
-  const [showCheckEmail, setShowCheckEmail] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   // Persist promo code from URL → localStorage so it survives the full signup+onboarding flow
   useEffect(() => {
@@ -20,16 +23,7 @@ export default function SignupPage() {
       try { localStorage.setItem("tally_promo_code", promo); } catch { /* ignore */ }
       setPendingPromo(promo);
     }
-    // Restore check-email screen if the user reloads before confirming
-    try {
-      const pending = localStorage.getItem("tally_pending_confirmation");
-      if (pending) { setEmail(pending); setShowCheckEmail(true); }
-    } catch { /* ignore */ }
   }, []);
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
 
   const inputClass =
     "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors";
@@ -64,7 +58,7 @@ export default function SignupPage() {
         return;
       }
 
-      // Step 2: Sign in immediately (user is already confirmed, no email needed).
+      // Step 2: Sign in immediately (user is already confirmed in Supabase).
       const supabase = createSupabaseBrowserClient();
 
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -78,11 +72,10 @@ export default function SignupPage() {
         return;
       }
 
-      // Step 3: Insert the profile row now that we have a valid session.
+      // Step 3: Upsert the profile row in case the server-side insert raced or failed.
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
-        // Server route already inserted the profile; upsert here in case of race
         const { error: profileError } = await supabase.from("profiles").upsert({
           id: user.id,
           email: user.email,
@@ -94,8 +87,8 @@ export default function SignupPage() {
         }
       }
 
-      try { localStorage.setItem("tally_pending_confirmation", email); } catch { /* ignore */ }
-      setShowCheckEmail(true);
+      // Step 4: Redirect to the standalone check-email page (survives refresh).
+      router.push(`/check-email?email=${encodeURIComponent(email)}`);
     } catch (err) {
       console.error("[signup] Caught error:", err);
       const message = err instanceof Error ? err.message : String(err);
@@ -104,34 +97,6 @@ export default function SignupPage() {
       setLoading(false);
     }
   };
-
-  if (showCheckEmail) {
-    return (
-      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">
-        <div className="w-full max-w-sm">
-          <Link href="/" className="block text-sm font-bold tracking-[0.25em] mb-12 hover:text-[#94a3b8] transition-colors">
-            TALLY
-          </Link>
-          <h1 className="text-2xl font-bold mb-3">Check your email</h1>
-          <p className="text-[#94a3b8] text-sm mb-6">
-            We sent a confirmation link to <span className="text-white font-medium">{email}</span>.
-            Click it to activate your account.
-          </p>
-          <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-5 py-4 mb-6">
-            <p className="text-xs text-[#94a3b8] leading-relaxed">
-              Can't find it? Check your spam folder. The link expires in 24 hours.
-            </p>
-          </div>
-          <p className="text-xs text-[#475569]">
-            Already confirmed?{" "}
-            <Link href="/login" className="text-white hover:text-[#94a3b8] transition-colors underline underline-offset-2">
-              Sign in
-            </Link>
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center px-6">

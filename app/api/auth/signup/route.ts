@@ -56,15 +56,13 @@ export async function POST(request: NextRequest) {
   });
 
   if (profileError) {
-    // Duplicate is safe — the client-side insert may have already run
     if (profileError.code === "23505") {
-      console.log(`[signup] step 2 — profile already exists (ok)`);
+      console.log("[signup] step 2 — profile already exists (ok)");
     } else {
       console.error("[signup] step 2 FAILED — profile insert error:", profileError.message, profileError.code);
-      // Non-fatal: onboarding will upsert the profile later
     }
   } else {
-    console.log(`[signup] step 2 OK — profile inserted`);
+    console.log("[signup] step 2 OK — profile inserted");
   }
 
   // Step 3: Insert the email confirmation token
@@ -82,17 +80,17 @@ export async function POST(request: NextRequest) {
 
   if (tokenError) {
     console.error("[signup] step 3 FAILED — email_confirmations insert error:", tokenError.message, tokenError.code);
-  } else {
-    console.log(`[signup] step 3 OK — confirmation token saved`);
-
-    // Step 4: Send the confirmation email
-    const confirmationLink = `${BASE_URL}/confirm-email?token=${token}`;
-    console.log(`[signup] step 4 — sending confirmation email to ${email} | GMAIL_USER=${process.env.GMAIL_USER ?? "MISSING"} | GMAIL_APP_PASSWORD set: ${!!process.env.GMAIL_APP_PASSWORD}`);
-    console.log(`[signup] confirmation link: ${confirmationLink}`);
-    sendEmailConfirmation(email, confirmationLink).catch((err) =>
-      console.error("[signup] step 4 — sendEmailConfirmation top-level error:", err)
-    );
+    // Can't send email without a saved token — return early with account created
+    return NextResponse.json({ created: true, emailSent: false }, { status: 201 });
   }
 
-  return NextResponse.json({ userId }, { status: 201 });
+  console.log("[signup] step 3 OK — confirmation token saved");
+
+  // Step 4: AWAIT the confirmation email before responding (Vercel freezes after response)
+  const confirmationLink = `${BASE_URL}/confirm-email?token=${token}`;
+  console.log(`[signup] step 4 — sending confirmation email to ${email} | RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+  const result = await sendEmailConfirmation(email, confirmationLink);
+  console.log("[signup] email result:", JSON.stringify(result));
+
+  return NextResponse.json({ created: true, emailSent: result.ok }, { status: 201 });
 }

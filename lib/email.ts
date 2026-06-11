@@ -1,19 +1,10 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM = "TALLY <tallyshop.contact@gmail.com>";
+// TODO: change to hello@tallyagc.com once the domain is verified in Resend
+// (requires Cloudflare DNS for the MX record).
+const FROM = "TALLY <onboarding@resend.dev>";
 const BASE_URL = "https://tallyagc.com";
 
 // ── Shared HTML primitives ────────────────────────────────────────────────────
@@ -63,37 +54,12 @@ function ctaButton(href: string, label: string): string {
   </tr>`;
 }
 
-async function send(to: string, subject: string, html: string, tag: string): Promise<void> {
-  console.log(
-    `[email:${tag}] sending to ${to} | GMAIL_USER=${process.env.GMAIL_USER ?? "MISSING"} | GMAIL_APP_PASSWORD set: ${!!process.env.GMAIL_APP_PASSWORD}`
-  );
-
-  try {
-    await transporter.verify();
-    console.log(`[email:${tag}] transporter verified successfully`);
-  } catch (verifyErr: unknown) {
-    console.error(`[email:${tag}] transporter verify FAILED:`, JSON.stringify(verifyErr, Object.getOwnPropertyNames(verifyErr)));
-    throw verifyErr;
-  }
-
-  try {
-    const info = await transporter.sendMail({ from: FROM, to, subject, html });
-    console.log(`[email:${tag}] sent to ${to} id=${info.messageId} accepted=${JSON.stringify(info.accepted)}`);
-  } catch (err: unknown) {
-    const e = err as { code?: string; message?: string; response?: string };
-    console.error(`[email:${tag}] nodemailer error code:`, e.code);
-    console.error(`[email:${tag}] nodemailer error message:`, e.message);
-    console.error(`[email:${tag}] nodemailer error response:`, e.response);
-    throw err;
-  }
-}
-
 // ── sendEmailConfirmation ─────────────────────────────────────────────────────
 
 export async function sendEmailConfirmation(
   producerEmail: string,
   confirmationLink: string
-): Promise<void> {
+): Promise<{ ok: boolean; error?: unknown }> {
   const html = emailShell(`
     <tr>
       <td style="padding-bottom:12px;">
@@ -117,7 +83,22 @@ export async function sendEmailConfirmation(
     </tr>
   `);
 
-  await send(producerEmail, "Confirm your TALLY account", html, "confirm");
+  console.log(`[email:confirm] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: "Confirm your TALLY account",
+    html,
+  });
+
+  if (error) {
+    console.error("[email:confirm] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:confirm] sent id=", data?.id);
+  return { ok: true };
 }
 
 // ── sendWelcomeEmail ──────────────────────────────────────────────────────────
@@ -125,7 +106,7 @@ export async function sendEmailConfirmation(
 export async function sendWelcomeEmail(
   producerName: string,
   producerEmail: string
-): Promise<void> {
+): Promise<{ ok: boolean; error?: unknown }> {
   const name = producerName || "Producer";
 
   const tools = [
@@ -180,7 +161,22 @@ export async function sendWelcomeEmail(
     </tr>
   `);
 
-  await send(producerEmail, `Welcome to TALLY, ${name}`, html, "welcome");
+  console.log(`[email:welcome] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: `Welcome to TALLY, ${name}`,
+    html,
+  });
+
+  if (error) {
+    console.error("[email:welcome] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:welcome] sent id=", data?.id);
+  return { ok: true };
 }
 
 // ── sendReportReadyEmail ──────────────────────────────────────────────────────
@@ -191,7 +187,7 @@ export async function sendReportReadyEmail(
   tallyScore: number,
   month: string,
   actionItems: string[] = []
-): Promise<void> {
+): Promise<{ ok: boolean; error?: unknown }> {
   const name = producerName || "Producer";
   const scoreColor = tallyScore >= 70 ? "#4ade80" : tallyScore >= 40 ? "#fbbf24" : "#f87171";
 
@@ -245,7 +241,22 @@ export async function sendReportReadyEmail(
     ${ctaButton(`${BASE_URL}/dashboard/report`, "View your full report →")}
   `);
 
-  await send(producerEmail, `Your ${month} TALLY report is ready`, html, "report-ready");
+  console.log(`[email:report-ready] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: `Your ${month} TALLY report is ready`,
+    html,
+  });
+
+  if (error) {
+    console.error("[email:report-ready] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:report-ready] sent id=", data?.id);
+  return { ok: true };
 }
 
 // ── sendTrialEndingEmail ──────────────────────────────────────────────────────
@@ -255,7 +266,7 @@ export async function sendTrialEndingEmail(
   producerEmail: string,
   daysLeft: number,
   trialEndDate?: string
-): Promise<void> {
+): Promise<{ ok: boolean; error?: unknown }> {
   const name = producerName || "Producer";
 
   const endDateStr = trialEndDate
@@ -323,12 +334,22 @@ export async function sendTrialEndingEmail(
     </tr>
   `);
 
-  await send(
-    producerEmail,
-    `Your TALLY trial ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
+  console.log(`[email:trial-ending] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: `Your TALLY trial ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
     html,
-    "trial-ending"
-  );
+  });
+
+  if (error) {
+    console.error("[email:trial-ending] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:trial-ending] sent id=", data?.id);
+  return { ok: true };
 }
 
 // ── sendCancellationEmail ─────────────────────────────────────────────────────
@@ -337,7 +358,7 @@ export async function sendCancellationEmail(
   producerName: string,
   producerEmail: string,
   accessEndDate?: string
-): Promise<void> {
+): Promise<{ ok: boolean; error?: unknown }> {
   const name = producerName || "Producer";
 
   const endStr = accessEndDate
@@ -369,5 +390,20 @@ export async function sendCancellationEmail(
     </tr>
   `);
 
-  await send(producerEmail, "Your TALLY subscription has been cancelled", html, "cancellation");
+  console.log(`[email:cancellation] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [producerEmail],
+    subject: "Your TALLY subscription has been cancelled",
+    html,
+  });
+
+  if (error) {
+    console.error("[email:cancellation] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:cancellation] sent id=", data?.id);
+  return { ok: true };
 }
