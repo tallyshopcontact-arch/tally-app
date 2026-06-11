@@ -8,6 +8,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
   },
+  tls: {
+    rejectUnauthorized: false,
+  },
 });
 
 const FROM = "TALLY <tallyshop.contact@gmail.com>";
@@ -64,12 +67,24 @@ async function send(to: string, subject: string, html: string, tag: string): Pro
   console.log(
     `[email:${tag}] sending to ${to} | GMAIL_USER=${process.env.GMAIL_USER ?? "MISSING"} | GMAIL_APP_PASSWORD set: ${!!process.env.GMAIL_APP_PASSWORD}`
   );
+
+  try {
+    await transporter.verify();
+    console.log(`[email:${tag}] transporter verified successfully`);
+  } catch (verifyErr: unknown) {
+    console.error(`[email:${tag}] transporter verify FAILED:`, JSON.stringify(verifyErr, Object.getOwnPropertyNames(verifyErr)));
+    throw verifyErr;
+  }
+
   try {
     const info = await transporter.sendMail({ from: FROM, to, subject, html });
     console.log(`[email:${tag}] sent to ${to} id=${info.messageId} accepted=${JSON.stringify(info.accepted)}`);
-  } catch (error) {
-    console.error(`[email:${tag}] send FAILED — code=${(error as NodeJS.ErrnoException).code} message=${(error as Error).message}`);
-    console.error(`[email:${tag}] full error:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
+  } catch (err: unknown) {
+    const e = err as { code?: string; message?: string; response?: string };
+    console.error(`[email:${tag}] nodemailer error code:`, e.code);
+    console.error(`[email:${tag}] nodemailer error message:`, e.message);
+    console.error(`[email:${tag}] nodemailer error response:`, e.response);
+    throw err;
   }
 }
 
