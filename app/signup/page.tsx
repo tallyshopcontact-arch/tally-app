@@ -20,6 +20,11 @@ export default function SignupPage() {
       try { localStorage.setItem("tally_promo_code", promo); } catch { /* ignore */ }
       setPendingPromo(promo);
     }
+    // Restore check-email screen if the user reloads before confirming
+    try {
+      const pending = localStorage.getItem("tally_pending_confirmation");
+      if (pending) { setEmail(pending); setShowCheckEmail(true); }
+    } catch { /* ignore */ }
   }, []);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -89,6 +94,7 @@ export default function SignupPage() {
         }
       }
 
+      try { localStorage.setItem("tally_pending_confirmation", email); } catch { /* ignore */ }
       setShowCheckEmail(true);
     } catch (err) {
       console.error("[signup] Caught error:", err);

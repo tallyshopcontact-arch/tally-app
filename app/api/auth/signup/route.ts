@@ -57,13 +57,13 @@ export async function POST(request: NextRequest) {
 
   if (tokenError) {
     console.error("[signup] email_confirmations insert error:", tokenError.message);
-    // Non-blocking — account was created, just log it
   } else {
     const confirmationLink = `${BASE_URL}/confirm-email?token=${token}`;
+    console.log(`[signup] sending confirmation email to ${email} | GMAIL_USER=${process.env.GMAIL_USER ?? "MISSING"} | GMAIL_APP_PASSWORD set: ${!!process.env.GMAIL_APP_PASSWORD}`);
+    console.log(`[signup] confirmation link: ${confirmationLink}`);
     sendEmailConfirmation(email, confirmationLink).catch((err) =>
-      console.error("[signup] sendEmailConfirmation failed:", err)
+      console.error("[signup] sendEmailConfirmation top-level error:", err)
     );
-    console.log(`[signup] confirmation email queued for ${email}`);
   }
 
   return NextResponse.json({ userId }, { status: 201 });

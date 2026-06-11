@@ -1,7 +1,9 @@
 import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
@@ -59,12 +61,15 @@ function ctaButton(href: string, label: string): string {
 }
 
 async function send(to: string, subject: string, html: string, tag: string): Promise<void> {
-  console.log(`[email:${tag}] sending to ${to} — GMAIL_USER set: ${!!process.env.GMAIL_USER}`);
+  console.log(
+    `[email:${tag}] sending to ${to} | GMAIL_USER=${process.env.GMAIL_USER ?? "MISSING"} | GMAIL_APP_PASSWORD set: ${!!process.env.GMAIL_APP_PASSWORD}`
+  );
   try {
     const info = await transporter.sendMail({ from: FROM, to, subject, html });
-    console.log(`[email:${tag}] sent to ${to} id=${info.messageId}`);
+    console.log(`[email:${tag}] sent to ${to} id=${info.messageId} accepted=${JSON.stringify(info.accepted)}`);
   } catch (error) {
-    console.error(`[email:${tag}] send failed:`, error);
+    console.error(`[email:${tag}] send FAILED — code=${(error as NodeJS.ErrnoException).code} message=${(error as Error).message}`);
+    console.error(`[email:${tag}] full error:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
   }
 }
 

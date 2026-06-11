@@ -31,6 +31,7 @@ function ConfirmEmailContent() {
       .then((res) => res.json())
       .then((data) => {
         if (data.ok) {
+          try { localStorage.removeItem("tally_pending_confirmation"); } catch { /* ignore */ }
           setStatus("success");
           setTimeout(() => router.push("/onboarding"), 2000);
         } else {

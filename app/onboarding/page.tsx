@@ -36,10 +36,45 @@ export default function OnboardingPage() {
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
   const [pendingPromo, setPendingPromo] = useState<string | null>(null);
+  const [emailCheckDone, setEmailCheckDone] = useState(false);
 
   useEffect(() => {
     try { setPendingPromo(localStorage.getItem("tally_promo_code")); } catch { /* ignore */ }
   }, []);
+
+  // Guard: if this producer has a pending unconfirmed email, redirect back to signup
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user?.email) { setEmailCheckDone(true); return; }
+
+      // Check if there is an unconfirmed email_confirmation record for this user
+      const { data } = await supabase
+        .from("email_confirmations")
+        .select("confirmed")
+        .eq("producer_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (data && data.confirmed === false) {
+        // Unconfirmed — restore the pending flag and send them back
+        try { localStorage.setItem("tally_pending_confirmation", user.email); } catch { /* ignore */ }
+        router.replace("/signup");
+        return;
+      }
+
+      setEmailCheckDone(true);
+    });
+  }, [router]);
+
+  if (!emailCheckDone) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin" />
+      </div>
+    );
+  }
   const [form, setForm] = useState<FormData>({
     youtubeUrl: "",
     genre: "",
