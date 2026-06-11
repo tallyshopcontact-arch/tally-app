@@ -82,15 +82,15 @@ export default function SignupPage() {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
-        const { error: profileError } = await supabase.from("profiles").insert({
+        // Server route already inserted the profile; upsert here in case of race
+        const { error: profileError } = await supabase.from("profiles").upsert({
           id: user.id,
           email: user.email,
           name,
           subscription_status: "free",
-        });
+        }, { onConflict: "id", ignoreDuplicates: true });
         if (profileError) {
-          console.error("[signup] Profile insert error:", profileError.message);
-          // Non-blocking — onboarding will upsert the profile.
+          console.error("[signup] Profile upsert error:", profileError.message);
         }
       }
 
