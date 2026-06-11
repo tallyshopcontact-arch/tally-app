@@ -301,7 +301,7 @@ function SequencePanel({ sequence, onMarkSent }: {
               className={`w-6 h-1.5 ${m.sent ? "bg-[#4ade80]" : "bg-[#1e1e1e]"}`} />
           ))}
         </div>
-        <span className="text-[10px] text-[#475569]">
+        <span className="text-[10px] text-[#94a3b8]">
           {sentCount}/{sequence.messages.length} sent
           {sequence.format === "instagram" ? " · Instagram DM" : " · Email"}
         </span>
@@ -318,18 +318,18 @@ function SequencePanel({ sequence, onMarkSent }: {
               {msg.sent ? (
                 <span className="text-[10px] text-[#4ade80] font-bold">✓</span>
               ) : (
-                <span className="text-[10px] text-[#475569] font-mono">{i + 1}</span>
+                <span className="text-[10px] text-[#94a3b8] font-mono">{i + 1}</span>
               )}
-              <span className={`text-xs font-medium ${msg.sent ? "text-[#4ade80]" : "text-[#94a3b8]"}`}>
+              <span className={`text-xs font-medium ${msg.sent ? "text-[#4ade80]" : "text-[#e2e8f0]"}`}>
                 {msg.label}
               </span>
               {msg.sent && msg.sent_at && (
-                <span className="text-[10px] text-[#475569]">
+                <span className="text-[10px] text-[#94a3b8]">
                   Sent {new Date(msg.sent_at).toLocaleDateString()}
                 </span>
               )}
             </div>
-            <span className="text-[#475569] text-xs">{openIndex === i ? "▲" : "▼"}</span>
+            <span className="text-[#94a3b8] text-xs">{openIndex === i ? "▲" : "▼"}</span>
           </button>
 
           {/* Accordion body */}
@@ -337,17 +337,17 @@ function SequencePanel({ sequence, onMarkSent }: {
             <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a]">
               {msg.subject && (
                 <div className="mt-3">
-                  <p className="text-[9px] text-[#475569] uppercase tracking-widest mb-1">Subject</p>
-                  <p className="text-xs text-[#94a3b8] bg-[#111] px-3 py-2 border border-[#1a1a1a]">{msg.subject}</p>
+                  <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mb-1">Subject</p>
+                  <p className="text-xs text-[#e2e8f0] bg-[#111] px-3 py-2 border border-[#1a1a1a]">{msg.subject}</p>
                 </div>
               )}
               <div className={msg.subject ? "" : "mt-3"}>
-                {!msg.subject && <p className="text-[9px] text-[#475569] uppercase tracking-widest mb-1">Message</p>}
+                {!msg.subject && <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mb-1">Message</p>}
                 <pre className="text-xs text-white whitespace-pre-wrap font-sans leading-relaxed bg-[#0d0d0d] border border-[#1a1a1a] px-3 py-3">
                   {msg.body}
                 </pre>
                 {sequence.format === "instagram" && (
-                  <p className={`text-[9px] text-right mt-1 ${msg.body.length > 900 ? "text-[#f87171]" : "text-[#475569]"}`}>
+                  <p className={`text-[9px] text-right mt-1 ${msg.body.length > 900 ? "text-[#f87171]" : "text-[#94a3b8]"}`}>
                     {msg.body.length}/1000
                   </p>
                 )}
@@ -639,7 +639,7 @@ function ProspectFinderSection({ password }: { password: string }) {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h2 className="text-xl font-bold mb-1">Producer Finder</h2>
-          <p className="text-[10px] text-[#475569]">
+          <p className="text-[10px] text-[#94a3b8]">
             Finding: Free · Snapshot: ~$0.01 (Claude) · Sequence: ~$0.03 (Claude) · PDF: Free
           </p>
         </div>
@@ -710,15 +710,15 @@ function ProspectFinderSection({ password }: { password: string }) {
           {artists.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {artists.map((a) => (
-                <span key={a} className="flex items-center gap-2 text-xs bg-[#111] border border-[#1e1e1e] px-3 py-1.5">
+                <span key={a} className="flex items-center gap-2 text-xs text-[#e2e8f0] bg-[#111] border border-[#1e1e1e] px-3 py-1.5">
                   {a}
                   <button onClick={() => setArtists((prev) => prev.filter((x) => x !== a))}
-                    className="text-[#475569] hover:text-[#f87171] transition-colors">×</button>
+                    className="text-[#94a3b8] hover:text-[#f87171] transition-colors">×</button>
                 </span>
               ))}
             </div>
           )}
-          <p className="text-[10px] text-[#475569] mt-2">Sub range 200–2,000</p>
+          <p className="text-[10px] text-[#94a3b8] mt-2">Sub range 200–2,000</p>
         </div>
       )}
 
@@ -748,7 +748,7 @@ function ProspectFinderSection({ password }: { password: string }) {
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-[#0d0d0d] border border-[#1a1a1a] px-4 py-4">
             <p className={`text-2xl font-bold ${color}`}>{value}</p>
-            <p className="text-[9px] text-[#475569] uppercase tracking-widest mt-1">{label}</p>
+            <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mt-1">{label}</p>
           </div>
         ))}
       </div>
@@ -775,7 +775,7 @@ function ProspectFinderSection({ password }: { password: string }) {
               key={key}
               onClick={() => handleTabChange(key)}
               className={`text-xs px-4 py-1.5 rounded-full border transition-all duration-200 ${
-                isActive ? activeClass : "border-[#1a1a1a] text-[#475569] hover:border-[#333] hover:text-[#94a3b8]"
+                isActive ? activeClass : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
               }`}
             >
               {label}
@@ -856,11 +856,11 @@ function ProspectFinderSection({ password }: { password: string }) {
 
                     {/* Row 2: meta — subs, genre, contact badge */}
                     <div className="flex items-center gap-2 flex-wrap mb-2">
-                      <span className="text-[11px] text-[#475569]">
+                      <span className="text-[11px] text-[#e2e8f0]">
                         {p.subscriber_count?.toLocaleString() ?? "—"} subs
                       </span>
                       {p.genre && (
-                        <span className="text-[10px] text-[#475569] bg-[#111] px-2 py-0.5">
+                        <span className="text-[10px] text-[#e2e8f0] bg-[#111] px-2 py-0.5">
                           {p.genre}
                         </span>
                       )}
@@ -873,7 +873,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                           @{p.instagram_handle}
                         </span>
                       ) : (
-                        <span className="text-[10px] font-medium text-[#475569] bg-[#111] px-2 py-0.5">
+                        <span className="text-[10px] font-medium text-[#94a3b8] bg-[#111] px-2 py-0.5">
                           No contact
                         </span>
                       )}
@@ -889,14 +889,14 @@ function ProspectFinderSection({ password }: { password: string }) {
 
                     {/* Latest video */}
                     {p.latest_video_title && (
-                      <p className="text-[11px] text-[#2e2e2e] truncate mb-2">
+                      <p className="text-[11px] text-[#cbd5e1] truncate mb-2">
                         {p.latest_video_title}
                       </p>
                     )}
 
                     {/* Insight preview (collapsed) */}
                     {hasSnapshot && !isExpanded && (
-                      <p className="text-[10px] text-[#3a3a3a] truncate mb-3 leading-relaxed">
+                      <p className="text-[10px] text-[#94a3b8] truncate mb-3 leading-relaxed">
                         ▸ {p.channel_snapshot!.top_insight}
                       </p>
                     )}
@@ -911,7 +911,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                           className={`text-[10px] px-2.5 py-1 transition-colors ${
                             pref === "instagram"
                               ? "bg-[#4ade80]/10 text-[#4ade80] border-r border-[#1a1a1a]"
-                              : "text-[#475569] border-r border-[#1a1a1a] hover:text-[#94a3b8]"
+                              : "text-[#94a3b8] border-r border-[#1a1a1a] hover:text-white"
                           }`}>
                           IG DM
                         </button>
@@ -921,7 +921,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                           className={`text-[10px] px-2.5 py-1 transition-colors ${
                             pref === "email"
                               ? "bg-[#60a5fa]/10 text-[#60a5fa]"
-                              : "text-[#475569] hover:text-[#94a3b8]"
+                              : "text-[#94a3b8] hover:text-white"
                           }`}>
                           Email
                         </button>
@@ -935,7 +935,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                           className={`text-[10px] px-2.5 py-1 transition-colors ${
                             (p.offer_type ?? "founding") === "founding"
                               ? "bg-[#fbbf24]/10 text-[#fbbf24] border-r border-[#1a1a1a]"
-                              : "text-[#475569] border-r border-[#1a1a1a] hover:text-[#94a3b8]"
+                              : "text-[#94a3b8] border-r border-[#1a1a1a] hover:text-white"
                           }`}>
                           Founding
                         </button>
@@ -945,7 +945,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                           className={`text-[10px] px-2.5 py-1 transition-colors ${
                             (p.offer_type ?? "founding") === "standard"
                               ? "bg-[#94a3b8]/10 text-[#94a3b8]"
-                              : "text-[#475569] hover:text-[#94a3b8]"
+                              : "text-[#94a3b8] hover:text-white"
                           }`}>
                           Standard
                         </button>
@@ -971,7 +971,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                         disabled={sequenceLoadingId === p.id || !hasSnapshot}
                         className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 inline-flex items-center gap-1 ${
                           !hasSnapshot
-                            ? "border-[#1a1a1a] text-[#222] cursor-not-allowed"
+                            ? "border-[#1a1a1a] text-[#475569] cursor-not-allowed"
                             : hasSequence
                             ? "border-[#a78bfa]/30 text-[#a78bfa] hover:border-[#a78bfa] hover:text-white"
                             : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
@@ -987,7 +987,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                         disabled={pdfLoadingId === p.id || !hasSnapshot}
                         className={`text-[10px] border px-2.5 py-1 transition-colors disabled:opacity-40 ${
                           !hasSnapshot
-                            ? "border-[#1a1a1a] text-[#222] cursor-not-allowed"
+                            ? "border-[#1a1a1a] text-[#475569] cursor-not-allowed"
                             : "border-[#1a1a1a] text-[#94a3b8] hover:border-[#333] hover:text-white"
                         }`}>
                         {pdfLoadingId === p.id ? "Building..." : "PDF"}
@@ -1023,7 +1023,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                         <button
                           onClick={() => handleReject(p)}
                           disabled={actionId === p.id || isRejecting}
-                          className="text-[10px] text-[#333] hover:text-[#f87171] transition-colors disabled:opacity-40 ml-auto">
+                          className="text-[10px] text-[#94a3b8] hover:text-[#f87171] transition-colors disabled:opacity-40 ml-auto">
                           Reject
                         </button>
                       )}
@@ -1053,7 +1053,7 @@ function ProspectFinderSection({ password }: { password: string }) {
                         </div>
                         {hasSnapshot && (
                           <div className="mt-4 pt-4 border-t border-[#111] space-y-2">
-                            <p className="text-[9px] text-[#475569] uppercase tracking-widest mb-2">Channel Analysis</p>
+                            <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mb-2">Channel Analysis</p>
                             {[
                               { label: "Top insight",    value: p.channel_snapshot!.top_insight },
                               { label: "Gap",            value: p.channel_snapshot!.positioning_gap },
@@ -1061,8 +1061,8 @@ function ProspectFinderSection({ password }: { password: string }) {
                               { label: "Recommendation", value: p.channel_snapshot!.recommendation },
                             ].map(({ label, value }) => (
                               <div key={label} className="flex gap-3">
-                                <span className="text-[10px] text-[#475569] w-28 shrink-0">{label}</span>
-                                <span className="text-[10px] text-[#94a3b8] leading-relaxed">{value}</span>
+                                <span className="text-[10px] text-[#94a3b8] w-28 shrink-0">{label}</span>
+                                <span className="text-[10px] text-[#e2e8f0] leading-relaxed">{value}</span>
                               </div>
                             ))}
                           </div>
