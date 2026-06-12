@@ -2,9 +2,7 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// TODO: change to hello@tallyagc.com once the domain is verified in Resend
-// (requires Cloudflare DNS for the MX record).
-const FROM = "TALLY <onboarding@resend.dev>";
+const FROM = "TALLY <hello@mail.tallyagc.com>";
 const BASE_URL = "https://tallyagc.com";
 
 // ── Shared HTML primitives ────────────────────────────────────────────────────
