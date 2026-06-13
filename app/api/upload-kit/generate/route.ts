@@ -139,11 +139,23 @@ function buildAnalysisBlock(analysis: DeepChannelAnalysis | null, producerArtist
     .slice(0, 2)
     .map((a) => a.name);
 
-  // Fall back to niche trending not in producer's profile artists
   const allTrending = analysis.artistAssociations.filter((a) => a.isTrending).slice(0, 3).map((a) => a.name);
   const trendingNotUsed = allTrending.filter(
     (name) => !producerArtists.some((pa) => pa.toLowerCase() === name.toLowerCase())
   );
+
+  // Extract winning video description structure as examples
+  const winnerDescExamples = analysis.winnersVsLosers.winners
+    .filter((v) => v.description && v.description.trim().length > 50)
+    .slice(0, 2)
+    .map((v, i) => {
+      const desc = v.description.slice(0, 400).trimEnd();
+      return `Winner ${i + 1} (${(v.views / 1000).toFixed(0)}K views) — "${v.title}"\n${desc}${v.description.length > 400 ? "..." : ""}`;
+    });
+
+  const descBlock = winnerDescExamples.length > 0
+    ? `\n\nWINNING VIDEO DESCRIPTIONS — mirror this structure exactly (same sections, same ordering, same tone):\n${winnerDescExamples.join("\n\n---\n\n")}`
+    : "";
 
   return `
 PRODUCER'S CHANNEL ANALYSIS (use this to make the 3 titles different and data-driven):
@@ -152,7 +164,7 @@ PRODUCER'S CHANNEL ANALYSIS (use this to make the 3 titles different and data-dr
 - Title formula used by their niche top performers: ${analysis.titleFormula.formula}
 - Missing keywords (NOT in their last 30 videos but trending in niche): ${missingKws.join(", ") || "none identified"}
 - Trending artists they're NOT making beats for: ${(untappedArtists.length > 0 ? untappedArtists : trendingNotUsed).join(", ") || "none identified"}
-- Best upload day in their niche: ${analysis.timingIntelligence.bestDayInNiche}
+- Best upload day in their niche: ${analysis.timingIntelligence.bestDayInNiche}${descBlock}
 
 TITLE STRATEGY (each title must use a DIFFERENT strategy):
 Title 1 — WINNER PATTERN: mimic what their own best-performing videos do (artist: ${winnerArtists[0] || producerArtists[0] || "artist"}, winning title structure)
@@ -314,6 +326,36 @@ export async function POST(req: NextRequest) {
   // Build the deep analysis context block
   const analysisBlock = buildAnalysisBlock(deepAnalysis, effectiveArtists);
 
+  // Determine description strategy: mirror winners when available, else generic format
+  const winnerTags = deepAnalysis?.winnersVsLosers.winnerPattern.topTags.slice(0, 4) ?? [];
+  const hasWinnerDescs =
+    (deepAnalysis?.winnersVsLosers.winners ?? []).some((v) => v.description && v.description.trim().length > 50);
+
+  const descInstruction = hasWinnerDescs
+    ? `DESCRIPTION STRATEGY — mirror the EXACT structure of the winning video descriptions shown above in the channel analysis block. Use the same sections, same ordering, same tone. Adapt the content for this beat (name, artist, vibe) but preserve the structural pattern of their top performers.`
+    : `DESCRIPTION FORMAT — generate the description in this EXACT format (use real newlines, copy the structure precisely):
+
+[genre-matching emoji] [Beat Name] Type Beat "[Name]" [matching emoji]
+
+Produced by ${producerName}${bpmKeyLine ? `\n${bpmKeyLine}` : ""}
+
+🎵 For Licensing/Leasing: [licensing link]
+📲 Free MP3: [free download link]
+🛒 Beat Store: [beat store link]
+📧 Contact: [contact email]
+
+[2-3 sentences describing the vibe and feel naturally — sound like a real producer, not AI. Reference the artists and genre. Use 2-3 of the niche keywords naturally woven in.]
+
+Perfect for: [comma-separated list of use cases matching this genre and mood]
+
+${hashtagSuggestions || `#${resolvedGenre.replace(/\s+/g, "").toLowerCase()}typebeat #freetypebeat #typebeat2026`}
+
+Tags: [comma-separated version of the tags array]`;
+
+  const tagsStrategy = winnerTags.length > 0
+    ? `TAGS STRATEGY — must include: (1) these proven winning tags from the producer's own top videos: ${winnerTags.join(", ")}; (2) these missing niche keywords: ${deepAnalysis!.missingKeywords.slice(0, 4).map((k) => k.keyword).join(", ")}; (3) artist and genre variants to fill remaining slots.`
+    : `TAGS STRATEGY — use top niche keywords, artist name variants, and genre combinations.`;
+
   const prompt = `You are an expert YouTube strategist who has studied thousands of beat producer channels. Generate a complete upload kit for the following beat.
 
 Beat details:
@@ -333,24 +375,9 @@ Hot niche keywords from this producer's heat map (top 12 by frequency):
 ${keywordsStr}
 ${analysisBlock}
 
-DESCRIPTION FORMAT — generate the description in this EXACT format (use real newlines, copy the structure precisely):
+${tagsStrategy}
 
-[genre-matching emoji] [Beat Name] Type Beat "[Name]" [matching emoji]
-
-Produced by ${producerName}${bpmKeyLine ? `\n${bpmKeyLine}` : ""}
-
-🎵 For Licensing/Leasing: [licensing link]
-📲 Free MP3: [free download link]
-🛒 Beat Store: [beat store link]
-📧 Contact: [contact email]
-
-[2-3 sentences describing the vibe and feel naturally — sound like a real producer, not AI. Reference the artists and genre. Use 2-3 of the niche keywords naturally woven in.]
-
-Perfect for: [comma-separated list of use cases matching this genre and mood]
-
-${hashtagSuggestions || `#${resolvedGenre.replace(/\s+/g, "").toLowerCase()}typebeat #freetypebeat #typebeat2026`}
-
-Tags: [comma-separated version of the tags array]
+${descInstruction}
 
 EMOJI GUIDANCE by genre: Boom Bap/Lo-fi = 🎹🎷🌙🔥, Trap/Drill = 🔥💀⚡🖤, Melodic/R&B = 🌊💜✨🎶, Afrobeats = 🌍🔥🎺💃
 Choose emojis that match ${resolvedGenre} producers actually use.
