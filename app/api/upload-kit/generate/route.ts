@@ -164,7 +164,7 @@ PRODUCER'S CHANNEL ANALYSIS (use this to make the 3 titles different and data-dr
 - Title formula used by their niche top performers: ${analysis.titleFormula.formula}
 - Missing keywords (NOT in their last 30 videos but trending in niche): ${missingKws.join(", ") || "none identified"}
 - Trending artists they're NOT making beats for: ${(untappedArtists.length > 0 ? untappedArtists : trendingNotUsed).join(", ") || "none identified"}
-- Best upload day in their niche: ${analysis.timingIntelligence.bestDayInNiche}${descBlock}
+- Upload timing: ${(analysis.timingIntelligence.timingPriority ?? "day_of_week") === "consistency" ? `consistency first — ${analysis.timingIntelligence.consistencyInsight ?? "irregular schedule"} — 2 fixed days/week beats any single "best day"` : (analysis.timingIntelligence.timingPriority ?? "day_of_week") === "time_of_day" ? `post in the ${analysis.timingIntelligence.bestTimeOfDay} when possible (${analysis.timingIntelligence.bestTimeMultiplier}x for niche top performers)` : `${analysis.timingIntelligence.bestDayInNiche} as a tiebreaker (${analysis.timingIntelligence.bestDayMultiplier}x) — consistency over day choice`}${descBlock}
 
 TITLE STRATEGY (each title must use a DIFFERENT strategy):
 Title 1 — WINNER PATTERN: mimic what their own best-performing videos do (artist: ${winnerArtists[0] || producerArtists[0] || "artist"}, winning title structure)
@@ -200,7 +200,12 @@ function buildAnalysisContext(
       missingKwsInTags.length > 0
         ? `Added ${missingKwsInTags.slice(0, 3).join(", ")} — these keywords are used by top niche videos but missing from your last 30 uploads.`
         : "Tags include top niche keywords.",
-    upload_time_reason: `${analysis.timingIntelligence.bestDayInNiche} is the strongest upload day in your niche — ${analysis.timingIntelligence.bestDayMultiplier}x average views vs other days.`,
+    upload_time_reason:
+      (analysis.timingIntelligence.timingPriority ?? "day_of_week") === "consistency"
+        ? `${analysis.timingIntelligence.consistencyInsight ?? "Schedule is irregular."} Picking 2 fixed days and sticking to them will outperform any single "best day".`
+        : (analysis.timingIntelligence.timingPriority ?? "day_of_week") === "time_of_day"
+        ? `Niche top performers post in the ${analysis.timingIntelligence.bestTimeOfDay} (${analysis.timingIntelligence.bestTimeMultiplier}x more likely in top quartile). Use this as your posting window.`
+        : `${analysis.timingIntelligence.bestDayInNiche} trends ${analysis.timingIntelligence.bestDayMultiplier}x higher in your niche — use as a tiebreaker when choosing between days.`,
     key_gap: analysis.winnersVsLosers.keyGap,
   };
 }

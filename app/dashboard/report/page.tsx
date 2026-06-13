@@ -29,8 +29,17 @@ interface VideoGroupPattern {
   topTags: string[];
 }
 
+interface DeepAnalysisVideo {
+  title: string;
+  views: number;
+  tags: string[];
+  publishedAt: string;
+}
+
 interface DeepAnalysis {
   winnersVsLosers: {
+    winners?: DeepAnalysisVideo[];
+    losers?: DeepAnalysisVideo[];
     winnerPattern: VideoGroupPattern;
     loserPattern: VideoGroupPattern;
     keyGap: string;
@@ -38,6 +47,13 @@ interface DeepAnalysis {
   timingIntelligence: {
     bestDayInNiche: string;
     bestDayMultiplier: number;
+    bestTimeOfDay?: string | null;
+    bestTimeMultiplier?: number | null;
+    uploadFrequency?: number;
+    maxGapDays?: number;
+    consistencyScore?: number;
+    consistencyInsight?: string;
+    timingPriority?: "consistency" | "time_of_day" | "day_of_week";
   };
   missingKeywords: Array<{ keyword: string; nicheFrequency: number }>;
   artistAssociations: Array<{ name: string; videoCount: number; avgViews: number; isTrending: boolean }>;
@@ -108,6 +124,9 @@ function formatNum(n: number): string {
 
 const scoreColor = (s: number) =>
   s >= 80 ? "text-[#4ade80]" : s >= 60 ? "text-[#fbbf24]" : "text-[#f87171]";
+
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const dayFromISO = (publishedAt: string) => DOW[new Date(publishedAt).getDay()] ?? "—";
 
 const scoreBarColor = (s: number) =>
   s >= 80 ? "bg-[#4ade80]" : s >= 60 ? "bg-[#fbbf24]" : "bg-[#f87171]";
@@ -554,32 +573,54 @@ function SnapshotTab({ channelData, deepAnalysis }: { channelData: ChannelData |
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-[#1a1a1a]">
                 <div className="bg-[#0a0a0a] p-5">
-                  <p className="text-xs text-[#4ade80] uppercase tracking-widest mb-3">Winners</p>
-                  <p className="text-2xl font-bold text-[#4ade80] mb-1">
-                    {formatNum(deepAnalysis.winnersVsLosers.winnerPattern.avgViews)}
-                  </p>
-                  <p className="text-xs text-[#475569] mb-3">avg views</p>
-                  {deepAnalysis.winnersVsLosers.winnerPattern.artistMentions.length > 0 && (
-                    <p className="text-xs text-[#94a3b8]">
-                      Artists: {deepAnalysis.winnersVsLosers.winnerPattern.artistMentions.slice(0, 2).join(", ")}
-                    </p>
-                  )}
-                  {deepAnalysis.winnersVsLosers.winnerPattern.topTags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {deepAnalysis.winnersVsLosers.winnerPattern.topTags.slice(0, 3).map((t) => (
-                        <span key={t} className="text-[10px] text-[#4ade80] bg-[#0a150a] border border-[#1e3a1e] px-1.5 py-0.5">{t}</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-[#4ade80] uppercase tracking-widest">Top Videos</p>
+                    <p className="text-xs font-bold text-[#4ade80]">{formatNum(deepAnalysis.winnersVsLosers.winnerPattern.avgViews)} avg</p>
+                  </div>
+                  {deepAnalysis.winnersVsLosers.winners && deepAnalysis.winnersVsLosers.winners.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {deepAnalysis.winnersVsLosers.winners.slice(0, 3).map((v, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className="text-[#4ade80] text-[10px] mt-0.5 shrink-0">{i + 1}</span>
+                          <div className="min-w-0">
+                            <p className="text-white text-xs leading-snug truncate" title={v.title}>{v.title}</p>
+                            <p className="text-[#4ade80] text-[10px] mt-0.5">{formatNum(v.views)} views · {v.publishedAt ? dayFromISO(v.publishedAt) : "—"}</p>
+                          </div>
+                        </div>
                       ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {deepAnalysis.winnersVsLosers.winnerPattern.artistMentions.length > 0 && (
+                        <p className="text-xs text-[#94a3b8]">Artists: {deepAnalysis.winnersVsLosers.winnerPattern.artistMentions.slice(0, 2).join(", ")}</p>
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {deepAnalysis.winnersVsLosers.winnerPattern.topTags.slice(0, 3).map((t) => (
+                          <span key={t} className="text-[10px] text-[#4ade80] bg-[#0a150a] border border-[#1e3a1e] px-1.5 py-0.5">{t}</span>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
                 <div className="bg-[#0a0a0a] p-5">
-                  <p className="text-xs text-[#f87171] uppercase tracking-widest mb-3">Underperformers</p>
-                  <p className="text-2xl font-bold text-[#f87171] mb-1">
-                    {formatNum(deepAnalysis.winnersVsLosers.loserPattern.avgViews)}
-                  </p>
-                  <p className="text-xs text-[#475569] mb-3">avg views</p>
-                  {deepAnalysis.winnersVsLosers.loserPattern.topTags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-[#f87171] uppercase tracking-widest">Lowest Videos</p>
+                    <p className="text-xs font-bold text-[#f87171]">{formatNum(deepAnalysis.winnersVsLosers.loserPattern.avgViews)} avg</p>
+                  </div>
+                  {deepAnalysis.winnersVsLosers.losers && deepAnalysis.winnersVsLosers.losers.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {deepAnalysis.winnersVsLosers.losers.slice(0, 3).map((v, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className="text-[#f87171] text-[10px] mt-0.5 shrink-0">{i + 1}</span>
+                          <div className="min-w-0">
+                            <p className="text-[#94a3b8] text-xs leading-snug truncate" title={v.title}>{v.title}</p>
+                            <p className="text-[#f87171] text-[10px] mt-0.5">{formatNum(v.views)} views · {v.publishedAt ? dayFromISO(v.publishedAt) : "—"}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
                       {deepAnalysis.winnersVsLosers.loserPattern.topTags.slice(0, 3).map((t) => (
                         <span key={t} className="text-[10px] text-[#f87171] bg-[#1a0a0a] border border-[#3a1a1a] px-1.5 py-0.5">{t}</span>
                       ))}
@@ -597,18 +638,51 @@ function SnapshotTab({ channelData, deepAnalysis }: { channelData: ChannelData |
           )}
 
           {/* Timing intelligence */}
-          {deepAnalysis && (
-            <div className="border border-[#1a1a1a] px-6 py-5 flex items-center gap-5">
-              <div className="shrink-0">
-                <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">Best Upload Day in Niche</p>
-                <p className="text-2xl font-bold">{deepAnalysis.timingIntelligence.bestDayInNiche}</p>
+          {deepAnalysis && (() => {
+            const t = deepAnalysis.timingIntelligence;
+            const priority = t.timingPriority ?? "day_of_week";
+            return (
+              <div className="border border-[#1a1a1a]">
+                <div className="px-5 py-3 border-b border-[#1a1a1a]">
+                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest">Timing Intelligence</p>
+                </div>
+                <div className="divide-y divide-[#1a1a1a]">
+                  {/* Primary recommendation */}
+                  <div className="px-5 py-4">
+                    <p className="text-[10px] text-[#475569] uppercase tracking-widest mb-1.5">
+                      {priority === "consistency" ? "Priority: Build Consistent Schedule First"
+                        : priority === "time_of_day" ? "Primary: Time-of-Day Pattern"
+                        : "Schedule is Solid"}
+                    </p>
+                    <p className="text-white text-sm leading-relaxed">
+                      {priority === "consistency" && t.consistencyInsight
+                        ? `${t.consistencyInsight} Pick 2 fixed days per week and stick to them — consistency builds audience expectation more than any single "best day".`
+                        : priority === "time_of_day" && t.bestTimeOfDay
+                        ? `Top niche videos are posted in the ${t.bestTimeOfDay} — ${t.bestTimeMultiplier}x more likely to be in the top performers. Post in that window when possible.`
+                        : t.consistencyInsight ?? "Your schedule is consistent — keep it up."}
+                    </p>
+                  </div>
+                  {/* Time of day — when not primary but available */}
+                  {t.bestTimeOfDay && priority !== "time_of_day" && (
+                    <div className="px-5 py-3">
+                      <p className="text-[10px] text-[#475569] uppercase tracking-widest mb-1">Secondary: Time of Day</p>
+                      <p className="text-[#94a3b8] text-xs">
+                        Niche top performers post in the <span className="text-white">{t.bestTimeOfDay}</span>
+                        {t.bestTimeMultiplier ? ` (${t.bestTimeMultiplier}x more likely in top quartile)` : ""}
+                      </p>
+                    </div>
+                  )}
+                  {/* Day of week — always a tiebreaker */}
+                  <div className="px-5 py-3">
+                    <p className="text-[10px] text-[#475569] uppercase tracking-widest mb-1">Tiebreaker: Day of Week</p>
+                    <p className="text-[#94a3b8] text-xs">
+                      When choosing between days, <span className="text-white font-medium">{t.bestDayInNiche}</span> averages <span className="text-white">{t.bestDayMultiplier}x</span> more views in your niche — but any consistent day beats the &quot;best&quot; day used inconsistently.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="h-10 w-px bg-[#1a1a1a] shrink-0" />
-              <p className="text-[#94a3b8] text-sm">
-                Videos uploaded on this day average <span className="text-white font-semibold">{deepAnalysis.timingIntelligence.bestDayMultiplier}x</span> more views than other days in your niche.
-              </p>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
     </div>

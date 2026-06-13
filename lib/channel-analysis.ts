@@ -49,6 +49,13 @@ export interface TimingIntelligence {
   producerMostCommonDay: string;
   producerAvgViewsOnMostCommonDay: number;
   gap: string;
+  bestTimeOfDay?: string | null;
+  bestTimeMultiplier?: number | null;
+  uploadFrequency?: number;
+  maxGapDays?: number;
+  consistencyScore?: number;
+  consistencyInsight?: string;
+  timingPriority?: "consistency" | "time_of_day" | "day_of_week";
 }
 
 export interface MissingKeyword {
@@ -228,7 +235,7 @@ function buildKeyGap(
   const winDay = winnerPattern.commonUploadDays[0];
   const loserDay = loserPattern.commonUploadDays[0];
   if (winDay && winDay !== loserDay) {
-    return `Videos uploaded on ${winDay} average ${winnerPattern.avgViews.toLocaleString()} views — ${multiplier}x more than your ${loserDay ?? "other"} uploads. Shift more releases to ${winDay}.`;
+    return `Videos uploaded on ${winDay} average ${winnerPattern.avgViews.toLocaleString()} views — ${multiplier}x more than your ${loserDay ?? "other"} uploads. ${winDay} may be a factor, though consistency matters more than day choice.`;
   }
 
   return `Your top 3 videos average ${winnerPattern.avgViews.toLocaleString()} views vs ${loserPattern.avgViews.toLocaleString()} for your bottom 3 — a ${multiplier}x gap. The winners use more specific artist targeting in their titles.`;
@@ -269,6 +276,7 @@ function computeTimingIntelligence(
   recentVideos: AnalysisVideo[],
   nicheVideos: NicheVideo[]
 ): TimingIntelligence {
+  // ── Day-of-week analysis ──────────────────────────────────────────────
   const nicheDayMap = new Map<string, number[]>();
   for (const v of nicheVideos) {
     if (!v.publishedAt) continue;
@@ -320,10 +328,107 @@ function computeTimingIntelligence(
     }
   }
 
+  // ── Time-of-day analysis from niche top performers ────────────────────
+  const TIME_BUCKETS = ["overnight", "morning", "afternoon", "evening"] as const;
+  const toBucket = (publishedAt: string): string => {
+    const h = new Date(publishedAt).getUTCHours();
+    if (h >= 5 && h < 12) return "morning";
+    if (h >= 12 && h < 17) return "afternoon";
+    if (h >= 17 && h < 23) return "evening";
+    return "overnight";
+  };
+
+  let bestTimeOfDay: string | null = null;
+  let bestTimeMultiplier: number | null = null;
+
+  const nicheWithDate = nicheVideos.filter(v => v.publishedAt);
+  if (nicheWithDate.length >= 10) {
+    const sortedByViews = [...nicheWithDate].sort((a, b) => b.viewCount - a.viewCount);
+    const topSlice = sortedByViews.slice(0, Math.max(5, Math.floor(sortedByViews.length * 0.25)));
+    const topCounts = new Map<string, number>();
+    const allCounts = new Map<string, number>();
+    for (const b of TIME_BUCKETS) { topCounts.set(b, 0); allCounts.set(b, 0); }
+    for (const v of topSlice) {
+      const b = toBucket(v.publishedAt);
+      topCounts.set(b, (topCounts.get(b) ?? 0) + 1);
+    }
+    for (const v of nicheWithDate) {
+      const b = toBucket(v.publishedAt);
+      allCounts.set(b, (allCounts.get(b) ?? 0) + 1);
+    }
+    const totalTop = topSlice.length;
+    const totalAll = nicheWithDate.length;
+    let maxRatio = 1.3;
+    for (const b of TIME_BUCKETS) {
+      const topShare = (topCounts.get(b) ?? 0) / totalTop;
+      const allShare = (allCounts.get(b) ?? 0) / totalAll;
+      const ratio = allShare > 0.05 ? topShare / allShare : 0;
+      if (ratio > maxRatio && topShare >= 0.15) {
+        maxRatio = ratio;
+        bestTimeOfDay = b;
+        bestTimeMultiplier = Math.round(ratio * 10) / 10;
+      }
+    }
+  }
+
+  // ── Consistency analysis from producer's upload schedule ──────────────
+  const sortedTimes = recentVideos
+    .filter(v => v.publishedAt)
+    .map(v => new Date(v.publishedAt).getTime())
+    .sort((a, b) => a - b);
+
+  let uploadFrequency = 0;
+  let maxGapDays = 0;
+  let consistencyScore = 0;
+  let consistencyInsight = "";
+
+  if (sortedTimes.length === 0) {
+    consistencyInsight = "No uploads in the last 30 days.";
+  } else if (sortedTimes.length === 1) {
+    uploadFrequency = 0.25;
+    maxGapDays = 30;
+    consistencyScore = 5;
+    consistencyInsight = "Only 1 upload in the last 30 days — no schedule pattern yet.";
+  } else {
+    const gaps: number[] = [];
+    for (let i = 1; i < sortedTimes.length; i++) {
+      gaps.push(Math.round((sortedTimes[i] - sortedTimes[i - 1]) / (1000 * 60 * 60 * 24)));
+    }
+    maxGapDays = Math.max(...gaps);
+    const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+    uploadFrequency = Math.round((sortedTimes.length / 30) * 7 * 10) / 10;
+    const freqScore = Math.min(40, Math.round((Math.min(uploadFrequency, 3) / 3) * 40));
+    const variance = gaps.reduce((s, g) => s + Math.pow(g - avgGap, 2), 0) / gaps.length;
+    const stddev = Math.sqrt(variance);
+    const regularityScore = Math.min(60, Math.round(Math.max(0, 60 - stddev * 5)));
+    consistencyScore = freqScore + regularityScore;
+    const uniqueDays = new Set(sortedTimes.map(d => new Date(d).getDay())).size;
+    if (maxGapDays >= 14) {
+      consistencyInsight = `${sortedTimes.length} uploads across ${uniqueDays} different days with gaps up to ${maxGapDays} days between uploads — schedule is irregular.`;
+    } else if (maxGapDays >= 7) {
+      consistencyInsight = `${sortedTimes.length} uploads in 30 days with a ${maxGapDays}-day gap — some inconsistency in the schedule.`;
+    } else {
+      consistencyInsight = `${sortedTimes.length} uploads in 30 days with consistent spacing (max ${maxGapDays}-day gap) — solid schedule.`;
+    }
+  }
+
+  // ── Timing priority: what to recommend first ──────────────────────────
+  let timingPriority: "consistency" | "time_of_day" | "day_of_week";
+  if (uploadFrequency < 1 || maxGapDays > 14 || sortedTimes.length < 4) {
+    timingPriority = "consistency";
+  } else if (bestTimeOfDay !== null) {
+    timingPriority = "time_of_day";
+  } else {
+    timingPriority = "day_of_week";
+  }
+
+  const dayPct = Math.round((bestDayMultiplier - 1) * 100);
   const gap =
-    producerMostCommonDay !== bestDay.day
-      ? `You upload most on ${producerMostCommonDay} (${producerAvgViewsOnMostCommonDay.toLocaleString()} avg views) but ${bestDay.day} performs ${bestDayMultiplier}x better in your niche.`
-      : `You already upload on ${bestDay.day}, the strongest day in your niche (${bestDayMultiplier}x niche avg views).`;
+    timingPriority === "consistency"
+      ? `${consistencyInsight} Consistency — picking 2 fixed days and sticking to them — matters more than which day you choose.`
+      : producerMostCommonDay !== bestDay.day
+        ? `When you post on ${bestDay.day}, performance trends ${dayPct > 0 ? `+${dayPct}%` : "slightly"} higher — but consistency matters more than any single 'best day'.`
+        : `You already upload on ${bestDay.day}, the strongest day in your niche. Keep the consistent schedule.`;
 
   return {
     byDay,
@@ -332,6 +437,13 @@ function computeTimingIntelligence(
     producerMostCommonDay,
     producerAvgViewsOnMostCommonDay,
     gap,
+    bestTimeOfDay,
+    bestTimeMultiplier,
+    uploadFrequency,
+    maxGapDays,
+    consistencyScore,
+    consistencyInsight,
+    timingPriority,
   };
 }
 
@@ -529,8 +641,12 @@ Winner pattern: ${winnersVsLosers.winnerPattern.artistMentions.slice(0, 3).join(
 Loser pattern: avg ${winnersVsLosers.loserPattern.avgViews.toLocaleString()} views
 Key gap: ${winnersVsLosers.keyGap}
 
-Best upload day in niche: ${timingIntelligence.bestDayInNiche} (${timingIntelligence.bestDayMultiplier}x niche avg)
-Their most common day: ${timingIntelligence.producerMostCommonDay}
+Upload timing context:
+- Consistency: ${timingIntelligence.consistencyInsight ?? `${timingIntelligence.producerMostCommonDay} is most common upload day`}
+- Timing priority: ${timingIntelligence.timingPriority ?? "day_of_week"}
+- Best time of day in niche: ${timingIntelligence.bestTimeOfDay ?? "no clear pattern"}${timingIntelligence.bestTimeMultiplier ? ` (${timingIntelligence.bestTimeMultiplier}x)` : ""}
+- Best day in niche (tiebreaker only): ${timingIntelligence.bestDayInNiche} (${timingIntelligence.bestDayMultiplier}x niche avg)
+${(timingIntelligence.timingPriority ?? "day_of_week") === "consistency" ? `→ PRIORITY: Recommend establishing a consistent schedule first. The uploadDay field should say "2 consistent days/week" or similar — do NOT name a single best day as the headline.` : (timingIntelligence.timingPriority ?? "day_of_week") === "time_of_day" ? `→ Schedule is consistent. LEAD with time-of-day: post in the ${timingIntelligence.bestTimeOfDay} window. Mention ${timingIntelligence.bestDayInNiche} only as a tiebreaker.` : `→ Schedule is consistent. Mention ${timingIntelligence.bestDayInNiche} as a tiebreaker if choosing between days.`}
 
 Missing niche keywords they should add: ${missingKeywords.slice(0, 5).map((k) => k.keyword).join(", ") || "none identified"}
 
@@ -740,11 +856,13 @@ export function computeTallyScoreFromAnalysis(
   ].sort((a, b) => a.score / a.max - b.score / b.max)[0];
 
   const tipMap: Record<string, string> = {
-    "Avg Views vs Niche": `Your avg views are below the niche average — focus on the ${analysis.timingIntelligence.bestDayInNiche} upload timing and the missing keywords to close the gap.`,
+    "Avg Views vs Niche": `Your avg views are below the niche average — add missing niche keywords and maintain a consistent upload schedule to close the gap.`,
     "Title Strength": `Adopt the formula "${analysis.titleFormula.formula}" — ${analysis.titleFormula.missingElements.slice(0, 2).join(" and ")} are missing from most of your titles.`,
     "Description Depth": `Add ${analysis.descriptionDepth.missingElements.slice(0, 2).join(" and ")} to every video description to reach niche top-performer standards.`,
     "Tag Usage": `Add these missing niche keywords to your tags: ${analysis.missingKeywords.slice(0, 3).map((k) => k.keyword).join(", ")}.`,
-    "Upload Consistency": `You uploaded ${analysis.recentVideoCount} videos in the last 30 days — aim for at least 8 to maximize algorithmic reach.`,
+    "Upload Consistency": analysis.timingIntelligence.consistencyInsight
+      ? `${analysis.timingIntelligence.consistencyInsight} Aim for 2+ uploads per week to build algorithmic momentum.`
+      : `You uploaded ${analysis.recentVideoCount} videos in the last 30 days — aim for at least 8 to maximize algorithmic reach.`,
   };
 
   return {

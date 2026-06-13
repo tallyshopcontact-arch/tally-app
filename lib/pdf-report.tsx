@@ -390,6 +390,33 @@ function Page1({
             {deep.winnersVsLosers.keyGap}
           </Text>
         ) : null}
+        {/* Winner/loser title evidence */}
+        {deep && deep.winnersVsLosers.winners.length > 0 && (
+          <View style={{ marginTop: 10 }}>
+            <View style={{ flexDirection: "row", marginBottom: 6 }}>
+              {/* Winners */}
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={{ fontSize: 6, color: C.green, letterSpacing: 1, marginBottom: 4 }}>TOP VIDEOS</Text>
+                {deep.winnersVsLosers.winners.slice(0, 2).map((v, i) => (
+                  <View key={i} style={{ marginBottom: 4 }}>
+                    <Text style={{ fontSize: 7, color: C.white, lineHeight: 1.4 }}>{truncate(v.title, 55)}</Text>
+                    <Text style={{ fontSize: 6, color: C.green }}>{fmt(v.views)} views</Text>
+                  </View>
+                ))}
+              </View>
+              {/* Losers */}
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 6, color: C.red, letterSpacing: 1, marginBottom: 4 }}>LOWEST VIDEOS</Text>
+                {deep.winnersVsLosers.losers.slice(0, 2).map((v, i) => (
+                  <View key={i} style={{ marginBottom: 4 }}>
+                    <Text style={{ fontSize: 7, color: C.muted, lineHeight: 1.4 }}>{truncate(v.title, 55)}</Text>
+                    <Text style={{ fontSize: 6, color: C.red }}>{fmt(v.views)} views</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Footer */}
@@ -500,25 +527,37 @@ function Page2({
           <Text style={s.sectionLabel}>TIMING INTELLIGENCE</Text>
           {timing ? (
             <View>
+              {/* Consistency — lead recommendation */}
+              {"consistencyInsight" in timing && timing.consistencyInsight ? (
+                <View style={[s.insightCard, { borderColor: (timing as { consistencyScore?: number }).consistencyScore && (timing as { consistencyScore?: number }).consistencyScore! >= 60 ? C.green : C.amber }]}>
+                  <Text style={s.insightTitle}>Upload consistency</Text>
+                  <Text style={s.insightBody}>{(timing as { consistencyInsight?: string }).consistencyInsight}</Text>
+                  <Text style={{ fontSize: 7, color: C.amber, marginTop: 4, lineHeight: 1.4 }}>
+                    Pick 2 fixed upload days and stick to them — consistency matters more than day choice.
+                  </Text>
+                </View>
+              ) : null}
+              {/* Time of day — if pattern exists */}
+              {"bestTimeOfDay" in timing && timing.bestTimeOfDay ? (
+                <View style={s.insightCard}>
+                  <Text style={s.insightTitle}>Best time of day in niche</Text>
+                  <Text style={{ fontSize: 12, fontFamily: "Helvetica-Bold", color: C.green, marginBottom: 2 }}>
+                    {(timing as { bestTimeOfDay?: string }).bestTimeOfDay}
+                  </Text>
+                  <Text style={s.insightBody}>
+                    Top performers post in the {(timing as { bestTimeOfDay?: string }).bestTimeOfDay} — {(timing as { bestTimeMultiplier?: number }).bestTimeMultiplier}x more likely in top quartile
+                  </Text>
+                </View>
+              ) : null}
+              {/* Day of week — tiebreaker only */}
               <View style={s.insightCard}>
-                <Text style={s.insightTitle}>Best day in your niche</Text>
-                <Text style={{ fontSize: 14, fontFamily: "Helvetica-Bold", color: C.green, marginBottom: 2 }}>
+                <Text style={s.insightTitle}>Day-of-week tiebreaker</Text>
+                <Text style={{ fontSize: 12, fontFamily: "Helvetica-Bold", color: C.white, marginBottom: 2 }}>
                   {timing.bestDayInNiche}
                 </Text>
-                <Text style={s.insightBody}>{timing.bestDayMultiplier}x niche avg views</Text>
-              </View>
-              <View style={s.insightCard}>
-                <Text style={s.insightTitle}>Your most common upload day</Text>
-                <Text style={{ fontSize: 14, fontFamily: "Helvetica-Bold", color: C.white, marginBottom: 2 }}>
-                  {timing.producerMostCommonDay}
-                </Text>
                 <Text style={s.insightBody}>
-                  {timing.producerAvgViewsOnMostCommonDay.toLocaleString()} avg views on that day
+                  {timing.bestDayMultiplier}x niche avg — use as a tiebreaker when choosing between days, not as a primary strategy.
                 </Text>
-              </View>
-              <View style={[s.insightCard, { borderColor: timing.producerMostCommonDay === timing.bestDayInNiche ? C.green : C.amber }]}>
-                <Text style={s.insightTitle}>The gap</Text>
-                <Text style={s.insightBody}>{timing.gap}</Text>
               </View>
             </View>
           ) : (
