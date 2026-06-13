@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
-import { ArrowUpRight, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronUp, Loader2, Plus, RefreshCw, X } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -14,13 +14,25 @@ interface ScoreBreakdownItem {
   max: number;
 }
 
+interface StealThis {
+  tactic: string;
+  reason: string;
+}
+
 interface LastData {
   videos_this_month: number;
   top_video: { title: string; views: number; videoId: string } | null;
   avg_views: number;
+  niche_avg_views?: number;
   tally_score?: number;
   score_breakdown?: ScoreBreakdownItem[];
+  steal_this?: StealThis[];
+  // legacy field from before deep analysis
   ai_insight?: string;
+  timing?: { best_day: string | null; best_day_multiplier: number };
+  title_formula?: string;
+  top_artists?: string[];
+  key_gap?: string;
   pulled_at: string;
 }
 
@@ -40,6 +52,36 @@ function formatNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
+}
+
+// ── Steal This section ────────────────────────────────────────────────────────
+
+function StealThisSection({ items }: { items: StealThis[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="border border-[#1e2a1e]">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-[#0d150d] transition-colors cursor-pointer text-left"
+      >
+        <span className="text-xs text-[#4ade80] uppercase tracking-widest font-medium">
+          Steal this ({items.length} tactics)
+        </span>
+        {open ? <ChevronUp className="w-4 h-4 text-[#4ade80]" /> : <ChevronDown className="w-4 h-4 text-[#4ade80]" />}
+      </button>
+      {open && (
+        <div className="border-t border-[#1e2a1e] divide-y divide-[#1a1a1a]">
+          {items.map((item, i) => (
+            <div key={i} className="px-4 py-4">
+              <p className="text-white text-sm font-medium mb-1">{item.tactic}</p>
+              <p className="text-[#94a3b8] text-xs leading-relaxed">{item.reason}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -196,7 +238,7 @@ export default function CompetitorsPage() {
                     className="flex items-center gap-2 bg-white text-black text-sm font-semibold px-5 py-3 hover:bg-[#e8e8e8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                   >
                     {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    {adding ? "Adding..." : "Add"}
+                    {adding ? "Analyzing..." : "Add"}
                   </button>
                 </div>
                 {addError && (
@@ -247,7 +289,7 @@ export default function CompetitorsPage() {
                   </div>
 
                   {ld ? (
-                    <div className="p-6 space-y-5">
+                    <div className="p-6 space-y-4">
                       {/* Stats grid */}
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-[#1a1a1a]">
                         <div className="bg-[#0a0a0a] px-4 py-4">
@@ -286,6 +328,53 @@ export default function CompetitorsPage() {
                         </div>
                       </div>
 
+                      {/* Intelligence row: title formula + timing */}
+                      {(ld.title_formula || ld.timing?.best_day) && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-[#1a1a1a]">
+                          {ld.title_formula && (
+                            <div className="bg-[#0a0a0a] px-4 py-4">
+                              <p className="text-xs text-[#475569] uppercase tracking-widest mb-1.5">Title Formula</p>
+                              <p className="text-white text-sm font-medium leading-snug">{ld.title_formula}</p>
+                            </div>
+                          )}
+                          {ld.timing?.best_day && (
+                            <div className="bg-[#0a0a0a] px-4 py-4">
+                              <p className="text-xs text-[#475569] uppercase tracking-widest mb-1.5">Best Upload Day</p>
+                              <p className="text-white text-sm font-medium">
+                                {ld.timing.best_day}
+                                {ld.timing.best_day_multiplier > 1 && (
+                                  <span className="text-[#4ade80] text-xs ml-2">
+                                    {ld.timing.best_day_multiplier}x more views
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Top artists */}
+                      {ld.top_artists && ld.top_artists.length > 0 && (
+                        <div className="flex items-center gap-3">
+                          <p className="text-xs text-[#475569] uppercase tracking-widest shrink-0">Top Artists</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ld.top_artists.map((a) => (
+                              <span key={a} className="text-xs text-[#94a3b8] bg-[#0d0d0d] border border-[#1e1e1e] px-2 py-0.5">
+                                {a}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Key gap */}
+                      {ld.key_gap && (
+                        <div className="border border-[#1e1e1e] px-4 py-3">
+                          <p className="text-xs text-[#475569] uppercase tracking-widest mb-1">Key Gap vs Top Performers</p>
+                          <p className="text-[#94a3b8] text-sm leading-relaxed">{ld.key_gap}</p>
+                        </div>
+                      )}
+
                       {/* Top video */}
                       {ld.top_video && (
                         <div className="border border-[#1e1e1e] px-4 py-4">
@@ -308,7 +397,13 @@ export default function CompetitorsPage() {
                         </div>
                       )}
 
-                      {ld.ai_insight && (
+                      {/* Steal this */}
+                      {ld.steal_this && ld.steal_this.length > 0 && (
+                        <StealThisSection items={ld.steal_this} />
+                      )}
+
+                      {/* Legacy AI insight (shown if no steal_this) */}
+                      {!ld.steal_this && ld.ai_insight && (
                         <div className="border border-[#60a5fa]/20 bg-[#0a0f1a] px-4 py-3">
                           <p className="text-xs text-[#60a5fa] uppercase tracking-widest mb-1">TALLY Insight</p>
                           <p className="text-[#94a3b8] text-sm leading-relaxed">{ld.ai_insight}</p>
@@ -322,7 +417,6 @@ export default function CompetitorsPage() {
                   ) : (
                     <div className="p-6 text-center">
                       <div className="flex items-center justify-center gap-2 text-[#475569] text-sm">
-                        <Trash2 className="w-3.5 h-3.5" />
                         No data yet — click Refresh All to pull stats
                       </div>
                     </div>

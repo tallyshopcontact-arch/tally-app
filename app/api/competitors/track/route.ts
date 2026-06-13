@@ -1,97 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAuthClient } from "@/lib/supabase-server";
-import { extractChannelId, getChannelStats, getRecentVideos } from "@/lib/youtube";
-import type { VideoData } from "@/lib/youtube";
+import { extractChannelId } from "@/lib/youtube";
 import type { NicheVideo } from "@/lib/keywords";
-import { anthropic } from "@/lib/anthropic";
+import { analyzeChannel, computeTallyScoreFromAnalysis } from "@/lib/channel-analysis";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/sanitize";
 
-interface ScoreBreakdownItem {
-  category: string;
-  score: number;
-  max: number;
+interface StealThis {
+  tactic: string;
+  reason: string;
 }
 
-function calcCompetitorTallyScore(
-  videos: VideoData[],
-  videosThisMonth: number,
-  nicheAvgViews: number
-): { score: number; breakdown: ScoreBreakdownItem[] } {
-  if (videos.length === 0) return { score: 0, breakdown: [] };
+function buildStealThis(
+  analysis: Awaited<ReturnType<typeof analyzeChannel>>,
+  producerGenre: string
+): StealThis[] {
+  const items: StealThis[] = [];
 
-  const avgViews = Math.round(videos.reduce((s, v) => s + v.viewCount, 0) / videos.length);
-  const avgTitleWords = videos.reduce((s, v) => s + v.title.split(/\s+/).filter(Boolean).length, 0) / videos.length;
-  const avgDescLen = videos.reduce((s, v) => s + (v.description?.length ?? 0), 0) / videos.length;
-  const avgTags = videos.reduce((s, v) => s + (v.tags?.length ?? 0), 0) / videos.length;
-
-  // Views vs niche (30pts)
-  let viewScore = 0;
-  if (nicheAvgViews > 0) {
-    const ratio = avgViews / nicheAvgViews;
-    viewScore = ratio >= 2 ? 30 : ratio >= 1 ? 20 : ratio >= 0.5 ? 10 : 0;
-  } else {
-    viewScore = avgViews >= 10000 ? 30 : avgViews >= 5000 ? 20 : avgViews >= 1000 ? 10 : 0;
-  }
-
-  // Title length (20pts)
-  const titleScore = avgTitleWords >= 9 && avgTitleWords <= 12 ? 20
-    : avgTitleWords >= 7 ? 12
-    : avgTitleWords >= 5 ? 6 : 0;
-
-  // Description length (20pts)
-  const descScore = avgDescLen > 300 ? 20 : avgDescLen > 150 ? 12 : avgDescLen > 50 ? 6 : 0;
-
-  // Tags (15pts)
-  const tagScore = avgTags > 8 ? 15 : avgTags > 4 ? 10 : avgTags > 0 ? 5 : 0;
-
-  // Upload frequency (15pts)
-  const freqScore = videosThisMonth >= 8 ? 15 : videosThisMonth >= 4 ? 10 : videosThisMonth >= 2 ? 5 : 0;
-
-  return {
-    score: Math.min(100, viewScore + titleScore + descScore + tagScore + freqScore),
-    breakdown: [
-      { category: "Views vs Niche", score: viewScore, max: 30 },
-      { category: "Title Length", score: titleScore, max: 20 },
-      { category: "Description", score: descScore, max: 20 },
-      { category: "Tags", score: tagScore, max: 15 },
-      { category: "Upload Frequency", score: freqScore, max: 15 },
-    ],
-  };
-}
-
-async function generateCompetitorInsight(
-  channelName: string,
-  subscriberCount: number,
-  videosThisMonth: number,
-  topVideo: { title: string; views: number } | null,
-  tallyScore: number,
-  breakdown: ScoreBreakdownItem[],
-  producerGenre: string | null
-): Promise<string> {
-  try {
-    const breakdownStr = breakdown.map(b => `${b.category}: ${b.score}/${b.max}`).join(", ");
-    const msg = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 200,
-      system: "You are a YouTube analyst for beat producers. Output only a plain-text insight sentence — no JSON, no markdown.",
-      messages: [{
-        role: "user",
-        content: `Give a 1-2 sentence insight about this competitor beat channel for a ${producerGenre ?? "hip hop"} producer to act on.
-
-Channel: ${channelName} (${subscriberCount.toLocaleString()} subscribers)
-TALLY Score: ${tallyScore}/100
-Score breakdown: ${breakdownStr}
-Videos this month: ${videosThisMonth}
-Top video: "${topVideo?.title ?? "N/A"}" (${(topVideo?.views ?? 0).toLocaleString()} views)
-
-Focus on which score categories they're strongest in and what the producer could learn or do differently. Be specific about title strategy, upload volume, or description quality.`,
-      }],
+  // Winner title formula
+  if (analysis.titleFormula.formula) {
+    items.push({
+      tactic: `Title formula: "${analysis.titleFormula.formula}"`,
+      reason: `Their top videos use this exact structure — their formula match score: ${analysis.titleFormula.producerScore}/100`,
     });
-    return msg.content[0].type === "text" ? msg.content[0].text.trim() : "";
-  } catch {
-    return "";
   }
+
+  // Best upload day
+  if (analysis.timingIntelligence.bestDayInNiche) {
+    items.push({
+      tactic: `Upload on ${analysis.timingIntelligence.bestDayInNiche}`,
+      reason: `They get ${analysis.timingIntelligence.bestDayMultiplier}x more views on that day`,
+    });
+  }
+
+  // Top artist they target
+  const topArtistAssoc = analysis.artistAssociations
+    .filter((a) => a.videoCount > 0)
+    .sort((a, b) => b.avgViews - a.avgViews)[0];
+  if (topArtistAssoc) {
+    items.push({
+      tactic: `Make beats for ${topArtistAssoc.name}`,
+      reason: `Their "${topArtistAssoc.name}" videos average ${topArtistAssoc.avgViews.toLocaleString()} views — highest on their channel`,
+    });
+  }
+
+  // Description depth
+  const descTip =
+    analysis.descriptionDepth.producerAvgWordCount > 40
+      ? `Write longer descriptions (they average ${analysis.descriptionDepth.producerAvgWordCount} words)`
+      : null;
+  if (descTip) {
+    items.push({
+      tactic: descTip,
+      reason: `Their detailed descriptions help with YouTube search — their score: ${analysis.descriptionDepth.score}/100`,
+    });
+  }
+
+  // Missing keyword opportunity
+  const topMissing = analysis.missingKeywords[0];
+  if (topMissing) {
+    items.push({
+      tactic: `Add "${topMissing.keyword}" to your tags`,
+      reason: `This keyword appears in ${topMissing.nicheFrequency} of their top videos but you're not using it in your ${producerGenre} uploads`,
+    });
+  }
+
+  return items.slice(0, 4);
 }
 
 export async function POST(req: NextRequest) {
@@ -120,9 +94,8 @@ export async function POST(req: NextRequest) {
 
   const now = new Date();
 
-  // Fetch profile genre + producer's niche data for view comparison
   const [profileRes, channelDataRes] = await Promise.all([
-    supabase.from("profiles").select("genre").eq("id", user.id).single(),
+    supabase.from("profiles").select("genre, top_artist_1, top_artist_2, top_artist_3").eq("id", user.id).single(),
     supabase.from("channel_data")
       .select("niche_data")
       .eq("producer_id", user.id)
@@ -131,53 +104,57 @@ export async function POST(req: NextRequest) {
       .single(),
   ]);
 
+  const producerGenre = profileRes.data?.genre ?? "hip hop";
   const nicheData: NicheVideo[] = channelDataRes.data?.niche_data ?? [];
   const nicheAvgViews = nicheData.length > 0
     ? Math.round(nicheData.reduce((s, v) => s + v.viewCount, 0) / nicheData.length)
     : 0;
 
+  // Run deep analysis on the competitor channel
+  let analysis: Awaited<ReturnType<typeof analyzeChannel>>;
+  try {
+    analysis = await analyzeChannel(channelId, "", producerGenre, [], {
+      preloadedNicheVideos: nicheData.length > 0 ? nicheData : undefined,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Failed to analyze competitor channel" },
+      { status: 500 }
+    );
+  }
 
-  const [stats, recentVideos] = await Promise.all([
-    getChannelStats(channelId),
-    getRecentVideos(channelId, 20),
-  ]);
+  const tallyResult = computeTallyScoreFromAnalysis(analysis);
 
-
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const videosThisMonth = recentVideos.filter(v => new Date(v.publishedAt) >= monthStart);
-
-  const topVideo = recentVideos.reduce<typeof recentVideos[0] | null>(
-    (best, v) => (!best || v.viewCount > best.viewCount ? v : best),
+  const topVideo = analysis.recentVideos.reduce<typeof analysis.recentVideos[0] | null>(
+    (best, v) => (!best || v.views > best.views ? v : best),
     null
   );
-
-  const avgViews = recentVideos.length > 0
-    ? Math.round(recentVideos.reduce((s, v) => s + v.viewCount, 0) / recentVideos.length)
-    : 0;
-
   const topVideoData = topVideo
-    ? { title: topVideo.title, views: topVideo.viewCount, videoId: topVideo.videoId }
+    ? { title: topVideo.title, views: topVideo.views, videoId: topVideo.videoId }
     : null;
 
-  const competitorScore = calcCompetitorTallyScore(recentVideos, videosThisMonth.length, nicheAvgViews);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const videosThisMonth = analysis.recentVideos.filter(
+    (v) => new Date(v.publishedAt) >= monthStart
+  ).length;
 
-  const insight = await generateCompetitorInsight(
-    stats.channelName,
-    stats.subscriberCount,
-    videosThisMonth.length,
-    topVideoData,
-    competitorScore.score,
-    competitorScore.breakdown,
-    profileRes.data?.genre ?? null
-  );
+  const stealThis = buildStealThis(analysis, producerGenre);
 
   const lastData = {
-    videos_this_month: videosThisMonth.length,
+    videos_this_month: videosThisMonth,
     top_video: topVideoData,
-    avg_views: avgViews,
-    tally_score: competitorScore.score,
-    score_breakdown: competitorScore.breakdown,
-    ai_insight: insight,
+    avg_views: analysis.avgViewsLast30Days,
+    niche_avg_views: nicheAvgViews,
+    tally_score: tallyResult.total,
+    score_breakdown: tallyResult.breakdown,
+    steal_this: stealThis,
+    timing: {
+      best_day: analysis.timingIntelligence.bestDayInNiche,
+      best_day_multiplier: analysis.timingIntelligence.bestDayMultiplier,
+    },
+    title_formula: analysis.titleFormula.formula,
+    top_artists: analysis.artistAssociations.slice(0, 3).map((a) => a.name),
+    key_gap: analysis.winnersVsLosers.keyGap,
     pulled_at: now.toISOString(),
   };
 
@@ -193,8 +170,8 @@ export async function POST(req: NextRequest) {
       .from("competitors")
       .update({
         channel_url: channel_url.trim(),
-        channel_name: stats.channelName,
-        subscriber_count: stats.subscriberCount,
+        channel_name: analysis.channelName,
+        subscriber_count: analysis.subscriberCount,
         last_data: lastData,
       })
       .eq("id", existing.id);
@@ -203,17 +180,17 @@ export async function POST(req: NextRequest) {
       producer_id: user.id,
       channel_url: channel_url.trim(),
       channel_id: channelId,
-      channel_name: stats.channelName,
-      subscriber_count: stats.subscriberCount,
+      channel_name: analysis.channelName,
+      subscriber_count: analysis.subscriberCount,
       last_data: lastData,
     });
   }
 
   return NextResponse.json({
     channel_id: channelId,
-    channel_name: stats.channelName,
-    subscriber_count: stats.subscriberCount,
-    total_views: stats.totalViews,
+    channel_name: analysis.channelName,
+    subscriber_count: analysis.subscriberCount,
+    total_views: analysis.totalViews,
     last_data: lastData,
   });
 }

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { useSubscription } from "@/lib/hooks/useSubscription";
 import { UpgradePrompt } from "@/components/UpgradePrompt";
-import { ArrowLeft, ArrowRight, Check, Copy, Lightbulb, Clock, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Copy, Lightbulb, Clock, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +47,15 @@ interface ThumbnailAnalysis {
   recommendation: string;
 }
 
+interface AnalysisContext {
+  title_1_reason: string;
+  title_2_reason: string;
+  title_3_reason: string;
+  keywords_reason: string;
+  upload_time_reason: string;
+  key_gap: string;
+}
+
 interface GeneratedKit {
   id?: string;
   created_at?: string;
@@ -59,6 +68,7 @@ interface GeneratedKit {
   niche_tip: string;
   niche_thumbnails?: NicheThumbnail[];
   thumbnail_analysis?: ThumbnailAnalysis;
+  analysis_context?: AnalysisContext;
 }
 
 interface RecentKit {
@@ -163,6 +173,55 @@ function ThumbnailInspiration({
   );
 }
 
+// ── Why these recommendations ─────────────────────────────────────────────────
+
+function WhySection({ ctx }: { ctx: AnalysisContext }) {
+  const [open, setOpen] = useState(false);
+
+  const rows: { label: string; value: string }[] = [
+    { label: "Title 1 — Winner Pattern", value: ctx.title_1_reason },
+    { label: "Title 2 — Niche Formula", value: ctx.title_2_reason },
+    { label: "Title 3 — Untapped Artist", value: ctx.title_3_reason },
+    { label: "Keywords in tags", value: ctx.keywords_reason },
+    { label: "Upload timing", value: ctx.upload_time_reason },
+  ];
+
+  return (
+    <div className="border border-[#1e2a1e]">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#0d150d] transition-colors cursor-pointer text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Lightbulb className="w-4 h-4 text-[#4ade80] shrink-0" />
+          <span className="text-xs text-[#4ade80] uppercase tracking-widest font-medium">Why these recommendations</span>
+        </div>
+        {open ? (
+          <ChevronUp className="w-4 h-4 text-[#4ade80]" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-[#4ade80]" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-[#1e2a1e] divide-y divide-[#1a1a1a]">
+          {ctx.key_gap && (
+            <div className="px-5 py-4 bg-[#0d150d]">
+              <p className="text-[10px] text-[#4ade80] uppercase tracking-widest mb-1.5">Key Gap Identified</p>
+              <p className="text-white text-sm leading-relaxed">{ctx.key_gap}</p>
+            </div>
+          )}
+          {rows.map((r) => (
+            <div key={r.label} className="px-5 py-4 flex gap-4">
+              <p className="text-[#4ade80] text-[10px] uppercase tracking-widest shrink-0 w-36 pt-0.5 leading-tight">{r.label}</p>
+              <p className="text-[#cbd5e1] text-xs leading-relaxed">{r.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Output display ────────────────────────────────────────────────────────────
 
 function KitOutput({ kit }: { kit: GeneratedKit }) {
@@ -178,6 +237,9 @@ function KitOutput({ kit }: { kit: GeneratedKit }) {
           </div>
         </div>
       )}
+
+      {/* Why these recommendations */}
+      {kit.analysis_context && <WhySection ctx={kit.analysis_context} />}
 
       {/* Titles */}
       <div>

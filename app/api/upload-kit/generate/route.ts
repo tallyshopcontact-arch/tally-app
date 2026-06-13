@@ -7,6 +7,7 @@ import { scoreTitle } from "@/lib/title-scorer";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sanitizeInput } from "@/lib/sanitize";
 import type { NicheVideo } from "@/lib/keywords";
+import type { DeepChannelAnalysis } from "@/lib/channel-analysis";
 
 interface ThumbnailNote {
   videoId: string;
@@ -35,13 +36,9 @@ async function analyzeThumbnails(
       .map((v, i) => `${i + 1}. "${v.title}" — ${(v.viewCount / 1000).toFixed(0)}K views`)
       .join("\n");
 
-    const beatContext = [
-      ...vibes,
-      genre,
-    ].filter(Boolean).join(", ");
-    const artistContext = artists.length > 0
-      ? ` with a ${artists.slice(0, 2).join("/")} influence`
-      : "";
+    const beatContext = [...vibes, genre].filter(Boolean).join(", ");
+    const artistContext =
+      artists.length > 0 ? ` with a ${artists.slice(0, 2).join("/")} influence` : "";
 
     const analysisPrompt = `I'm showing you the top ${topVideos.length} highest-performing YouTube beat video thumbnails from the ${genre} niche, ordered by view count (highest first):
 
@@ -109,10 +106,6 @@ ALL titles MUST score 75+ using this exact system:
 • Year 2026 present = 10pts
 
 Minimum path to 75+: word count 9–12 + artist + beat name in quotes + year = 75pts.
-Every space-separated token counts as a word (including "|", "x", "2026").
-
-Template A (9 words, 75pts): ${genre} Type Beat ${beatRef} | ${artistRef} 2026
-Template B (11 words, 85pts): Dark ${genre} Type Beat ${beatRef} | ${artistRef} | ${shortKws[0] ?? genre} 2026
 
 Respond ONLY with valid JSON array — no markdown:
 [{"title":"<title>","reason":"<why this scores 75+>"},{"title":"<title>","reason":"<reason>"},{"title":"<title>","reason":"<reason>"}]`;
@@ -121,7 +114,8 @@ Respond ONLY with valid JSON array — no markdown:
     const msg = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 500,
-      system: "You are a YouTube SEO expert for beat producers. Output only a valid JSON array with no markdown or code blocks.",
+      system:
+        "You are a YouTube SEO expert for beat producers. Output only a valid JSON array with no markdown or code blocks.",
       messages: [{ role: "user", content: prompt }],
     });
     const raw = msg.content[0].type === "text" ? msg.content[0].text.trim() : "[]";
@@ -132,6 +126,71 @@ Respond ONLY with valid JSON array — no markdown:
     console.error("[upload-kit/generate] generateStrongTitles failed:", e);
     return [];
   }
+}
+
+// Build context block from deep analysis for the main Claude prompt
+function buildAnalysisBlock(analysis: DeepChannelAnalysis | null, producerArtists: string[]): string {
+  if (!analysis) return "";
+
+  const winnerArtists = analysis.winnersVsLosers.winnerPattern.artistMentions.slice(0, 2);
+  const missingKws = analysis.missingKeywords.slice(0, 5).map((k) => k.keyword);
+  const untappedArtists = analysis.artistAssociations
+    .filter((a) => a.isTrending && a.videoCount === 0)
+    .slice(0, 2)
+    .map((a) => a.name);
+
+  // Fall back to niche trending not in producer's profile artists
+  const allTrending = analysis.artistAssociations.filter((a) => a.isTrending).slice(0, 3).map((a) => a.name);
+  const trendingNotUsed = allTrending.filter(
+    (name) => !producerArtists.some((pa) => pa.toLowerCase() === name.toLowerCase())
+  );
+
+  return `
+PRODUCER'S CHANNEL ANALYSIS (use this to make the 3 titles different and data-driven):
+- Winner pattern: Their top videos average ${analysis.winnersVsLosers.winnerPattern.avgViews.toLocaleString()} views, typically feature artists: ${winnerArtists.join(", ") || "not clear yet"}
+- Key gap: ${analysis.winnersVsLosers.keyGap}
+- Title formula used by their niche top performers: ${analysis.titleFormula.formula}
+- Missing keywords (NOT in their last 30 videos but trending in niche): ${missingKws.join(", ") || "none identified"}
+- Trending artists they're NOT making beats for: ${(untappedArtists.length > 0 ? untappedArtists : trendingNotUsed).join(", ") || "none identified"}
+- Best upload day in their niche: ${analysis.timingIntelligence.bestDayInNiche}
+
+TITLE STRATEGY (each title must use a DIFFERENT strategy):
+Title 1 — WINNER PATTERN: mimic what their own best-performing videos do (artist: ${winnerArtists[0] || producerArtists[0] || "artist"}, winning title structure)
+Title 2 — NICHE FORMULA: use the exact formula: ${analysis.titleFormula.formula}
+Title 3 — UNTAPPED OPPORTUNITY: use a trending artist they're NOT currently targeting: ${(untappedArtists[0] || trendingNotUsed[0] || producerArtists[1] || "trending artist")}
+
+REQUIRED TAGS: Include these missing niche keywords in the tags array: ${missingKws.join(", ")}`;
+}
+
+function buildAnalysisContext(
+  analysis: DeepChannelAnalysis | null,
+  finalTitles: Array<{ title: string; reason: string }>,
+  missingKwsInTags: string[]
+): Record<string, string> | null {
+  if (!analysis) return null;
+
+  const winnerArtist = analysis.winnersVsLosers.winnerPattern.artistMentions[0];
+  const winnerAvg = analysis.winnersVsLosers.winnerPattern.avgViews;
+  const loserAvg = analysis.winnersVsLosers.loserPattern.avgViews;
+  const multiplier =
+    loserAvg > 0 ? `${(winnerAvg / loserAvg).toFixed(1)}x` : "significantly more";
+
+  return {
+    title_1_reason: winnerArtist
+      ? `Your "${winnerArtist}" type beats average ${winnerAvg.toLocaleString()} views — ${multiplier} more than your other uploads. This title mirrors that winning pattern.`
+      : `This follows your channel's proven winner structure (avg ${winnerAvg.toLocaleString()} views).`,
+    title_2_reason: `${analysis.titleFormula.formula} — the formula used by top videos in your niche. Your current title score vs this formula: ${analysis.titleFormula.producerScore}/100.`,
+    title_3_reason:
+      analysis.artistAssociations.filter((a) => a.isTrending && a.videoCount === 0).length > 0
+        ? `This artist is trending in your niche but you haven't made beats for them yet — an untapped opportunity.`
+        : `This targets an underexplored artist in your niche who appears in top-performing videos.`,
+    keywords_reason:
+      missingKwsInTags.length > 0
+        ? `Added ${missingKwsInTags.slice(0, 3).join(", ")} — these keywords are used by top niche videos but missing from your last 30 uploads.`
+        : "Tags include top niche keywords.",
+    upload_time_reason: `${analysis.timingIntelligence.bestDayInNiche} is the strongest upload day in your niche — ${analysis.timingIntelligence.bestDayMultiplier}x average views vs other days.`,
+    key_gap: analysis.winnersVsLosers.keyGap,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -179,24 +238,40 @@ export async function POST(req: NextRequest) {
     .single();
 
   const now = new Date();
-  const { data: channelData } = await supabase
-    .from("channel_data")
-    .select("niche_data")
-    .eq("producer_id", user.id)
-    .eq("month", now.getMonth() + 1)
-    .eq("year", now.getFullYear())
-    .single();
 
-  const nicheData: NicheVideo[] = channelData?.niche_data ?? [];
+  // Load niche data and latest report's deep_analysis in parallel
+  const [channelDataRes, latestReportRes] = await Promise.all([
+    supabase
+      .from("channel_data")
+      .select("niche_data")
+      .eq("producer_id", user.id)
+      .eq("month", now.getMonth() + 1)
+      .eq("year", now.getFullYear())
+      .single(),
+    supabase
+      .from("reports")
+      .select("deep_analysis")
+      .eq("producer_id", user.id)
+      .order("year", { ascending: false })
+      .order("month", { ascending: false })
+      .limit(1)
+      .single(),
+  ]);
+
+  const nicheData: NicheVideo[] = channelDataRes.data?.niche_data ?? [];
   const topKeywords = extractKeywords(nicheData).slice(0, 12).map((k) => k.tag);
+  const deepAnalysis: DeepChannelAnalysis | null =
+    (latestReportRes.data?.deep_analysis as DeepChannelAnalysis | null) ?? null;
 
   const artistsList = [artist_1, artist_2, artist_3].filter((a): a is string => !!a?.trim());
-  const artistList =
-    artistsList.length > 0
-      ? artistsList.join(", ")
-      : [profile?.top_artist_1, profile?.top_artist_2, profile?.top_artist_3]
-          .filter(Boolean)
-          .join(", ") || "various artists";
+  const profileArtists = [
+    profile?.top_artist_1,
+    profile?.top_artist_2,
+    profile?.top_artist_3,
+  ].filter((a): a is string => Boolean(a));
+  const effectiveArtists =
+    artistsList.length > 0 ? artistsList : profileArtists;
+  const artistList = effectiveArtists.join(", ") || "various artists";
 
   const resolvedGenre = genre || profile?.genre || "hip hop";
   const producerName = profile?.name || "Producer";
@@ -209,7 +284,6 @@ export async function POST(req: NextRequest) {
     ? topKeywords.join(", ")
     : `${resolvedGenre} type beat, free type beat`;
 
-  // Profile genre niche videos for prompt context (title patterns + keywords)
   const topNicheVideos = [...nicheData]
     .sort((a, b) => b.viewCount - a.viewCount)
     .slice(0, 5);
@@ -237,6 +311,9 @@ export async function POST(req: NextRequest) {
     .map((k) => `#${k.replace(/\s+/g, "")}`)
     .join(" ");
 
+  // Build the deep analysis context block
+  const analysisBlock = buildAnalysisBlock(deepAnalysis, effectiveArtists);
+
   const prompt = `You are an expert YouTube strategist who has studied thousands of beat producer channels. Generate a complete upload kit for the following beat.
 
 Beat details:
@@ -254,6 +331,7 @@ ${nicheVideoContext}
 
 Hot niche keywords from this producer's heat map (top 12 by frequency):
 ${keywordsStr}
+${analysisBlock}
 
 DESCRIPTION FORMAT — generate the description in this EXACT format (use real newlines, copy the structure precisely):
 
@@ -288,9 +366,9 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
 {
   "beat_name_suggestion": "string (ONLY include if beat name was not provided; otherwise omit this field)",
   "titles": [
-    {"title": "9-12 word YouTube title with beat name in quotes, artist reference, year 2026", "reason": "1 sentence on why this title works for SEO and clicks in this niche"},
-    {"title": "alternative title option", "reason": "reason"},
-    {"title": "third title option", "reason": "reason"}
+    {"title": "WINNER PATTERN — title following producer's own proven structure", "reason": "cite the data that informed this title strategy"},
+    {"title": "NICHE FORMULA — title using the exact top-performer formula", "reason": "cite the formula and why it works"},
+    {"title": "UNTAPPED OPPORTUNITY — title targeting a trending artist they don't make beats for", "reason": "cite the trending artist data"}
   ],
   "description": "Full description following the EXACT format above. Use \\n for line breaks within the JSON string.",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8", "tag9", "tag10", "tag11", "tag12"],
@@ -307,7 +385,7 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
   "niche_tip": "One specific, actionable tip based on the niche data above — what is working right now in this exact niche"
 }`;
 
-  // Always use artist-first thumbnail search; run concurrently with Claude
+  // Run Claude + thumbnail search concurrently
   const [kitMsg, thumbnailNicheVideos] = await Promise.all([
     anthropic.messages.create({
       model: "claude-sonnet-4-6",
@@ -328,30 +406,35 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
 
   let generatedKit: Record<string, unknown>;
   try {
-    const raw = kitMsg.content[0].type === "text" ? kitMsg.content[0].text.trim() : "";
-    const clean = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    const rawText = kitMsg.content[0].type === "text" ? kitMsg.content[0].text.trim() : "";
+    const clean = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
     generatedKit = JSON.parse(clean);
   } catch (e) {
     console.error("[upload-kit/generate] Claude parse failed:", e);
     return NextResponse.json({ error: "Failed to generate kit" }, { status: 500 });
   }
 
-  // Generate thumbnail analysis with genre + artists + vibes context
-  const thumbnailAnalysis = await analyzeThumbnails(top5ForAnalysis, resolvedGenre, artistsList, vibes ?? []);
+  const thumbnailAnalysis = await analyzeThumbnails(
+    top5ForAnalysis,
+    resolvedGenre,
+    artistsList,
+    vibes ?? []
+  );
 
-  // Score titles; retry with stronger prompt if none reaches 75 (max 3 attempts)
-  const artistsForScoring = artistsList.length > 0
-    ? artistsList
-    : [profile?.top_artist_1, profile?.top_artist_2, profile?.top_artist_3].filter((a): a is string => !!a);
+  // Score titles; retry if none reach 75
+  const artistsForScoring =
+    artistsList.length > 0 ? artistsList : profileArtists;
 
   if (Array.isArray(generatedKit.titles)) {
-    let scored = (generatedKit.titles as Array<{ title: string; reason: string }>).map(t => ({
+    let scored = (
+      generatedKit.titles as Array<{ title: string; reason: string }>
+    ).map((t) => ({
       ...t,
       ...scoreTitle(t.title, topKeywords, artistsForScoring),
     }));
 
     let attempt = 1;
-    while (attempt < 3 && !scored.some(t => t.score >= 75)) {
+    while (attempt < 3 && !scored.some((t) => t.score >= 75)) {
       try {
         const retryTitles = await generateStrongTitles(
           beatNameStr || (generatedKit.beat_name_suggestion as string) || "Beat",
@@ -360,12 +443,13 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
           topKeywords
         );
         if (retryTitles.length > 0) {
-          const retryScored = retryTitles.map(t => ({ ...t, ...scoreTitle(t.title, topKeywords, artistsForScoring) }));
-          const currentMax = Math.max(...scored.map(t => t.score));
-          const retryMax = Math.max(...retryScored.map(t => t.score));
-          if (retryMax > currentMax) {
-            scored = retryScored;
-          }
+          const retryScored = retryTitles.map((t) => ({
+            ...t,
+            ...scoreTitle(t.title, topKeywords, artistsForScoring),
+          }));
+          const currentMax = Math.max(...scored.map((t) => t.score));
+          const retryMax = Math.max(...retryScored.map((t) => t.score));
+          if (retryMax > currentMax) scored = retryScored;
         }
       } catch (e) {
         console.error(`[upload-kit/generate] Title retry ${attempt} failed:`, e);
@@ -373,14 +457,29 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
       attempt++;
     }
 
-    const maxScore = Math.max(...scored.map(t => t.score));
+    const maxScore = Math.max(...scored.map((t) => t.score));
     let markedBest = false;
-    generatedKit.titles = scored.map(t => {
+    generatedKit.titles = scored.map((t) => {
       const isRec = !markedBest && t.score === maxScore;
       if (isRec) markedBest = true;
       return { ...t, recommended: isRec };
     });
   }
+
+  // Build analysis_context (why these recommendations)
+  const finalTitles = Array.isArray(generatedKit.titles)
+    ? (generatedKit.titles as Array<{ title: string; reason: string }>)
+    : [];
+  const tagsArray = Array.isArray(generatedKit.tags)
+    ? (generatedKit.tags as string[])
+    : [];
+  const missingKwsInTags = deepAnalysis
+    ? deepAnalysis.missingKeywords
+        .map((k) => k.keyword)
+        .filter((kw) => tagsArray.some((t) => t.toLowerCase().includes(kw.toLowerCase())))
+    : [];
+
+  const analysisContext = buildAnalysisContext(deepAnalysis, finalTitles, missingKwsInTags);
 
   const { data: saved, error: saveErr } = await supabase
     .from("upload_kits")
@@ -388,17 +487,7 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
       producer_id: user.id,
       beat_name: beatNameStr || (generatedKit.beat_name_suggestion as string) || "Untitled",
       genre: resolvedGenre,
-      input_data: {
-        beat_name: beatNameStr,
-        genre: resolvedGenre,
-        vibes,
-        artist_1,
-        artist_2,
-        artist_3,
-        bpm,
-        key,
-        notes,
-      },
+      input_data: { beat_name: beatNameStr, genre: resolvedGenre, vibes, artist_1, artist_2, artist_3, bpm, key, notes },
       generated_kit: generatedKit,
     })
     .select()
@@ -410,6 +499,7 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
       ...generatedKit,
       niche_thumbnails: top5ForAnalysis,
       thumbnail_analysis: thumbnailAnalysis,
+      analysis_context: analysisContext,
     });
   }
 
@@ -419,5 +509,6 @@ Respond with ONLY valid JSON. No markdown, no code blocks.
     created_at: saved.created_at,
     niche_thumbnails: top5ForAnalysis,
     thumbnail_analysis: thumbnailAnalysis,
+    analysis_context: analysisContext,
   });
 }

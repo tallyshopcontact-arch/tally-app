@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { useSubscription } from "@/lib/hooks/useSubscription";
 import { UpgradePrompt } from "@/components/UpgradePrompt";
-import { ArrowUpRight, Check, Copy, Loader2 } from "lucide-react";
+import { ArrowUpRight, Check, Copy, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,16 @@ interface CategoryScores {
   year_present: number;
 }
 
+interface NicheContext {
+  formula: string;
+  producer_score: number;
+  winner_avg_views: number;
+  key_gap: string;
+  missing_keywords: string[];
+  rewrite_1_strategy: string;
+  rewrite_2_strategy: string;
+}
+
 interface TitleResult {
   score: number;
   verdict: string;
@@ -26,6 +36,7 @@ interface TitleResult {
   rewrites: string[];
   tip?: string | null;
   original_title: string;
+  niche_context?: NicheContext | null;
 }
 
 interface RecentTest {
@@ -74,6 +85,62 @@ function CopyButton({ text }: { text: string }) {
       {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
       {copied ? "Copied" : "Copy"}
     </button>
+  );
+}
+
+// ── Niche context panel ───────────────────────────────────────────────────────
+
+function NicheContextPanel({ ctx }: { ctx: NicheContext }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-[#1e2a1e]">
+      <button
+        onClick={() => setOpen((p) => !p)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#0d150d] transition-colors cursor-pointer text-left"
+      >
+        <span className="text-xs text-[#4ade80] uppercase tracking-widest font-medium">
+          What informed these rewrites
+        </span>
+        {open ? <ChevronUp className="w-4 h-4 text-[#4ade80]" /> : <ChevronDown className="w-4 h-4 text-[#4ade80]" />}
+      </button>
+      {open && (
+        <div className="border-t border-[#1e2a1e] divide-y divide-[#1a1a1a]">
+          <div className="px-5 py-4 flex gap-4">
+            <p className="text-[#4ade80] text-[10px] uppercase tracking-widest shrink-0 w-32 pt-0.5">Niche formula</p>
+            <div>
+              <p className="text-white text-xs font-medium mb-1">{ctx.formula}</p>
+              <p className="text-[#475569] text-xs">Your formula match score: {ctx.producer_score}/100</p>
+            </div>
+          </div>
+          <div className="px-5 py-4 flex gap-4">
+            <p className="text-[#4ade80] text-[10px] uppercase tracking-widest shrink-0 w-32 pt-0.5">Key gap</p>
+            <p className="text-[#cbd5e1] text-xs leading-relaxed">{ctx.key_gap}</p>
+          </div>
+          {ctx.missing_keywords.length > 0 && (
+            <div className="px-5 py-4 flex gap-4">
+              <p className="text-[#4ade80] text-[10px] uppercase tracking-widest shrink-0 w-32 pt-0.5">Missing keywords</p>
+              <div className="flex flex-wrap gap-1.5">
+                {ctx.missing_keywords.map((kw) => (
+                  <span key={kw} className="text-xs text-[#4ade80] bg-[#0a150a] border border-[#1e3a1e] px-2 py-0.5">
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="px-5 py-4 space-y-3">
+            <div className="flex gap-4">
+              <p className="text-[#4ade80] text-[10px] uppercase tracking-widest shrink-0 w-32 pt-0.5">Rewrite 1</p>
+              <p className="text-[#cbd5e1] text-xs">{ctx.rewrite_1_strategy}</p>
+            </div>
+            <div className="flex gap-4">
+              <p className="text-[#4ade80] text-[10px] uppercase tracking-widest shrink-0 w-32 pt-0.5">Rewrite 2</p>
+              <p className="text-[#cbd5e1] text-xs">{ctx.rewrite_2_strategy}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -358,6 +425,9 @@ export default function TitleTesterPage() {
                 ))}
               </div>
             </div>
+
+            {/* What informed these rewrites */}
+            {result.niche_context && <NicheContextPanel ctx={result.niche_context} />}
           </div>
         )}
 
