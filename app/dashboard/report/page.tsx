@@ -23,6 +23,35 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface VideoGroupPattern {
+  avgViews: number;
+  artistMentions: string[];
+  topTags: string[];
+}
+
+interface DeepAnalysis {
+  winnersVsLosers: {
+    winnerPattern: VideoGroupPattern;
+    loserPattern: VideoGroupPattern;
+    keyGap: string;
+  };
+  timingIntelligence: {
+    bestDayInNiche: string;
+    bestDayMultiplier: number;
+  };
+  missingKeywords: Array<{ keyword: string; nicheFrequency: number }>;
+  artistAssociations: Array<{ name: string; videoCount: number; avgViews: number; isTrending: boolean }>;
+  titleFormula: { formula: string; producerScore: number };
+  nextUpload: {
+    vibe: string;
+    bpm: string;
+    artistCombo: string;
+    title: string;
+    uploadDay: string;
+    justification: string[];
+  };
+}
+
 interface UserProfile {
   name: string | null;
   genre: string | null;
@@ -66,6 +95,7 @@ interface ReportData {
   upload_kits: Array<{ title: string; description: string; tags: string[]; thumbnail_brief: string }>;
   tally_score: number;
   score_breakdown: { categories: ScoreCategory[]; tip: string };
+  deep_analysis?: DeepAnalysis | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -355,7 +385,7 @@ function OverviewTab({
   );
 }
 
-function SnapshotTab({ channelData }: { channelData: ChannelData | null }) {
+function SnapshotTab({ channelData, deepAnalysis }: { channelData: ChannelData | null; deepAnalysis?: DeepAnalysis | null }) {
   const now = new Date();
   const monthLabel = now.toLocaleString("default", {
     month: "long",
@@ -515,6 +545,70 @@ function SnapshotTab({ channelData }: { channelData: ChannelData | null }) {
               </div>
             </div>
           </div>
+
+          {/* Winners vs Losers deep analysis block */}
+          {deepAnalysis && (
+            <div className="border border-[#1a1a1a]">
+              <div className="px-6 py-4 border-b border-[#1a1a1a]">
+                <p className="text-xs text-[#94a3b8] uppercase tracking-widest">Winners vs Losers — This Channel</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-[#1a1a1a]">
+                <div className="bg-[#0a0a0a] p-5">
+                  <p className="text-xs text-[#4ade80] uppercase tracking-widest mb-3">Winners</p>
+                  <p className="text-2xl font-bold text-[#4ade80] mb-1">
+                    {formatNum(deepAnalysis.winnersVsLosers.winnerPattern.avgViews)}
+                  </p>
+                  <p className="text-xs text-[#475569] mb-3">avg views</p>
+                  {deepAnalysis.winnersVsLosers.winnerPattern.artistMentions.length > 0 && (
+                    <p className="text-xs text-[#94a3b8]">
+                      Artists: {deepAnalysis.winnersVsLosers.winnerPattern.artistMentions.slice(0, 2).join(", ")}
+                    </p>
+                  )}
+                  {deepAnalysis.winnersVsLosers.winnerPattern.topTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {deepAnalysis.winnersVsLosers.winnerPattern.topTags.slice(0, 3).map((t) => (
+                        <span key={t} className="text-[10px] text-[#4ade80] bg-[#0a150a] border border-[#1e3a1e] px-1.5 py-0.5">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="bg-[#0a0a0a] p-5">
+                  <p className="text-xs text-[#f87171] uppercase tracking-widest mb-3">Underperformers</p>
+                  <p className="text-2xl font-bold text-[#f87171] mb-1">
+                    {formatNum(deepAnalysis.winnersVsLosers.loserPattern.avgViews)}
+                  </p>
+                  <p className="text-xs text-[#475569] mb-3">avg views</p>
+                  {deepAnalysis.winnersVsLosers.loserPattern.topTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {deepAnalysis.winnersVsLosers.loserPattern.topTags.slice(0, 3).map((t) => (
+                        <span key={t} className="text-[10px] text-[#f87171] bg-[#1a0a0a] border border-[#3a1a1a] px-1.5 py-0.5">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {deepAnalysis.winnersVsLosers.keyGap && (
+                <div className="px-6 py-4 border-t border-[#1a1a1a] bg-[#0d0d0d]">
+                  <p className="text-xs text-[#fbbf24] uppercase tracking-widest mb-1.5">Key Gap</p>
+                  <p className="text-white text-sm leading-relaxed">{deepAnalysis.winnersVsLosers.keyGap}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Timing intelligence */}
+          {deepAnalysis && (
+            <div className="border border-[#1a1a1a] px-6 py-5 flex items-center gap-5">
+              <div className="shrink-0">
+                <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-1">Best Upload Day in Niche</p>
+                <p className="text-2xl font-bold">{deepAnalysis.timingIntelligence.bestDayInNiche}</p>
+              </div>
+              <div className="h-10 w-px bg-[#1a1a1a] shrink-0" />
+              <p className="text-[#94a3b8] text-sm">
+                Videos uploaded on this day average <span className="text-white font-semibold">{deepAnalysis.timingIntelligence.bestDayMultiplier}x</span> more views than other days in your niche.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -725,7 +819,7 @@ function TopVideosTab({
   );
 }
 
-function RisingArtistsTab({ report }: { report: ReportData | null }) {
+function RisingArtistsTab({ report, deepAnalysis }: { report: ReportData | null; deepAnalysis?: DeepAnalysis | null }) {
   const now = new Date();
   const monthLabel = now.toLocaleString("default", {
     month: "long",
@@ -740,9 +834,51 @@ function RisingArtistsTab({ report }: { report: ReportData | null }) {
           Rising Artists — {monthLabel}
         </h2>
         <p className="text-[#94a3b8] text-sm">
-          Beat producers gaining momentum in your niche right now.
+          Artists gaining momentum in your niche — and untapped opportunities you&apos;re not making beats for yet.
         </p>
       </div>
+
+      {/* Untapped trending artists from deep analysis */}
+      {deepAnalysis && (() => {
+        const untapped = deepAnalysis.artistAssociations.filter((a) => a.isTrending && a.videoCount === 0);
+        const alreadyUsed = deepAnalysis.artistAssociations.filter((a) => a.isTrending && a.videoCount > 0);
+        if (untapped.length === 0 && alreadyUsed.length === 0) return null;
+        return (
+          <div className="border border-[#1e2a1e] mb-6">
+            <div className="px-5 py-4 border-b border-[#1e2a1e] bg-[#0d150d]">
+              <p className="text-xs text-[#4ade80] uppercase tracking-widest">Trending Artist Intelligence</p>
+            </div>
+            {untapped.length > 0 && (
+              <div className="px-5 py-4 border-b border-[#1a1a1a]">
+                <p className="text-xs text-[#fbbf24] uppercase tracking-widest mb-3">Untapped — trending in niche, you haven&apos;t made beats for them</p>
+                <div className="space-y-2">
+                  {untapped.slice(0, 4).map((a) => (
+                    <div key={a.name} className="flex items-center justify-between gap-3 border border-[#1a1a1a] px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-[#fbbf24] bg-[#1a1500] border border-[#2a2000] px-1.5 py-0.5">Untapped</span>
+                        <p className="text-white font-medium text-sm">{a.name}</p>
+                      </div>
+                      <p className="text-[#94a3b8] text-xs shrink-0">{formatNum(a.avgViews)} avg views in niche</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {alreadyUsed.length > 0 && (
+              <div className="px-5 py-4">
+                <p className="text-xs text-[#4ade80] uppercase tracking-widest mb-3">You&apos;re already targeting these trending artists</p>
+                <div className="flex flex-wrap gap-2">
+                  {alreadyUsed.slice(0, 5).map((a) => (
+                    <span key={a.name} className="text-xs text-[#4ade80] bg-[#0a150a] border border-[#1e3a1e] px-3 py-1.5">
+                      {a.name} ({a.videoCount} beats)
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {!report ? (
         <div className="border border-[#1a1a1a] p-8 text-center">
@@ -802,7 +938,7 @@ const badgeStyle: Record<string, string> = {
   rising: "bg-[#0a1020] text-[#60a5fa]",
 };
 
-function KeywordsTab({ channelData }: { channelData: ChannelData | null }) {
+function KeywordsTab({ channelData, deepAnalysis }: { channelData: ChannelData | null; deepAnalysis?: DeepAnalysis | null }) {
   const now = new Date();
   const monthLabel = now.toLocaleString("default", {
     month: "long",
@@ -826,6 +962,32 @@ function KeywordsTab({ channelData }: { channelData: ChannelData | null }) {
             ` Extracted from ${channelData.niche_data?.length ?? 0} niche videos.`}
         </p>
       </div>
+
+      {/* Missing keywords from deep analysis */}
+      {deepAnalysis && deepAnalysis.missingKeywords.length > 0 && (
+        <div className="border border-[#1e2a1e] mb-6">
+          <div className="px-5 py-4 border-b border-[#1e2a1e] bg-[#0d150d] flex items-center justify-between">
+            <div>
+              <p className="text-xs text-[#4ade80] uppercase tracking-widest mb-0.5">Missing Keywords</p>
+              <p className="text-[#475569] text-xs">These tags appear in top niche videos but are absent from your last 30 uploads</p>
+            </div>
+            <span className="text-[10px] text-[#fbbf24] bg-[#1a1500] border border-[#2a2000] px-2 py-0.5 shrink-0">Add these now</span>
+          </div>
+          <div className="px-5 py-4 flex flex-wrap gap-2">
+            {deepAnalysis.missingKeywords.slice(0, 10).map((mk) => (
+              <button
+                key={mk.keyword}
+                onClick={() => navigator.clipboard.writeText(mk.keyword)}
+                className="flex items-center gap-1.5 text-xs text-[#fbbf24] bg-[#1a1500] border border-[#2a2000] px-3 py-1.5 hover:bg-[#2a2000] transition-colors cursor-pointer"
+                title={`Appears ${mk.nicheFrequency}x in niche — click to copy`}
+              >
+                {mk.keyword}
+                <span className="text-[#475569]">×{mk.nicheFrequency}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!channelData ? (
         <div className="border border-[#1a1a1a] p-8 text-center">
@@ -944,7 +1106,7 @@ const priorityStyle: Record<string, string> = {
   Low: "text-[#60a5fa] bg-[#0a1020]",
 };
 
-function ActionPlanTab({ report }: { report: ReportData | null }) {
+function ActionPlanTab({ report, deepAnalysis }: { report: ReportData | null; deepAnalysis?: DeepAnalysis | null }) {
   const now = new Date();
   const monthLabel = now.toLocaleString("default", {
     month: "long",
@@ -961,6 +1123,50 @@ function ActionPlanTab({ report }: { report: ReportData | null }) {
           data.
         </p>
       </div>
+
+      {/* Next Upload Recommendation from deep analysis */}
+      {deepAnalysis && deepAnalysis.nextUpload && (
+        <div className="border border-[#1e2a1e] mb-6">
+          <div className="px-5 py-4 border-b border-[#1e2a1e] bg-[#0d150d]">
+            <p className="text-xs text-[#4ade80] uppercase tracking-widest">Next Upload — Data-Driven Recommendation</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-[#1a1a1a]">
+            {[
+              { label: "Vibe", value: deepAnalysis.nextUpload.vibe },
+              { label: "BPM", value: deepAnalysis.nextUpload.bpm },
+              { label: "Artist Combo", value: deepAnalysis.nextUpload.artistCombo },
+              { label: "Upload Day", value: deepAnalysis.nextUpload.uploadDay },
+            ].filter(r => r.value).map(({ label, value }) => (
+              <div key={label} className="bg-[#0a0a0a] px-4 py-4">
+                <p className="text-[10px] text-[#475569] uppercase tracking-widest mb-1">{label}</p>
+                <p className="text-white text-sm font-medium">{value}</p>
+              </div>
+            ))}
+          </div>
+          {deepAnalysis.nextUpload.title && (
+            <div className="px-5 py-4 border-t border-[#1a1a1a] flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] text-[#475569] uppercase tracking-widest mb-1">Suggested Title</p>
+                <p className="text-white text-sm font-medium leading-snug">{deepAnalysis.nextUpload.title}</p>
+              </div>
+              <CopyButton text={deepAnalysis.nextUpload.title} />
+            </div>
+          )}
+          {deepAnalysis.nextUpload.justification.length > 0 && (
+            <div className="px-5 py-4 border-t border-[#1a1a1a]">
+              <p className="text-[10px] text-[#475569] uppercase tracking-widest mb-2">Why</p>
+              <ul className="space-y-1">
+                {deepAnalysis.nextUpload.justification.slice(0, 3).map((j, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-[#94a3b8]">
+                    <span className="text-[#4ade80] shrink-0">→</span>
+                    {j}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {!report ? (
         <div className="border border-[#1a1a1a] p-8 text-center">
@@ -1193,6 +1399,7 @@ function GrowthForecastTab() {
 
 function CompetitorsTab({ reportTallyScore }: { reportTallyScore: number | null }) {
   interface ScoreBItem { category: string; score: number; max: number; }
+  interface StealThisItem { tactic: string; reason: string; }
   interface CompLastData {
     videos_this_month: number;
     avg_views: number;
@@ -1200,6 +1407,9 @@ function CompetitorsTab({ reportTallyScore }: { reportTallyScore: number | null 
     tally_score?: number;
     score_breakdown?: ScoreBItem[];
     ai_insight?: string;
+    steal_this?: StealThisItem[];
+    title_formula?: string;
+    key_gap?: string;
     pulled_at: string;
   }
   interface CompRow {
@@ -1324,28 +1534,58 @@ function CompetitorsTab({ reportTallyScore }: { reportTallyScore: number | null 
         </table>
       </div>
 
-      {/* Per-competitor AI insights */}
+      {/* Per-competitor intelligence */}
       <div className="space-y-4">
-        {competitors.filter(c => c.last_data?.ai_insight).map((c) => (
-          <div key={c.id} className="border border-[#1a1a1a] p-5">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-[#94a3b8] uppercase tracking-widest">TALLY Insight — {c.channel_name}</p>
-              <a href={c.channel_url} target="_blank" rel="noopener noreferrer" className="text-[#475569] hover:text-white transition-colors">
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </a>
-            </div>
-            <p className="text-white text-sm leading-relaxed">{c.last_data!.ai_insight}</p>
-            {c.last_data?.score_breakdown && c.last_data.score_breakdown.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
-                {c.last_data.score_breakdown.map(b => (
-                  <span key={b.category} className={`text-[10px] px-2 py-0.5 border ${b.score >= b.max * 0.7 ? "border-[#1a3a1a] text-[#4ade80] bg-[#0a1a0a]" : "border-[#1a1a1a] text-[#475569]"}`}>
-                    {b.category} {b.score}/{b.max}
-                  </span>
-                ))}
+        {competitors.filter(c => c.last_data).map((c) => {
+          const ld = c.last_data!;
+          const hasDeep = ld.steal_this && ld.steal_this.length > 0;
+          return (
+            <div key={c.id} className="border border-[#1a1a1a]">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-[#1a1a1a]">
+                <p className="text-xs text-[#94a3b8] uppercase tracking-widest">{c.channel_name}</p>
+                <a href={c.channel_url} target="_blank" rel="noopener noreferrer" className="text-[#475569] hover:text-white transition-colors">
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </a>
               </div>
-            )}
-          </div>
-        ))}
+              {ld.key_gap && (
+                <div className="px-5 py-3 border-b border-[#1a1a1a] bg-[#0d0d0d]">
+                  <p className="text-[10px] text-[#fbbf24] uppercase tracking-widest mb-1">Their Key Gap</p>
+                  <p className="text-[#94a3b8] text-xs leading-relaxed">{ld.key_gap}</p>
+                </div>
+              )}
+              {ld.title_formula && (
+                <div className="px-5 py-3 border-b border-[#1a1a1a]">
+                  <p className="text-[10px] text-[#475569] uppercase tracking-widest mb-1">Title Formula</p>
+                  <p className="text-white text-xs font-medium">{ld.title_formula}</p>
+                </div>
+              )}
+              {hasDeep ? (
+                <div className="px-5 py-3 divide-y divide-[#1a1a1a]">
+                  <p className="text-[10px] text-[#4ade80] uppercase tracking-widest pb-2">Steal This</p>
+                  {ld.steal_this!.slice(0, 3).map((item, i) => (
+                    <div key={i} className="py-2.5">
+                      <p className="text-white text-xs font-medium mb-0.5">{item.tactic}</p>
+                      <p className="text-[#475569] text-xs leading-relaxed">{item.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : ld.ai_insight ? (
+                <div className="px-5 py-4">
+                  <p className="text-[#94a3b8] text-sm leading-relaxed">{ld.ai_insight}</p>
+                </div>
+              ) : null}
+              {ld.score_breakdown && ld.score_breakdown.length > 0 && (
+                <div className="px-5 py-3 border-t border-[#1a1a1a] flex flex-wrap gap-1.5">
+                  {ld.score_breakdown.map(b => (
+                    <span key={b.category} className={`text-[10px] px-2 py-0.5 border ${b.score >= b.max * 0.7 ? "border-[#1a3a1a] text-[#4ade80] bg-[#0a1a0a]" : "border-[#1a1a1a] text-[#475569]"}`}>
+                      {b.category} {b.score}/{b.max}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1787,7 +2027,7 @@ export default function ReportPage() {
               />
             )}
             {tab === "snapshot" && (
-              <SnapshotTab channelData={channelData} />
+              <SnapshotTab channelData={channelData} deepAnalysis={report?.deep_analysis} />
             )}
             {tab === "benchmark" && (
               <BenchmarkTab channelData={channelData} report={report} />
@@ -1796,13 +2036,13 @@ export default function ReportPage() {
               <TopVideosTab channelData={channelData} report={report} />
             )}
             {tab === "rising-artists" && (
-              <RisingArtistsTab report={report} />
+              <RisingArtistsTab report={report} deepAnalysis={report?.deep_analysis} />
             )}
             {tab === "keywords" && (
-              <KeywordsTab channelData={channelData} />
+              <KeywordsTab channelData={channelData} deepAnalysis={report?.deep_analysis} />
             )}
             {tab === "avoid" && <AvoidTab report={report} />}
-            {tab === "action-plan" && <ActionPlanTab report={report} />}
+            {tab === "action-plan" && <ActionPlanTab report={report} deepAnalysis={report?.deep_analysis} />}
             {tab === "competitors" && <CompetitorsTab reportTallyScore={report?.tally_score ?? null} />}
             {tab === "growth-forecast" && <GrowthForecastTab />}
             {SOON_TABS.has(tab) && (
