@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { generatePdfBuffer } from "@/lib/pdf-report";
+import { generatePdfBuffer, pdfFilename } from "@/lib/pdf-report";
 import type { ChannelSnapshot } from "@/lib/channel-snapshot";
 
 export const dynamic = "force-dynamic";
@@ -49,9 +49,7 @@ export async function POST(req: NextRequest) {
     );
 
     const base64 = pdfBuffer.toString("base64");
-    const filename = `tally-report-${(prospect.channel_name as string)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")}.pdf`;
+    const filename = pdfFilename(prospect.channel_name as string);
 
     console.log(`[generate-report] done — ${pdfBuffer.length} bytes for "${prospect.channel_name}"`);
     return NextResponse.json({ base64, filename });

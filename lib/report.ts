@@ -1,6 +1,7 @@
 import { anthropic } from "./anthropic";
 import { extractKeywords } from "./keywords";
 import type { NicheVideo } from "./keywords";
+import type { DeepChannelAnalysis } from "./channel-analysis";
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
@@ -257,7 +258,8 @@ For youtube_url, replace CHANNEL+NAME with the actual channel name URL-encoded (
 }
 
 export async function generateWhatToAvoid(
-  nicheData: NicheVideo[]
+  nicheData: NicheVideo[],
+  analysis?: DeepChannelAnalysis
 ): Promise<AvoidPattern[]> {
   const sorted = [...nicheData].sort((a, b) => a.viewCount - b.viewCount);
   const bottom5 = sorted.slice(0, Math.min(5, sorted.length));
@@ -270,11 +272,16 @@ export async function generateWhatToAvoid(
     )
     .join("\n\n");
 
+  const loserBlock = analysis
+    ? `\nThis producer's own bottom videos: ${analysis.winnersVsLosers.losers.map((v) => `"${v.title}" (${v.views.toLocaleString()} views)`).join(", ")}. Loser pattern: ${analysis.winnersVsLosers.loserPattern.commonUploadDays.join("/")} uploads, avg desc ${analysis.winnersVsLosers.loserPattern.avgDescriptionWords} words.`
+    : "";
+
   const raw = await ask(
     `These are the 5 lowest-performing beat videos from this producer's niche this month, with their actual titles, view counts, and tags pulled from the YouTube API.
 
 Lowest-performing videos:
 ${lowVideoData}
+${loserBlock}
 
 Analyze what these 5 videos have in common that is hurting their performance. Look at title structure, tag quality, and keyword patterns. Identify 3 specific, actionable patterns the producer should avoid.
 
@@ -315,7 +322,8 @@ Schema (exactly 3 items):
 export async function generateActionPlan(
   channelData: ChannelDataInput,
   nicheData: NicheVideo[],
-  profile: ProducerProfile
+  profile: ProducerProfile,
+  analysis?: DeepChannelAnalysis
 ): Promise<ActionItem[]> {
   const top10 = [...nicheData].sort((a, b) => b.viewCount - a.viewCount).slice(0, 10);
   const nicheAvg =
@@ -353,7 +361,19 @@ export async function generateActionPlan(
   const missingKeywords = allKeywords.filter((kw) => !bestTitleLower.includes(kw.toLowerCase())).slice(0, 3);
 
   const viewGap = top10AvgViews - producerAvg;
-  const titleWordGap = top10AvgTitleWords - producerTitleWords;
+
+  // Deep analysis enrichment block (appended when available)
+  const deepBlock = analysis
+    ? `
+DEEP CHANNEL ANALYSIS (additional data):
+- Winners vs Losers: ${analysis.winnersVsLosers.keyGap}
+- Best upload day in their niche: ${analysis.timingIntelligence.bestDayInNiche} (${analysis.timingIntelligence.bestDayMultiplier}x niche avg views). Producer uploads most on ${analysis.timingIntelligence.producerMostCommonDay}.
+- Missing niche keywords (use these): ${analysis.missingKeywords.slice(0, 5).map((k) => k.keyword).join(", ") || "none identified"}
+- Top artist by avg views: ${analysis.artistAssociations[0] ? `${analysis.artistAssociations[0].name} (${analysis.artistAssociations[0].avgViews.toLocaleString()} avg views, trending in niche: ${analysis.artistAssociations[0].isTrending})` : "n/a"}
+- Title formula: ${analysis.titleFormula.formula} — producer score: ${analysis.titleFormula.producerScore}/100, missing: ${analysis.titleFormula.missingElements.join(", ") || "none"}
+- Description depth: ${analysis.descriptionDepth.score}/100. Missing elements: ${analysis.descriptionDepth.missingElements.join(", ") || "none"}
+- Next upload recommendation: ${analysis.nextUpload.recommendedTitle} on ${analysis.nextUpload.uploadDay}`
+    : "";
 
   const raw = await ask(
     `Generate 7 specific prioritized actions for ${profile.name ?? "this producer"} to take next month.
@@ -374,6 +394,7 @@ Key data points:
 - Niche weakest top-10: "${bottomVideo?.title ?? "N/A"}" (${(bottomVideo?.viewCount ?? 0).toLocaleString()} views)
 - Niche avg views: ${nicheAvg.toLocaleString()}
 - Top niche keywords NOT in producer's best title: ${missingKeywords.length > 0 ? missingKeywords.join(", ") : "all covered"}
+${deepBlock}
 
 CRITICAL — Write actions that look like the GOOD example, not the BAD example:
 
@@ -386,7 +407,7 @@ GOOD: "You uploaded ${channelData.monthly_videos} videos this month — top perf
 BAD: "Optimize your tags"
 GOOD: "Add ${top10AvgTags} tags per video (you have unknown; niche leaders use ${top10AvgTags}) — start with: ${allKeywords.slice(0, 4).join(", ")}"
 
-Every action MUST cite actual numbers from the data above. No generic advice.
+Every action MUST cite actual numbers from the data above. Use the deep analysis data to make actions more specific. No generic advice.
 
 Respond with ONLY a valid JSON array. No markdown, no code blocks, no explanation.
 Schema (exactly 7 items, High-priority first):

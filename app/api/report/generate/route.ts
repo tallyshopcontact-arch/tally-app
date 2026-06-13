@@ -3,6 +3,7 @@ import { createAuthClient } from "@/lib/supabase-server";
 import { getTopNicheVideos } from "@/lib/keywords";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sendReportReadyEmail } from "@/lib/email";
+import { analyzeChannel, computeTallyScoreFromAnalysis } from "@/lib/channel-analysis";
 import type { NicheVideo } from "@/lib/keywords";
 import {
   generateChannelSummary,
@@ -12,7 +13,6 @@ import {
   generateWhatToAvoid,
   generateActionPlan,
   generateUploadKit,
-  generateTALLYScore,
 } from "@/lib/report";
 
 export async function POST(_req: NextRequest) {
@@ -69,24 +69,50 @@ export async function POST(_req: NextRequest) {
 
   const nicheData: NicheVideo[] = channelData.niche_data ?? [];
   const topVideos = getTopNicheVideos(nicheData);
+  const topArtists = [profile.top_artist_1, profile.top_artist_2, profile.top_artist_3].filter(
+    (a): a is string => Boolean(a)
+  );
 
-  // Generate all 8 sections in parallel; use allSettled so one failure
-  // doesn't abort the whole report.
-  const [s0, s1, s2, s3, s4, s5, s6, s7] = await Promise.allSettled([
+  // Run deep channel analysis using the already-fetched niche data to avoid
+  // redundant YouTube API calls.
+  const channelId: string = channelData.channel_id ?? "";
+  let deepAnalysis = null;
+  if (channelId) {
+    try {
+      deepAnalysis = await analyzeChannel(
+        channelId,
+        channelData.channel_name ?? "",
+        profile.genre ?? "hip hop",
+        topArtists,
+        { preloadedNicheVideos: nicheData }
+      );
+    } catch (err) {
+      console.error("[report/generate] analyzeChannel failed:", err);
+    }
+  }
+
+  // TALLY score from deep analysis when available, otherwise fall back to Claude
+  let tallyScore: { total: number; breakdown: { category: string; score: number; max: number }[]; tip: string };
+  if (deepAnalysis) {
+    tallyScore = computeTallyScoreFromAnalysis(deepAnalysis);
+  } else {
+    const { generateTALLYScore } = await import("@/lib/report");
+    tallyScore = await generateTALLYScore(channelData, nicheData);
+  }
+
+  // Generate all sections in parallel; allSettled so one failure doesn't abort.
+  const [s0, s1, s2, s3, s4, s5, s6] = await Promise.allSettled([
     generateChannelSummary(channelData, nicheData, profile),
     generateBenchmarkInsights(channelData, nicheData),
     generateTrendingBreakdowns(topVideos),
     generateRisingArtists(nicheData),
-    generateWhatToAvoid(nicheData),
-    generateActionPlan(channelData, nicheData, profile),
+    generateWhatToAvoid(nicheData, deepAnalysis ?? undefined),
+    generateActionPlan(channelData, nicheData, profile, deepAnalysis ?? undefined),
     generateUploadKit(profile, nicheData),
-    generateTALLYScore(channelData, nicheData),
   ]);
 
   const ok = <T>(r: PromiseSettledResult<T>, fallback: T): T =>
     r.status === "fulfilled" ? r.value : fallback;
-
-  const tallyScore = ok(s7, { total: 0, breakdown: [], tip: "" });
 
   const report = {
     producer_id: user.id,
@@ -101,6 +127,7 @@ export async function POST(_req: NextRequest) {
     upload_kits: ok(s6, []),
     tally_score: tallyScore.total,
     score_breakdown: { categories: tallyScore.breakdown, tip: tallyScore.tip },
+    deep_analysis: deepAnalysis ?? null,
   };
 
   const { data: saved, error: saveError } = await supabase
@@ -120,9 +147,13 @@ export async function POST(_req: NextRequest) {
     const actionItems = Array.isArray(report.action_plan)
       ? (report.action_plan as { action: string }[]).slice(0, 3).map((item) => item.action)
       : [];
-    sendReportReadyEmail(profile.name ?? "", user.email, report.tally_score, monthName, actionItems).catch(
-      (err) => console.error("[report/generate] email error:", err)
-    );
+    sendReportReadyEmail(
+      profile.name ?? "",
+      user.email,
+      report.tally_score,
+      monthName,
+      actionItems
+    ).catch((err) => console.error("[report/generate] email error:", err));
   }
 
   // Record score in history table
@@ -130,7 +161,13 @@ export async function POST(_req: NextRequest) {
     const { error: histError } = await supabase
       .from("scores_history")
       .upsert(
-        { producer_id: user.id, month, year, score: tallyScore.total, score_breakdown: tallyScore.breakdown },
+        {
+          producer_id: user.id,
+          month,
+          year,
+          score: tallyScore.total,
+          score_breakdown: tallyScore.breakdown,
+        },
         { onConflict: "producer_id,month,year" }
       );
     if (histError) {
