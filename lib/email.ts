@@ -350,6 +350,54 @@ export async function sendTrialEndingEmail(
   return { ok: true };
 }
 
+// ── sendDiagnosticMagicLink ───────────────────────────────────────────────────
+
+export async function sendDiagnosticMagicLink(
+  email: string,
+  reportUrl: string
+): Promise<{ ok: boolean; error?: unknown }> {
+  const html = emailShell(`
+    <tr>
+      <td style="padding-bottom:12px;">
+        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.02em;line-height:1.2;">Your free channel diagnostic is ready.</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding-bottom:32px;">
+        <p style="margin:0;color:#94a3b8;font-size:15px;line-height:1.7;">
+          Click below to view your 3 revealed findings and your TALLY Score.
+          Your report link is personal — don't share it.
+        </p>
+      </td>
+    </tr>
+    ${ctaButton(reportUrl, "View my diagnostic report →")}
+    <tr>
+      <td style="padding-bottom:32px;">
+        <p style="margin:0;font-size:12px;color:#475569;line-height:1.6;">
+          This link is valid for 30 days. If you didn't request a TALLY diagnostic, ignore this email.
+        </p>
+      </td>
+    </tr>
+  `);
+
+  console.log(`[email:diagnostic] sending to ${email} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [email],
+    subject: "Your free TALLY channel diagnostic",
+    html,
+  });
+
+  if (error) {
+    console.error("[email:diagnostic] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:diagnostic] sent id=", data?.id);
+  return { ok: true };
+}
+
 // ── sendCancellationEmail ─────────────────────────────────────────────────────
 
 export async function sendCancellationEmail(
