@@ -67,6 +67,16 @@ function metricLabel(key: string): string {
   return withSpaces.trim();
 }
 
+// lane_performance carries internal fields (mode, bestLabel, worstLabel) used for
+// headline/detail text — not meant for the raw metrics table.
+const LANE_PERFORMANCE_METRIC_KEYS = ["gapMultiplier", "bestMedianViews", "worstMedianViews", "qualifyingLanes"];
+
+function visibleMetrics(f: UnlockedFinding): [string, string | number][] {
+  const entries = Object.entries(f.metrics);
+  if (f.id !== "lane_performance") return entries;
+  return entries.filter(([key]) => LANE_PERFORMANCE_METRIC_KEYS.includes(key));
+}
+
 // Static, unscored — same for every channel regardless of diagnostic result.
 const QUICK_WINS = [
   {
@@ -198,7 +208,7 @@ function ReportContent() {
                 <p className="text-sm font-medium leading-relaxed mb-3">{f.headline}</p>
                 <p className="text-[#94a3b8] text-sm leading-relaxed mb-4">{f.detail}</p>
                 <div className="space-y-1.5 border-t border-[#1a1a1a] pt-3">
-                  {Object.entries(f.metrics).map(([key, value]) => (
+                  {visibleMetrics(f).map(([key, value]) => (
                     <div key={key} className="flex items-center justify-between">
                       <span className="text-[#64748b] text-xs">{metricLabel(key)}</span>
                       <span className="text-xs font-semibold">{value}</span>
@@ -214,7 +224,7 @@ function ReportContent() {
       {/* CTA */}
       <div className="border border-white/20 p-8">
         <p className="text-sm font-semibold tracking-[0.1em] uppercase mb-2">
-          Fix all of this automatically
+          See exactly what to fix
         </p>
         <p className="text-[#94a3b8] text-sm leading-relaxed mb-6">{data.cta.message}</p>
         {data.cta.promoCode && (
