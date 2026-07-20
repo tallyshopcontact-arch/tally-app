@@ -108,11 +108,11 @@ export async function sendWelcomeEmail(
   const name = producerName || "Producer";
 
   const tools = [
-    { name: "Lane Check", desc: "Unlimited — see which artists to attach your beats to, backed by real YouTube data" },
-    { name: "Title Generator", desc: "Deterministic titles built from real winning packaging in your lane" },
-    { name: "Full lane breakdowns", desc: "Demand, competition, and winnability across all 3 lanes" },
-    { name: "Video galleries", desc: "See the actual winning videos driving each lane's opportunity score" },
-    { name: "Lane Check history", desc: "Every lane you've checked, saved and revisitable" },
+    { name: "Lane Check", desc: "Unlimited checks, all 3 lanes fully unlocked" },
+    { name: "Title Generator", desc: "5 ready-to-use titles based on real winning patterns" },
+    { name: "Full Lane Breakdowns", desc: "Patterns, video galleries, co-mentions" },
+    { name: "Lane Check History", desc: "Track how lanes shift over time" },
+    { name: "Title Tester", desc: "Score any YouTube title instantly" },
   ];
 
   const toolRows = tools
@@ -148,13 +148,6 @@ export async function sendWelcomeEmail(
       </td>
     </tr>
     ${ctaButton(`${BASE_URL}/dashboard`, "Go to your dashboard →")}
-    <tr>
-      <td style="padding-bottom:32px;">
-        <p style="margin:0;font-size:13px;color:#475569;line-height:1.6;">
-          Your first report will be ready within 24 hours.
-        </p>
-      </td>
-    </tr>
   `);
 
   console.log(`[email:welcome] sending to ${producerEmail} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
