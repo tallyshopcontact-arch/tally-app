@@ -59,7 +59,7 @@ interface RunResponse {
 type PageStatus = "idle" | "loading" | "results" | "error";
 type EmailStatus = "idle" | "loading" | "sent" | "error";
 
-const GENRES = ["Boom Bap", "Drill", "Trap", "Lo-Fi", "Melodic", "R&B"];
+const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats"];
 
 const inputClass =
   "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a] transition-colors";
