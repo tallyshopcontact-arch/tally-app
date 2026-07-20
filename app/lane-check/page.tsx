@@ -59,7 +59,7 @@ interface RunResponse {
 type PageStatus = "idle" | "loading" | "results" | "error";
 type EmailStatus = "idle" | "loading" | "sent" | "error";
 
-const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats"];
+const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats", "Other"];
 
 const inputClass =
   "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a] transition-colors";
@@ -139,11 +139,22 @@ function FullLaneCard({ result, index }: { result: FullLaneDetail; index: number
         </div>
       )}
       {!result.patterns.empty && (
-        <div className="grid grid-cols-2 gap-3 mb-6 text-sm">
+        <div className="grid grid-cols-3 gap-3 mb-4 text-sm">
           <div><span className="text-[#64748b] text-xs">[FREE]-prefixed</span><p>{result.patterns.freePrefixPct}%</p></div>
           <div><span className="text-[#64748b] text-xs">Quoted beat name</span><p>{result.patterns.quotedNamePct}%</p></div>
           <div><span className="text-[#64748b] text-xs">Median duration</span><p>{Math.floor(result.patterns.medianDurationSeconds / 60)}:{String(result.patterns.medianDurationSeconds % 60).padStart(2, "0")}</p></div>
-          <div><span className="text-[#64748b] text-xs">Median tags</span><p>{result.patterns.medianTagCount}</p></div>
+        </div>
+      )}
+      {!result.patterns.empty && result.patterns.topTags.length > 0 && (
+        <div className="mb-6">
+          <p className="text-[#64748b] text-xs mb-2">Winning tags in this lane</p>
+          <div className="flex flex-wrap gap-1.5">
+            {result.patterns.topTags.map((t) => (
+              <span key={t.tag} className="text-[10px] bg-[#0a0a0a] border border-[#1a1a1a] text-[#94a3b8] px-2 py-0.5">
+                {t.tag} ({t.count})
+              </span>
+            ))}
+          </div>
         </div>
       )}
       <TopVideosThisLane videos={result.topVideos} />
@@ -158,9 +169,11 @@ function FullLaneCard({ result, index }: { result: FullLaneDetail; index: number
 function LaneCheckForm() {
   const searchParams = useSearchParams();
   const prefilledChannel = searchParams.get("channel") ?? "";
+  const prefilledArtist = searchParams.get("artist") ?? "";
 
-  const [artists, setArtists] = useState(["", "", ""]);
+  const [artists, setArtists] = useState([prefilledArtist, "", ""]);
   const [genre, setGenre] = useState("");
+  const [customGenre, setCustomGenre] = useState("");
   const [channelId, setChannelId] = useState(prefilledChannel);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [pageStatus, setPageStatus] = useState<PageStatus>("idle");
@@ -194,7 +207,7 @@ function LaneCheckForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           artists: activeArtists,
-          genre,
+          genre: genre === "Other" ? customGenre.trim() : genre,
           channelId: channelId.trim() || undefined,
           turnstileToken,
         }),
@@ -255,6 +268,7 @@ function LaneCheckForm() {
   const reset = () => {
     setArtists(["", "", ""]);
     setGenre("");
+    setCustomGenre("");
     setResult(null);
     setPageStatus("idle");
     setErrorMessage("");
@@ -308,12 +322,27 @@ function LaneCheckForm() {
               required
               disabled={pageStatus === "loading"}
               value={genre}
-              onChange={(e) => setGenre(e.target.value)}
+              onChange={(e) => {
+                setGenre(e.target.value);
+                if (e.target.value !== "Other") setCustomGenre("");
+              }}
               className={`${inputClass} appearance-none cursor-pointer`}
             >
               <option value="" disabled>Select your genre</option>
               {GENRES.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
+            {genre === "Other" && (
+              <input
+                type="text"
+                required
+                disabled={pageStatus === "loading"}
+                value={customGenre}
+                onChange={(e) => setCustomGenre(e.target.value)}
+                placeholder="Enter your genre (e.g. Phonk, Cloud Rap, Dancehall...)"
+                autoFocus
+                className={`${inputClass} mt-2`}
+              />
+            )}
           </div>
 
           <div>

@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 // multiple cold lanes needs real headroom beyond Vercel's default timeout.
 export const maxDuration = 60;
 
-const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats"];
+const MAX_GENRE_LENGTH = 40;
 const MAX_ARTISTS = 3;
 const IP_DAILY_CAP = 5;
 
@@ -43,14 +43,14 @@ export async function POST(req: NextRequest) {
 
   const rawArtists = (body.artists ?? []).map((a) => sanitizeInput(a, 60)).filter(Boolean);
   const artists = [...new Set(rawArtists)].slice(0, MAX_ARTISTS);
-  const genre = body.genre?.trim() ?? "";
+  const genre = sanitizeInput(body.genre ?? "", MAX_GENRE_LENGTH);
   const channelId = body.channelId?.trim() || null;
 
   if (!artists.length) {
     return NextResponse.json({ error: "At least one artist is required" }, { status: 400 });
   }
-  if (!GENRES.includes(genre)) {
-    return NextResponse.json({ error: `genre must be one of: ${GENRES.join(", ")}` }, { status: 400 });
+  if (!genre) {
+    return NextResponse.json({ error: "Genre is required" }, { status: 400 });
   }
 
   const turnstileResult = await verifyTurnstileToken(body.turnstileToken);

@@ -50,12 +50,18 @@ function isFull(l: LaneResult): l is FullLaneDetail {
   return "patterns" in l;
 }
 
+interface TrendingArtist {
+  artist: string;
+  count: number;
+}
+
 interface ReportData {
   laneCheckId: string;
   genre: string;
   generatedAt: string;
   isPaid: boolean;
   results: LaneResult[];
+  trendingArtists: TrendingArtist[];
   cta: { signupUrl: string; foundingSeatsRemain: boolean; promoCode: string | null; message: string };
 }
 
@@ -72,6 +78,19 @@ function FullLaneSection({ result, isPaid }: { result: FullLaneDetail; isPaid: b
       <div className="mb-3">
         <ScoreMeter score={result.opportunity ?? 0} />
       </div>
+      {result.demand !== undefined && result.winnability !== undefined && result.saturation !== undefined && (
+        <div className="mb-4">
+          <p className="text-[10px] text-[#64748b] font-medium tracking-[0.2em] uppercase mb-1.5">
+            How we scored this lane
+          </p>
+          <p className="text-xs text-[#94a3b8] leading-relaxed">
+            Demand <span className="text-white">{result.demand}</span> × 40% + Winnability{" "}
+            <span className="text-white">{result.winnability}</span> × 45% + Openness{" "}
+            <span className="text-white">{100 - result.saturation}</span> × 15% ={" "}
+            <span className="text-white font-semibold">{result.opportunity}</span>
+          </p>
+        </div>
+      )}
       {result.statusColor && (
         <div className="flex items-center gap-2 flex-wrap mb-6">
           <StatusBadge status={result.statusColor} />
@@ -80,9 +99,21 @@ function FullLaneSection({ result, isPaid }: { result: FullLaneDetail; isPaid: b
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8 pb-8 border-b border-[#1a1a1a]">
-        <div><p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Demand</p><p className="text-lg font-semibold">{result.demand}</p></div>
-        <div><p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Saturation</p><p className="text-lg font-semibold">{result.saturation}</p></div>
-        <div><p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Winnability</p><p className="text-lg font-semibold">{result.winnability}</p></div>
+        <div>
+          <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Demand</p>
+          <p className="text-lg font-semibold">{result.demand}</p>
+          <p className="text-[#64748b] text-[11px] leading-snug mt-1">How many views recent uploads in this lane are getting on average</p>
+        </div>
+        <div>
+          <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Saturation</p>
+          <p className="text-lg font-semibold">{result.saturation}</p>
+          <p className="text-[#64748b] text-[11px] leading-snug mt-1">How many videos are competing in this lane right now (lower is better)</p>
+        </div>
+        <div>
+          <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Winnability</p>
+          <p className="text-lg font-semibold">{result.winnability}</p>
+          <p className="text-[#64748b] text-[11px] leading-snug mt-1">% of top performers that came from channels under 3K subscribers</p>
+        </div>
         <div>
           <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Momentum</p>
           <p className="text-lg font-semibold" style={{ color: (result.momentum ?? 0) > 0 ? "#e8833a" : undefined }}>
@@ -90,6 +121,7 @@ function FullLaneSection({ result, isPaid }: { result: FullLaneDetail; isPaid: b
               ? "New"
               : `${result.momentum >= 0 ? "+" : ""}${result.momentum}`}
           </p>
+          <p className="text-[#64748b] text-[11px] leading-snug mt-1">How this lane is trending vs. the previous analysis period</p>
         </div>
       </div>
 
@@ -102,15 +134,14 @@ function FullLaneSection({ result, isPaid }: { result: FullLaneDetail; isPaid: b
           <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-4">
             Patterns among small-channel winners
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-3 gap-4 mb-4">
             <div><p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">[FREE]-prefixed</p><p className="text-sm">{result.patterns.freePrefixPct}%</p></div>
             <div><p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Quoted beat name</p><p className="text-sm">{result.patterns.quotedNamePct}%</p></div>
             <div><p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Median duration</p><p className="text-sm">{formatDuration(result.patterns.medianDurationSeconds)}</p></div>
-            <div><p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">Median tags</p><p className="text-sm">{result.patterns.medianTagCount}</p></div>
           </div>
           {result.patterns.topTags.length > 0 && (
             <div className="mb-4">
-              <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-2">Top tags</p>
+              <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-2">Winning tags in this lane</p>
               <div className="flex flex-wrap gap-1.5">
                 {result.patterns.topTags.map((t) => (
                   <span key={t.tag} className="text-[10px] bg-[#0a0a0a] border border-[#1a1a1a] text-[#94a3b8] px-2 py-0.5">
@@ -238,6 +269,28 @@ function ReportContent() {
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-[#1a1a1a]">
             {rest.map((r) => (isFull(r) ? <FullLaneSection key={r.laneId} result={r} isPaid={data.isPaid} /> : <LockedLaneCard key={r.laneId} result={r} />))}
+          </div>
+        </div>
+      )}
+
+      {data.trendingArtists.length > 0 && (
+        <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-6 sm:p-8 mt-6">
+          <p className="text-sm font-semibold mb-4">
+            Producers winning in {data.genre} are also targeting these artists:
+          </p>
+          <div className="space-y-3">
+            {data.trendingArtists.map((t) => (
+              <div key={t.artist} className="flex items-center justify-between gap-4">
+                <span className="text-[#cbd5e1] text-sm">{t.artist}</span>
+                <Link
+                  href={`/lane-check?artist=${encodeURIComponent(t.artist)}`}
+                  className="shrink-0 text-xs text-[#0a0a0a] font-semibold px-3 py-2 hover:brightness-110 transition-all"
+                  style={{ backgroundColor: "#e8833a" }}
+                >
+                  Check this lane →
+                </Link>
+              </div>
+            ))}
           </div>
         </div>
       )}

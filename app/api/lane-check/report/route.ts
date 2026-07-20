@@ -4,6 +4,7 @@ import { createAuthClient } from "@/lib/supabase-server";
 import { isPaidUser } from "@/lib/lanes/entitlement";
 import { summarizeLane, fullLaneDetail, type LaneSummary, type FullLaneDetail } from "@/lib/lanes/present";
 import { getLatestAnalysis } from "@/lib/lanes/db";
+import { getTrendingCoMentionedArtists } from "@/lib/lanes/trending";
 import type { Lane } from "@/lib/lanes/types";
 
 export const dynamic = "force-dynamic";
@@ -107,12 +108,15 @@ export async function GET(req: NextRequest) {
     .eq("subscription_status", "active");
   const foundingSeatsRemain = (paidCount ?? 0) < 20;
 
+  const trendingArtists = await getTrendingCoMentionedArtists(supabase, laneCheck.genre);
+
   return NextResponse.json({
     laneCheckId: laneCheck.id,
     genre: laneCheck.genre,
     generatedAt: laneCheck.created_at,
     isPaid,
     results,
+    trendingArtists,
     cta: {
       signupUrl: "https://www.tallyagc.com/signup",
       foundingSeatsRemain,

@@ -20,8 +20,8 @@ interface Bracket {
 }
 
 const BRACKETS: Bracket[] = [
-  { key: "small", label: "Smallest channel winning this lane", emptyLabel: "smallest-channel", test: (s) => s < 1000 },
-  { key: "mid", label: "Mid-size channel winning this lane", emptyLabel: "mid-size-channel", test: (s) => s >= 1000 && s < 10000 },
+  { key: "small", label: "Smallest channel winning in this lane", emptyLabel: "smallest-channel", test: (s) => s < 1000 },
+  { key: "mid", label: "Mid-sized channel winning in this lane", emptyLabel: "mid-sized-channel", test: (s) => s >= 1000 && s < 10000 },
   { key: "established", label: "Established channel in this lane", emptyLabel: "established-channel", test: (s) => s >= 10000 },
 ];
 
@@ -45,7 +45,7 @@ export default function TopVideosThisLane({ videos }: { videos: GalleryVideo[] }
   return (
     <div className="mb-8">
       <p className="text-xs text-[#94a3b8] font-medium tracking-widest uppercase mb-3">
-        Top Videos This Lane
+        Top Videos In This Lane
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {BRACKETS.map((bracket) => {
