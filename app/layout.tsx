@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,14 +12,21 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Display face for hero headlines + score numerals only (see globals.css --font-display).
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
+  subsets: ["latin"],
+  weight: ["500", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "TALLY — YouTube Packaging for Beat Producers",
+  title: "TALLY — Which Artists Should Your Next Beat Target?",
   description:
-    "TALLY helps beat producers package every upload for maximum YouTube discovery. Get optimized titles, descriptions, tags, and thumbnail ideas based on real niche data. $19.99/month — 7-day free trial.",
+    "Describe your beat. TALLY tells you which artists to attach it to, how to title it, and which lanes small channels are actually winning on YouTube right now. Free Lane Check, no signup required.",
   keywords: [
+    "type beat lane check",
     "youtube beat producer",
     "type beat SEO",
-    "beat upload kit",
     "youtube music producer tool",
     "beat title optimizer",
     "youtube growth for producers",
@@ -27,18 +34,18 @@ export const metadata: Metadata = {
   authors: [{ name: "TALLY", url: "https://tallyagc.com" }],
   metadataBase: new URL("https://tallyagc.com"),
   openGraph: {
-    title: "TALLY — YouTube Packaging for Beat Producers",
+    title: "TALLY — Which Artists Should Your Next Beat Target?",
     description:
-      "Paste your beat details. Get an optimized title, description, tags, and thumbnail ideas based on what's working in your niche right now.",
+      "Tell us what your beat sounds like. We'll tell you which artists to attach it to, how to title it, and which lanes small channels are actually winning right now.",
     url: "https://tallyagc.com",
     siteName: "TALLY",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "TALLY — YouTube Packaging for Beat Producers",
+    title: "TALLY — Which Artists Should Your Next Beat Target?",
     description:
-      "Optimize every beat upload for YouTube discovery. Titles, descriptions, tags, and thumbnails — all based on real niche data.",
+      "Free Lane Check: which artists to target, how to title it, and who's winning that lane right now — based on real YouTube data.",
   },
   robots: {
     index: true,
@@ -54,7 +61,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-[#0a0a0a]">{children}</body>
     </html>

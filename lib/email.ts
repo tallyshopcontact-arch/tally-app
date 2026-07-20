@@ -398,6 +398,55 @@ export async function sendDiagnosticMagicLink(
   return { ok: true };
 }
 
+// ── sendLaneCheckMagicLink ────────────────────────────────────────────────────
+
+export async function sendLaneCheckMagicLink(
+  email: string,
+  reportUrl: string
+): Promise<{ ok: boolean; error?: unknown }> {
+  const html = emailShell(`
+    <tr>
+      <td style="padding-bottom:12px;">
+        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.02em;line-height:1.2;">Your Lane Check results are ready.</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding-bottom:32px;">
+        <p style="margin:0;color:#94a3b8;font-size:15px;line-height:1.7;">
+          Click below to see your top lane's full breakdown — real numbers on
+          demand, competition, and who's actually winning right now.
+          Your report link is personal — don't share it.
+        </p>
+      </td>
+    </tr>
+    ${ctaButton(reportUrl, "View my lane check →")}
+    <tr>
+      <td style="padding-bottom:32px;">
+        <p style="margin:0;font-size:12px;color:#475569;line-height:1.6;">
+          This link is valid for 30 days. If you didn't request a TALLY lane check, ignore this email.
+        </p>
+      </td>
+    </tr>
+  `);
+
+  console.log(`[email:lane-check] sending to ${email} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [email],
+    subject: "Your free TALLY Lane Check results",
+    html,
+  });
+
+  if (error) {
+    console.error("[email:lane-check] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:lane-check] sent id=", data?.id);
+  return { ok: true };
+}
+
 // ── sendCancellationEmail ─────────────────────────────────────────────────────
 
 export async function sendCancellationEmail(

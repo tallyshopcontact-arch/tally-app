@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { extractKeywords, getTopNicheVideos } from "@/lib/keywords";
 import type { NicheVideo } from "@/lib/keywords";
 import { AlertTriangle, ArrowUpRight, Check, Copy, Lock, Menu, RefreshCw, TrendingDown, TrendingUp, Minus, X } from "lucide-react";
+import LaneCheckNudgeBanner from "@/components/LaneCheckNudgeBanner";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import {
   IconLayoutDashboard,
@@ -1924,6 +1925,7 @@ export default function ReportPage() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-[#0a0a0a] text-white">
+      <LaneCheckNudgeBanner />
       {/* ── Top header ── */}
       <nav className="shrink-0 h-14 border-b border-[#1a1a1a] px-5 flex items-center justify-between">
         <div className="flex items-center gap-4">

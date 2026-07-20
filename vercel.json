@@ -1,12 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron/trial-ending",
-      "schedule": "0 10 * * *"
+      "path": "/api/cron/lane-jobs",
+      "schedule": "0 9 * * *"
     },
     {
-      "path": "/api/cron/monthly-reports",
-      "schedule": "0 6 1 * *"
+      "path": "/api/cron/lane-refresh",
+      "schedule": "0 2 * * *"
     }
   ]
 }

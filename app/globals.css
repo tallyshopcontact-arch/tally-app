@@ -10,6 +10,9 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Loaded at root (app/layout.tsx). Reserved for hero headlines and score
+     numerals only — see LANE-CHECK-BRIEF.md "Visual refresh". */
+  --font-display: var(--font-space-grotesk);
 }
 
 html {
@@ -80,4 +83,14 @@ select option {
 }
 .tab-content {
   animation: tab-fade-in 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-content,
+  .hero-bg-gradient,
+  .hero-orb-1,
+  .hero-orb-2,
+  .hero-orb-3 {
+    animation: none;
+  }
 }

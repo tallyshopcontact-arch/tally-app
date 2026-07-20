@@ -5,28 +5,27 @@ import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 
 const features = [
-  "Upload Kit Generator — unlimited",
-  "Title Tester — unlimited",
-  "Keyword Heat Map — top 20 niche keywords",
-  "Monthly Report — full channel analysis",
-  "Action Plan — 7 monthly priorities",
-  "Competitor Tracker — track up to 5 channels",
-  "TALLY Score — monthly growth health score",
-  "Growth Forecast — 90-day projection",
+  "Unlimited Lane Checks",
+  "All 3 lanes, full detail, every time",
+  "Co-mentions & adjacent-lane data",
+  "AI title generator",
+  "Priority processing — no wait",
+  "Full check history",
+  "1 free Channel Diagnostic still included",
 ];
 
 const faqs = [
   {
     q: "What is TALLY?",
-    a: "TALLY is a YouTube packaging tool for beat producers. It analyzes your channel and niche, then gives you optimized titles, descriptions, tags, and thumbnails for every upload.",
+    a: "TALLY tells you which artists to attach your next beat to, how to title it, and which lanes small channels are actually winning right now — based on real YouTube data, not guesswork.",
   },
   {
     q: "What's included in the 7-day free trial?",
-    a: "Full access to all 7 tools — no credit card required upfront. You can cancel before the trial ends and you won't be charged.",
+    a: "Full Pro access — unlimited Lane Checks, all 3 lanes every time, the title generator, and your full check history. No credit card required upfront, and you can cancel before the trial ends without being charged.",
   },
   {
     q: "Do I need a YouTube channel to use TALLY?",
-    a: "Yes. TALLY pulls data from your channel to generate personalized recommendations based on your niche, genre, and top artists.",
+    a: "No — Lane Check works from just the artists and genre you give it. Connecting your channel unlocks personalized winnability for your subscriber range.",
   },
   {
     q: "Can I cancel anytime?",
@@ -34,11 +33,12 @@ const faqs = [
   },
   {
     q: "Is TALLY only for beat producers?",
-    a: "TALLY is built specifically for YouTube beat producers. If you upload type beats, TALLY will give you better upload positioning than any generic SEO tool.",
+    a: "TALLY is built specifically for YouTube type-beat producers. If you upload beats targeting specific artists, TALLY tells you which lanes are worth your next upload.",
   },
 ];
 
 export default function PricingPage() {
+  const [plan, setPlan] = useState<"monthly" | "yearly">("monthly");
   const [loading, setLoading] = useState(false);
   const [checkError, setCheckError] = useState("");
 
@@ -57,7 +57,7 @@ export default function PricingPage() {
     if (code === "FOUNDING20") {
       setAppliedPromo(code);
       setPromoMessage(
-        "Founding member offer applied — 14 days free, $19.99/month locked for life."
+        "Founding member offer applied — 14 days free, $14/month locked for life."
       );
     } else {
       // Pass unknown codes through to Stripe; it will validate
@@ -74,7 +74,7 @@ export default function PricingPage() {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(appliedPromo ? { promoCode: appliedPromo } : {}),
+        body: JSON.stringify({ plan, ...(appliedPromo ? { promoCode: appliedPromo } : {}) }),
       });
 
       if (res.status === 401) {
@@ -119,10 +119,10 @@ export default function PricingPage() {
         <div className="text-center mb-14">
           <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Pricing</p>
           <h1 className="text-3xl sm:text-4xl font-bold mb-4 leading-tight">
-            One plan. Every tool.
+            Free to start. $14/month for everything.
           </h1>
           <p className="text-[#94a3b8] text-base max-w-md mx-auto">
-            Everything you need to position every beat for maximum YouTube discovery.
+            Which artists to target, how to title it, and who&apos;s winning that lane right now.
           </p>
         </div>
 
@@ -135,22 +135,43 @@ export default function PricingPage() {
                 Founding member offer applied
               </p>
               <p className="text-xs text-[#94a3b8]">
-                14 days free, no credit card required · $19.99/month locked for life
+                14 days free, no credit card required · $14/month locked for life
               </p>
             </div>
           </div>
         )}
+
+        {/* Monthly / yearly toggle */}
+        <div className="flex items-center justify-center gap-2 mb-6">
+          <button
+            onClick={() => setPlan("monthly")}
+            className={`text-xs font-semibold px-4 py-2 border transition-colors cursor-pointer ${
+              plan === "monthly" ? "border-[#e8833a] text-white" : "border-[#1e1e1e] text-[#94a3b8] hover:text-white"
+            }`}
+          >
+            Monthly
+          </button>
+          <button
+            onClick={() => setPlan("yearly")}
+            className={`text-xs font-semibold px-4 py-2 border transition-colors cursor-pointer flex items-center gap-2 ${
+              plan === "yearly" ? "border-[#e8833a] text-white" : "border-[#1e1e1e] text-[#94a3b8] hover:text-white"
+            }`}
+          >
+            Yearly
+            <span className="text-[#4ade80] text-[10px]">Save 41%</span>
+          </button>
+        </div>
 
         {/* Plan card */}
         <div className="border border-white/20 p-8 mb-6">
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
               <h2 className="text-xl font-bold mb-1">TALLY Pro</h2>
-              <p className="text-[#94a3b8] text-sm">All 7 tools. Unlimited uses. One price.</p>
+              <p className="text-[#94a3b8] text-sm">Unlimited. Every lane, every time.</p>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-3xl font-bold">$19.99</p>
-              <p className="text-xs text-[#94a3b8]">per month</p>
+              <p className="text-3xl font-bold">{plan === "yearly" ? "$99" : "$14"}</p>
+              <p className="text-xs text-[#94a3b8]">{plan === "yearly" ? "per year" : "per month"}</p>
             </div>
           </div>
 
@@ -207,7 +228,8 @@ export default function PricingPage() {
           <button
             onClick={handleCheckout}
             disabled={loading}
-            className="w-full bg-white text-black text-sm font-bold py-4 hover:bg-white/90 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full text-[#0a0a0a] text-sm font-bold py-4 hover:brightness-110 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            style={{ backgroundColor: "#e8833a" }}
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {loading
@@ -221,7 +243,7 @@ export default function PricingPage() {
           )}
           <p className="text-center text-xs text-[#475569] mt-3">
             {isFoundingMember
-              ? "14 days free, no credit card required. $19.99/month after."
+              ? "14 days free, no credit card required. $14/month after."
               : "No credit card required for trial. Cancel anytime."}
           </p>
         </div>

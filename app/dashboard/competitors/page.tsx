@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { ArrowUpRight, ChevronDown, ChevronUp, Loader2, Plus, RefreshCw, X } from "lucide-react";
+import LaneCheckNudgeBanner from "@/components/LaneCheckNudgeBanner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -178,6 +179,7 @@ export default function CompetitorsPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
+      <LaneCheckNudgeBanner />
       {/* Header */}
       <nav className="h-14 border-b border-[#1a1a1a] px-6 flex items-center justify-between">
         <div className="flex items-center gap-4">

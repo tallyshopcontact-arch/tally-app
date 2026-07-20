@@ -115,9 +115,9 @@ export async function POST(req: NextRequest) {
     ytData.videos
   );
 
-  // 7. Haiku narrative — Phase 4 kill-switch
+  // 7. Haiku narrative — shared LLM kill-switch (also gates the Lane Check title generator)
   let narrative: string | null = null;
-  if (process.env.DIAGNOSTIC_LLM_ENABLED === "true") {
+  if (process.env.TALLY_LLM_ENABLED === "true") {
     try {
       const { anthropic } = await import("@/lib/anthropic");
       const res = await anthropic.messages.create({

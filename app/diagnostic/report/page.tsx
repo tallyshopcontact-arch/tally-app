@@ -31,6 +31,7 @@ type Finding = UnlockedFinding | LockedFinding;
 
 interface ReportData {
   diagnosticId: string;
+  channelId: string;
   channelTitle: string;
   tallyScore: number;
   grade: "A" | "B" | "C" | "D" | "F";
@@ -103,16 +104,12 @@ function ReportContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
 
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState<"loading" | "ready" | "error">(token ? "loading" : "error");
+  const [error, setError] = useState(token ? "" : "Missing report link. Check the link in your email and try again.");
   const [data, setData] = useState<ReportData | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setStatus("error");
-      setError("Missing report link. Check the link in your email and try again.");
-      return;
-    }
+    if (!token) return;
 
     (async () => {
       try {
@@ -224,26 +221,18 @@ function ReportContent() {
       {/* CTA */}
       <div className="border border-white/20 p-8">
         <p className="text-sm font-semibold tracking-[0.1em] uppercase mb-2">
-          See exactly what to fix
+          Find out which lanes your beats can win right now
         </p>
-        <p className="text-[#94a3b8] text-sm leading-relaxed mb-6">{data.cta.message}</p>
-        {data.cta.promoCode && (
-          <p className="text-xs text-[#94a3b8] mb-4">
-            Use code{" "}
-            <span className="font-mono font-bold text-white bg-[#1a1a1a] px-1.5 py-0.5 text-[11px]">
-              {data.cta.promoCode}
-            </span>
-          </p>
-        )}
+        <p className="text-[#94a3b8] text-sm leading-relaxed mb-6">
+          Which artists to target, how to title it, and who&apos;s actually winning that lane —
+          based on your genre and real YouTube data.
+        </p>
         <a
-          href={
-            data.cta.promoCode
-              ? `${data.cta.signupUrl}?promo=${data.cta.promoCode}`
-              : data.cta.signupUrl
-          }
-          className="block text-center bg-white text-black text-sm font-bold py-4 hover:bg-[#e8e8e8] transition-colors"
+          href={`/lane-check?channel=${encodeURIComponent(data.channelId)}`}
+          className="block text-center text-[#0a0a0a] text-sm font-bold py-4 hover:brightness-110 transition-all"
+          style={{ backgroundColor: "#e8833a" }}
         >
-          Create my free account →
+          Find out which lanes your beats can win right now →
         </a>
       </div>
 
