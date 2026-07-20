@@ -99,37 +99,36 @@ function TurnstileWidget({ onVerify }: { onVerify: (token: string) => void }) {
   return <div ref={containerRef} className="mb-4" />;
 }
 
-// ── Lane row (results list on this page — score/meter/verdict, or queued) ──
+// ── Lane row (results list on this page — score/meter/verdict) ─────────────
+
+const STAGGER_MS = 600;
 
 function LaneRow({ result, index }: { result: LaneResult; index: number }) {
   return (
     <div
       className="bg-[#0a0a0a] p-5 tab-content"
-      style={{ animationDelay: `${index * 90}ms`, animationFillMode: "backwards" }}
+      style={{ animationDelay: `${index * STAGGER_MS}ms`, animationFillMode: "backwards" }}
     >
       <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">{result.displayName}</p>
-      {result.status === "queued" ? (
-        <p className="text-sm text-[#fbbf24]">
-          Analysis queued — we&apos;ll email you when it&apos;s ready (usually within a few hours).
-        </p>
-      ) : (
-        <div className="space-y-3">
-          <ScoreMeter score={result.opportunity ?? 0} size="sm" />
-          <div className="flex items-center gap-2 flex-wrap">
-            {result.statusColor && <StatusBadge status={result.statusColor} />}
-            <span className="text-[#94a3b8] text-xs">{result.verdict}</span>
-          </div>
+      <div className="space-y-3">
+        <ScoreMeter score={result.opportunity ?? 0} size="sm" />
+        <div className="flex items-center gap-2 flex-wrap">
+          {result.statusColor && <StatusBadge status={result.statusColor} />}
+          <span className="text-[#94a3b8] text-xs">{result.verdict}</span>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
 // ── Full lane detail (rendered inline when the caller is already paid) ─────
 
-function FullLaneCard({ result }: { result: FullLaneDetail }) {
+function FullLaneCard({ result, index }: { result: FullLaneDetail; index: number }) {
   return (
-    <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-6">
+    <div
+      className="border border-[#1a1a1a] bg-[#0d0d0d] p-6 tab-content"
+      style={{ animationDelay: `${index * STAGGER_MS}ms`, animationFillMode: "backwards" }}
+    >
       <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">{result.displayName}</p>
       <div className="mb-4">
         <ScoreMeter score={result.opportunity ?? 0} />
@@ -167,6 +166,9 @@ function LaneCheckForm() {
   const [pageStatus, setPageStatus] = useState<PageStatus>("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [result, setResult] = useState<RunResponse | null>(null);
+  const [loadingArtists, setLoadingArtists] = useState<string[]>([]);
+  const [loadingIndex, setLoadingIndex] = useState(0);
+  const loadingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [email, setEmail] = useState("");
   const [emailStatus, setEmailStatus] = useState<EmailStatus>("idle");
@@ -177,12 +179,21 @@ function LaneCheckForm() {
     setPageStatus("loading");
     setErrorMessage("");
 
+    const activeArtists = artists.map((a) => a.trim()).filter(Boolean);
+    setLoadingArtists(activeArtists);
+    setLoadingIndex(0);
+    // Cycles through each artist's name every ~3.5s so the wait feels like
+    // per-lane progress, even though /run resolves all 3 in one response.
+    loadingIntervalRef.current = setInterval(() => {
+      setLoadingIndex((i) => (i + 1) % activeArtists.length);
+    }, 3500);
+
     try {
       const res = await fetch("/api/lane-check/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          artists: artists.map((a) => a.trim()).filter(Boolean),
+          artists: activeArtists,
           genre,
           channelId: channelId.trim() || undefined,
           turnstileToken,
@@ -201,8 +212,19 @@ function LaneCheckForm() {
     } catch {
       setPageStatus("error");
       setErrorMessage("Network error. Please check your connection and try again.");
+    } finally {
+      if (loadingIntervalRef.current) {
+        clearInterval(loadingIntervalRef.current);
+        loadingIntervalRef.current = null;
+      }
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
+    };
+  }, []);
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -320,7 +342,9 @@ function LaneCheckForm() {
             {pageStatus === "loading" && (
               <span className="w-4 h-4 border border-[#0a0a0a]/40 border-t-[#0a0a0a] rounded-full animate-spin shrink-0" />
             )}
-            {pageStatus === "loading" ? "Analyzing your lanes…" : "Analyze my lanes →"}
+            {pageStatus === "loading"
+              ? `Analyzing ${loadingArtists[loadingIndex] ?? "your"} lane…`
+              : "Analyze my lanes →"}
           </button>
           <p className="text-center text-xs text-[#475569]">No signup required. 1 free lane check per month.</p>
         </form>
@@ -334,8 +358,8 @@ function LaneCheckForm() {
             </p>
             {result.isPaid ? (
               <div className="space-y-4">
-                {result.results.map((r) =>
-                  isFull(r) ? <FullLaneCard key={r.laneId} result={r} /> : <LaneRow key={r.laneId} result={r} index={0} />
+                {result.results.map((r, i) =>
+                  isFull(r) ? <FullLaneCard key={r.laneId} result={r} index={i} /> : <LaneRow key={r.laneId} result={r} index={i} />
                 )}
               </div>
             ) : (

@@ -4,16 +4,17 @@ import { createAuthClient } from "@/lib/supabase-server";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { sanitizeInput } from "@/lib/sanitize";
 import { isPaidUser } from "@/lib/lanes/entitlement";
-import {
-  getOrCreateLane, isLaneFresh, getLatestAnalysis, hasPendingJob, enqueueLaneJob,
-} from "@/lib/lanes/db";
+import { getOrCreateLane, isLaneFresh, getLatestAnalysis } from "@/lib/lanes/db";
 import { analyzeLane } from "@/lib/lanes/pipeline";
 import { summarizeLane, fullLaneDetail, type LaneSummary, type FullLaneDetail } from "@/lib/lanes/present";
 import type { Lane } from "@/lib/lanes/types";
 
 export const dynamic = "force-dynamic";
+// Cache-miss analysis runs inline (see step 4 below) — a request with
+// multiple cold lanes needs real headroom beyond Vercel's default timeout.
+export const maxDuration = 60;
 
-const GENRES = ["Boom Bap", "Drill", "Trap", "Lo-Fi", "Melodic", "R&B"];
+const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats"];
 const MAX_ARTISTS = 3;
 const IP_DAILY_CAP = 5;
 
@@ -100,9 +101,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 4. Resolve each artist to a lane, serve from cache or queue/run fresh analysis.
-  // Lane-first caching: a request NEVER triggers YouTube directly except the paid
-  // inline path below — everything else reads lane_analyses or enqueues a job.
+  // 4. Resolve each artist to a lane, serve from cache or run fresh analysis
+  // inline. No queue — every cache miss is analyzed synchronously within this
+  // request, for every user, paid or free. lane_jobs/enqueueLaneJob still
+  // exist (used by the cron pre-warm/refresh scripts) but this route no
+  // longer enqueues into them.
   const enabled = analysisEnabled();
   const lanes: { lane: Lane; analysis: Awaited<ReturnType<typeof getLatestAnalysis>> }[] = [];
 
@@ -111,14 +114,9 @@ export async function POST(req: NextRequest) {
 
     let analysis = isLaneFresh(lane.last_analyzed_at) ? await getLatestAnalysis(supabase, lane.id) : null;
 
-    if (!analysis) {
-      if (enabled && isPaid) {
-        // Paid jumps the queue and runs inline. Kill switch overrides even this.
-        const result = await analyzeLane(supabase, lane);
-        analysis = result.analysisRow;
-      } else if (!(await hasPendingJob(supabase, lane.id))) {
-        await enqueueLaneJob(supabase, lane.id, { priority: isPaid ? 10 : 0, requestedBy: userId });
-      }
+    if (!analysis && enabled) {
+      const result = await analyzeLane(supabase, lane);
+      analysis = result.analysisRow;
     }
 
     await supabase.from("lanes").update({ request_count: lane.request_count + 1 }).eq("id", lane.id);

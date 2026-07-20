@@ -146,14 +146,6 @@ function FullLaneSection({ result, isPaid }: { result: FullLaneDetail; isPaid: b
 // ── Locked lane card (rank 2-3, non-paid) ───────────────────────────────────
 
 function LockedLaneCard({ result }: { result: LaneSummary }) {
-  if (result.status === "queued") {
-    return (
-      <div className="bg-[#0a0a0a] p-5">
-        <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">{result.displayName}</p>
-        <p className="text-sm text-[#fbbf24]">Analysis queued — check back soon.</p>
-      </div>
-    );
-  }
   return (
     <div className="bg-[#0a0a0a] p-5 opacity-50">
       <div className="flex items-center gap-1.5 mb-2">

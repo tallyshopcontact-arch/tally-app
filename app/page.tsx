@@ -33,7 +33,7 @@ const faqs = [
   },
   {
     q: "How fast are my results?",
-    a: "Cached lanes are instant. A brand-new lane usually finishes within a few hours on the free plan — paid members' lanes run immediately, no wait.",
+    a: "Cached lanes are instant. A brand-new lane runs a live analysis on the spot — usually 10-15 seconds — for every plan, free or paid.",
   },
   {
     q: "Can I cancel anytime?",
