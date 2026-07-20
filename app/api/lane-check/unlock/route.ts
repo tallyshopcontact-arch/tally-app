@@ -49,7 +49,11 @@ export async function POST(req: NextRequest) {
 
     if (existingLead) {
       const reportUrl = `${WWW_BASE}/lane-check/report?token=${existingLead.verify_token}`;
-      await sendLaneCheckMagicLink(emailNorm, reportUrl);
+      const { ok, error: emailErr } = await sendLaneCheckMagicLink(emailNorm, reportUrl);
+      if (!ok) {
+        console.error("[lane-check/unlock] resend email error:", emailErr);
+        return NextResponse.json({ error: "Failed to send email. Please try again." }, { status: 500 });
+      }
       return NextResponse.json({ ok: true, resent: true });
     }
 
@@ -93,6 +97,7 @@ export async function POST(req: NextRequest) {
   const { ok, error: emailErr } = await sendLaneCheckMagicLink(emailNorm, reportUrl);
   if (!ok) {
     console.error("[lane-check/unlock] email error:", emailErr);
+    return NextResponse.json({ error: "Failed to send email. Please try again." }, { status: 500 });
   }
 
   console.log(`[lane-check/unlock] lead saved for ${emailNorm}, laneCheck=${laneCheckId}`);

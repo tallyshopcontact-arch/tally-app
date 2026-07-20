@@ -52,7 +52,11 @@ export async function POST(req: NextRequest) {
 
     if (existingLead) {
       const reportUrl = `${WWW_BASE}/diagnostic/report?token=${existingLead.verify_token}`;
-      await sendDiagnosticMagicLink(emailNorm, reportUrl);
+      const { ok, error: emailErr } = await sendDiagnosticMagicLink(emailNorm, reportUrl);
+      if (!ok) {
+        console.error("[diagnostic/unlock] resend email error:", emailErr);
+        return NextResponse.json({ error: "Failed to send email. Please try again." }, { status: 500 });
+      }
       return NextResponse.json({ ok: true, resent: true });
     }
 
@@ -108,7 +112,7 @@ export async function POST(req: NextRequest) {
   const { ok, error: emailErr } = await sendDiagnosticMagicLink(emailNorm, reportUrl);
   if (!ok) {
     console.error("[diagnostic/unlock] email error:", emailErr);
-    // Still return success — lead is saved, user can retry
+    return NextResponse.json({ error: "Failed to send email. Please try again." }, { status: 500 });
   }
 
   console.log(`[diagnostic/unlock] lead saved for ${emailNorm}, diagnostic=${diagnosticId}`);
