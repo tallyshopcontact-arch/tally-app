@@ -10,7 +10,7 @@ interface UpgradePromptProps {
 
 export function UpgradePrompt({
   title = "Upgrade to TALLY Pro",
-  description = "Get unlimited access to all 7 tools for $19.99/month.",
+  description = "Get unlimited Lane Check access for $14/month.",
   feature,
 }: UpgradePromptProps) {
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,7 @@ export function UpgradePrompt({
         disabled={loading}
         className="mt-2 px-6 py-3 rounded-lg bg-white text-black text-sm font-semibold hover:bg-white/90 transition disabled:opacity-50"
       >
-        {loading ? "Redirecting…" : "Start 7-Day Free Trial — $19.99/mo"}
+        {loading ? "Redirecting…" : "Start 7-Day Free Trial — $14/mo"}
       </button>
       {checkError && (
         <p className="text-[#f87171] text-xs">{checkError}</p>

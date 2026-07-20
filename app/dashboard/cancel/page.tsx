@@ -39,12 +39,11 @@ function getRetentionOffer(reasons: string[]): "discount" | "pause" | "feature" 
 // ── What you'll lose ──────────────────────────────────────────────────────────
 
 const LOSSES = [
-  "Upload Kit Generator — unlimited optimized titles, descriptions & tags",
-  "Monthly Report — full AI channel analysis delivered on the 1st",
-  "Action Plan — 7 personalized monthly priorities based on your data",
-  "Competitor Tracker — monitor up to 5 channels side-by-side",
-  "TALLY Score — your monthly growth health score and history",
-  "Keyword Heat Map — top 20 trending niche tags each month",
+  "Lane Check — unlimited artist-lane opportunity scoring",
+  "Title Generator — deterministic titles built from real winning packaging",
+  "Full lane breakdowns — demand, competition & winnability across all 3 lanes",
+  "Video galleries — the actual winning videos behind each lane's score",
+  "Lane Check history — every lane you've checked, saved and revisitable",
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -325,7 +324,7 @@ export default function CancelPage() {
               </h2>
               <p className="text-[#94a3b8] text-sm mb-8">
                 {retentionOffer === "discount"
-                  ? "Your next charge will be $9.99. Full price resumes the following month."
+                  ? "Your next charge will be $7. Full price resumes the following month."
                   : "Your subscription resumes automatically in 30 days. No charges until then."}
               </p>
               <Link
@@ -339,11 +338,11 @@ export default function CancelPage() {
             <>
               <h1 className="text-2xl font-bold mb-2">Before you go —</h1>
               <p className="text-[#94a3b8] text-sm mb-8">
-                Stay for just <span className="text-white font-semibold">$9.99 this month</span>. One click to apply — no commitment, full price resumes after.
+                Stay for just <span className="text-white font-semibold">$7 this month</span>. One click to apply — no commitment, full price resumes after.
               </p>
               <div className="border border-[#fbbf24]/20 bg-[#fbbf24]/5 p-6 mb-6">
                 <p className="text-lg font-bold mb-1">50% off next invoice</p>
-                <p className="text-[#94a3b8] text-sm">$9.99 instead of $19.99 · Full price resumes next month</p>
+                <p className="text-[#94a3b8] text-sm">$7 instead of $14 · Full price resumes next month</p>
               </div>
               {retentionError && <p className="text-[#f87171] text-xs mb-4">{retentionError}</p>}
               <div className="flex flex-col sm:flex-row gap-3 mb-4">

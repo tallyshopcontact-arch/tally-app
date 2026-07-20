@@ -124,7 +124,7 @@ export async function generateOutreachSequence(
   ]);
 
   const msg4BodyFounding =
-    `I'll give you founding member access — 14 days completely free, no credit card needed, and your rate is locked at $19.99/month for life even if we raise prices later. Only available to the first 20 producers. Sign up at tallyagc.com and use code FOUNDING20 at checkout.`;
+    `I'll give you founding member access — 14 days completely free, no credit card needed, and your rate is locked at $14/month for life even if we raise prices later. Only available to the first 20 producers. Sign up at tallyagc.com and use code FOUNDING20 at checkout.`;
   const msg4BodyStandard =
     `I'll give you full free access for 7 days — sign up at tallyagc.com and try it before your next upload. No commitment.`;
   const msg4Body = offerType === "founding" ? msg4BodyFounding : msg4BodyStandard;

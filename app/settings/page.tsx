@@ -154,7 +154,7 @@ export default function SettingsPage() {
     free: {
       label: "Free",
       color: "text-[#94a3b8]",
-      description: "You have 3 free uses of Upload Kit and Title Tester.",
+      description: "You have 1 free Lane Check per month.",
     },
     trialing: {
       label: "Trial",
@@ -166,7 +166,7 @@ export default function SettingsPage() {
     active: {
       label: "Active",
       color: "text-[#4ade80]",
-      description: "Full access to all 7 tools.",
+      description: "Unlimited Lane Check access.",
     },
     past_due: {
       label: "Past Due",
@@ -354,7 +354,7 @@ export default function SettingsPage() {
                 </div>
                 <p className="text-[#94a3b8] text-xs mb-1">{statusInfo.description}</p>
                 {!isPaid && status !== "beta" && (
-                  <p className="text-[#475569] text-xs">$19.99/month — 7-day free trial</p>
+                  <p className="text-[#475569] text-xs">$14/month — 7-day free trial</p>
                 )}
               </div>
               <div className="shrink-0 flex flex-col items-end gap-2">

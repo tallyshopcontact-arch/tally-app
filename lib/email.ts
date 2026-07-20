@@ -108,13 +108,11 @@ export async function sendWelcomeEmail(
   const name = producerName || "Producer";
 
   const tools = [
-    { name: "Upload Kit Generator", desc: "Optimized title, description, tags, and thumbnail direction for every upload" },
-    { name: "Title Tester", desc: "Score any title 1–100 and get better rewrites instantly" },
-    { name: "Keyword Heat Map", desc: "Top 20 trending tags in your niche, updated monthly" },
-    { name: "Monthly Channel Report", desc: "Full channel analysis based on your real YouTube data" },
-    { name: "Action Plan", desc: "7 specific priorities for your channel each month" },
-    { name: "Competitor Tracker", desc: "Track up to 5 channels and compare TALLY scores" },
-    { name: "TALLY Score", desc: "Your monthly growth health score with history graph" },
+    { name: "Lane Check", desc: "Unlimited — see which artists to attach your beats to, backed by real YouTube data" },
+    { name: "Title Generator", desc: "Deterministic titles built from real winning packaging in your lane" },
+    { name: "Full lane breakdowns", desc: "Demand, competition, and winnability across all 3 lanes" },
+    { name: "Video galleries", desc: "See the actual winning videos driving each lane's opportunity score" },
+    { name: "Lane Check history", desc: "Every lane you've checked, saved and revisitable" },
   ];
 
   const toolRows = tools
@@ -272,12 +270,11 @@ export async function sendTrialEndingEmail(
     : `in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
 
   const loseItems = [
-    "Monthly channel report & action plan",
-    "Upload Kit Generator — unlimited",
-    "Title Tester — unlimited",
-    "Keyword Heat Map",
-    "Competitor Tracker",
-    "TALLY Score history",
+    "Lane Check — unlimited",
+    "Title Generator",
+    "Full lane breakdowns — all 3 lanes",
+    "Video galleries",
+    "Lane Check history",
   ];
 
   const loseRows = loseItems
@@ -315,14 +312,14 @@ export async function sendTrialEndingEmail(
           <tr>
             <td>
               <p style="margin:0 0 4px;font-size:11px;color:#475569;letter-spacing:0.15em;text-transform:uppercase;">Keep your access</p>
-              <p style="margin:0;font-size:28px;font-weight:700;color:#ffffff;line-height:1;">$19.99<span style="font-size:14px;font-weight:400;color:#94a3b8;">/month</span></p>
+              <p style="margin:0;font-size:28px;font-weight:700;color:#ffffff;line-height:1;">$14<span style="font-size:14px;font-weight:400;color:#94a3b8;">/month</span></p>
               <p style="margin:6px 0 0;font-size:12px;color:#475569;">Cancel anytime. No contracts.</p>
             </td>
           </tr>
         </table>
       </td>
     </tr>
-    ${ctaButton(`${BASE_URL}/settings`, "Continue for $19.99/month →")}
+    ${ctaButton(`${BASE_URL}/settings`, "Continue for $14/month →")}
     <tr>
       <td style="padding-bottom:32px;">
         <p style="margin:0;font-size:12px;color:#475569;line-height:1.6;">

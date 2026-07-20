@@ -26,7 +26,7 @@ const VARIABLE_RATES = {
   outreach: 0.06,
 };
 
-const PRICE = 19.99;
+const PRICE = 14;
 
 export async function GET(req: NextRequest) {
   if (!checkAdmin(req))
