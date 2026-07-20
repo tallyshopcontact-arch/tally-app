@@ -1,6 +1,6 @@
-// Drains the lane_jobs queue — runs hourly (see vercel.json).
-// TODO: tighten to 10min on Vercel Pro (Hobby plan caps crons at 1/day granularity
-// below hourly, so this is the tightest interval available until upgrading).
+// Drains the lane_jobs queue — runs daily at 9am UTC (see vercel.json).
+// TODO: tighten to hourly/10min on Vercel Pro — Hobby plan caps crons at
+// once/day, so this is the tightest interval available until upgrading.
 // Capped per run to protect YouTube quota (~204 units/lane analyzed).
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";

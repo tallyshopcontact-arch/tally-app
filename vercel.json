@@ -10,11 +10,11 @@
     },
     {
       "path": "/api/cron/lane-jobs",
-      "schedule": "0 * * * *"
+      "schedule": "0 9 * * *"
     },
     {
       "path": "/api/cron/lane-refresh",
-      "schedule": "0 4 * * *"
+      "schedule": "0 2 * * *"
     }
   ]
 }
