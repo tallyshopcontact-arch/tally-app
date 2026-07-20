@@ -443,7 +443,7 @@ export default function OnboardingPage() {
                 <>
                   <h1 className="text-2xl font-bold mb-2">Claim your founding member offer</h1>
                   <p className="text-[#4ade80] text-sm">
-                    14 days free · $19.99/month locked for life · No credit card required.
+                    14 days free · $14/month locked for life · No credit card required.
                   </p>
                 </>
               ) : (
@@ -460,22 +460,20 @@ export default function OnboardingPage() {
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
                   <p className="text-sm font-bold">TALLY Pro</p>
-                  <p className="text-[#94a3b8] text-xs mt-0.5">All 7 tools. Unlimited uses.</p>
+                  <p className="text-[#94a3b8] text-xs mt-0.5">Unlimited Lane Check access.</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-2xl font-bold">$19.99</p>
+                  <p className="text-2xl font-bold">$14</p>
                   <p className="text-xs text-[#94a3b8]">per month</p>
                 </div>
               </div>
               <ul className="space-y-2 mb-6">
                 {[
-                  "Upload Kit Generator — unlimited",
-                  "Title Tester — unlimited",
-                  "Keyword Heat Map",
-                  "Monthly Report — full channel analysis",
-                  "Action Plan — 7 monthly priorities",
-                  "Competitor Tracker",
-                  "TALLY Score",
+                  "Lane Check — unlimited",
+                  "Title Generator",
+                  "Full lane breakdowns — all 3 lanes",
+                  "Video galleries",
+                  "Lane Check history",
                 ].map((f) => (
                   <li key={f} className="flex items-start gap-2 text-xs text-[#94a3b8]">
                     <Check className="w-3 h-3 text-[#475569] shrink-0 mt-0.5" />
