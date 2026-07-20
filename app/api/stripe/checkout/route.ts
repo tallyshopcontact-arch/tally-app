@@ -5,10 +5,11 @@ import { stripe } from "@/lib/stripe";
 export const dynamic = "force-dynamic";
 
 // To switch to live mode, update these Vercel env vars (no code changes needed):
-//   STRIPE_SECRET_KEY        → sk_live_...
+//   STRIPE_SECRET_KEY          → sk_live_...
 //   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY → pk_live_...
-//   STRIPE_PRICE_ID          → price_live_...
-//   STRIPE_WEBHOOK_SECRET    → whsec_live_...
+//   STRIPE_PRICE_ID_MONTHLY    → price_live_...
+//   STRIPE_PRICE_ID_YEARLY     → price_live_...
+//   STRIPE_WEBHOOK_SECRET      → whsec_live_...
 
 export async function POST(req: NextRequest) {
   const supabase = await createAuthClient();
@@ -17,8 +18,13 @@ export async function POST(req: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json().catch(() => ({})) as { promoCode?: string };
+  const body = await req.json().catch(() => ({})) as { promoCode?: string; plan?: "monthly" | "yearly" };
   const promoCode = body?.promoCode?.trim().toUpperCase();
+  const plan = body?.plan === "yearly" ? "yearly" : "monthly";
+  const priceId = plan === "yearly" ? process.env.STRIPE_PRICE_ID_YEARLY : process.env.STRIPE_PRICE_ID_MONTHLY;
+  if (!priceId) {
+    return NextResponse.json({ error: `Missing STRIPE_PRICE_ID_${plan.toUpperCase()} env var` }, { status: 500 });
+  }
 
   try {
     const { data: profile } = await supabase
@@ -64,7 +70,7 @@ export async function POST(req: NextRequest) {
       mode: "subscription",
       payment_method_types: ["card"],
       payment_method_collection: "if_required",
-      line_items: [{ price: process.env.STRIPE_PRICE_ID!, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       success_url: "https://tallyagc.com/dashboard?subscribed=true",
       cancel_url: "https://tallyagc.com/pricing",
       customer: customerId,

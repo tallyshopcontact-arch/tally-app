@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase";
 import { useSubscription } from "@/lib/hooks/useSubscription";
 import { UpgradePrompt } from "@/components/UpgradePrompt";
 import { ArrowLeft, ArrowRight, Check, Copy, Lightbulb, Clock, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import LaneCheckNudgeBanner from "@/components/LaneCheckNudgeBanner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -471,6 +472,7 @@ export default function UploadKitPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
+      <LaneCheckNudgeBanner />
       {/* Header */}
       <nav className="h-14 border-b border-[#1a1a1a] px-6 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">

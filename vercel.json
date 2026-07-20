@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/monthly-reports",
       "schedule": "0 6 1 * *"
+    },
+    {
+      "path": "/api/cron/lane-jobs",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/lane-refresh",
+      "schedule": "0 4 * * *"
     }
   ]
 }

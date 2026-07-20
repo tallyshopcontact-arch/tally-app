@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed-lanes": "node --env-file=.env.local scripts/seed-lanes.ts",
+    "prewarm-lanes": "node --env-file=.env.local scripts/prewarm-lanes.ts",
+    "calibrate-lanes": "node --env-file=.env.local scripts/calibrate-lanes.ts",
+    "test-title-generator": "node --env-file=.env.local scripts/test-title-generator.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

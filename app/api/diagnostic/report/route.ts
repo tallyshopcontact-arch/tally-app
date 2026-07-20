@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
   const { count: paidCount } = await supabase
     .from("profiles")
     .select("*", { count: "exact", head: true })
-    .eq("subscription_tier", "active");
+    .eq("subscription_status", "active");
   const foundingSeatsRemain = (paidCount ?? 0) < 20;
 
   type StoredFinding = {
@@ -91,6 +91,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     diagnosticId: diagnostic.id,
+    channelId: diagnostic.channel_id,
     channelTitle: diagnostic.channel_title,
     tallyScore: diagnostic.tally_score,
     grade: diagnostic.grade,
