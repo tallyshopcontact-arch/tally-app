@@ -340,20 +340,12 @@ function ReportContent() {
         <div className="border border-white/20 p-8 mt-6">
           <p className="text-sm font-semibold tracking-[0.1em] uppercase mb-2">See every lane, every time</p>
           <p className="text-[#94a3b8] text-sm leading-relaxed mb-6">{data.cta.message}</p>
-          {data.cta.promoCode && (
-            <p className="text-xs text-[#94a3b8] mb-4">
-              Use code{" "}
-              <span className="font-mono font-bold text-white bg-[#1a1a1a] px-1.5 py-0.5 text-[11px]">
-                {data.cta.promoCode}
-              </span>
-            </p>
-          )}
           <a
             href={data.cta.promoCode ? `${data.cta.signupUrl}?promo=${data.cta.promoCode}` : data.cta.signupUrl}
             className="block text-center text-[#0a0a0a] text-sm font-bold py-4 hover:brightness-110 transition-all"
             style={{ backgroundColor: "#e8833a" }}
           >
-            Create my free account →
+            Start free trial →
           </a>
         </div>
       )}

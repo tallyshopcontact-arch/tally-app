@@ -443,7 +443,7 @@ export default function OnboardingPage() {
                 <>
                   <h1 className="text-2xl font-bold mb-2">Claim your founding member offer</h1>
                   <p className="text-[#4ade80] text-sm">
-                    14 days free · $14/month locked for life · No credit card required.
+                    14 days free · $11.20/month locked for life (20% off with FOUNDING20) · No credit card required.
                   </p>
                 </>
               ) : (
@@ -463,7 +463,14 @@ export default function OnboardingPage() {
                   <p className="text-[#94a3b8] text-xs mt-0.5">Unlimited Lane Check access.</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-2xl font-bold">$14</p>
+                  {pendingPromo === "FOUNDING20" ? (
+                    <>
+                      <p className="text-xs text-[#475569] line-through">$14</p>
+                      <p className="text-2xl font-bold text-[#4ade80]">$11.20</p>
+                    </>
+                  ) : (
+                    <p className="text-2xl font-bold">$14</p>
+                  )}
                   <p className="text-xs text-[#94a3b8]">per month</p>
                 </div>
               </div>

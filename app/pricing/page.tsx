@@ -57,7 +57,7 @@ export default function PricingPage() {
     if (code === "FOUNDING20") {
       setAppliedPromo(code);
       setPromoMessage(
-        "Founding member offer applied — 14 days free, $14/month locked for life."
+        "Founding member offer applied — 14 days free, then $11.20/month locked for life (20% off with FOUNDING20)."
       );
     } else {
       // Pass unknown codes through to Stripe; it will validate
@@ -135,7 +135,7 @@ export default function PricingPage() {
                 Founding member offer applied
               </p>
               <p className="text-xs text-[#94a3b8]">
-                14 days free, no credit card required · $14/month locked for life
+                14 days free, no credit card required · $11.20/month locked for life (20% off with FOUNDING20)
               </p>
             </div>
           </div>
@@ -170,7 +170,14 @@ export default function PricingPage() {
               <p className="text-[#94a3b8] text-sm">Unlimited. Every lane, every time.</p>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-3xl font-bold">{plan === "yearly" ? "$99" : "$14"}</p>
+              {isFoundingMember && plan === "monthly" ? (
+                <>
+                  <p className="text-xs text-[#475569] line-through">$14</p>
+                  <p className="text-3xl font-bold text-[#4ade80]">$11.20</p>
+                </>
+              ) : (
+                <p className="text-3xl font-bold">{plan === "yearly" ? "$99" : "$14"}</p>
+              )}
               <p className="text-xs text-[#94a3b8]">{plan === "yearly" ? "per year" : "per month"}</p>
             </div>
           </div>
@@ -243,7 +250,7 @@ export default function PricingPage() {
           )}
           <p className="text-center text-xs text-[#475569] mt-3">
             {isFoundingMember
-              ? "14 days free, no credit card required. $14/month after."
+              ? "14 days free, no credit card required. $11.20/month after (20% off with FOUNDING20)."
               : "No credit card required for trial. Cancel anytime."}
           </p>
         </div>

@@ -30,13 +30,15 @@ export default function FoundingBanner() {
         <p className="text-xs text-[#94a3b8] leading-relaxed">
           <span className="mr-1.5">🎛️</span>
           <span className="text-white font-medium">Founding member offer</span>
-          {" — "}first 20 producers lock in{" "}
-          <span className="text-white font-medium">$14/month forever</span>.
+          {" — "}14-day free trial, then{" "}
+          <span className="text-white font-medium">$14/month locked for life</span>.
           {" "}Use code{" "}
           <span className="font-mono font-bold text-white bg-[#1a1a1a] px-1.5 py-0.5 text-[11px]">
             FOUNDING20
           </span>
-          {" "}at checkout.
+          {" "}for 20% off (
+          <span className="text-white font-medium">$11.20/month forever</span>
+          ) at checkout.
         </p>
         <button
           onClick={dismiss}

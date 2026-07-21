@@ -103,8 +103,8 @@ export async function GET(req: NextRequest) {
       foundingSeatsRemain,
       promoCode: foundingSeatsRemain ? "FOUNDING20" : null,
       message: foundingSeatsRemain
-        ? "Create a free account to unlock all 6 findings + 2 free Upload Kits/month. Use code FOUNDING20 for 20% off — founding spots are limited."
-        : "Create a free account to unlock all 6 findings + 2 free Upload Kits/month.",
+        ? "Start your 14-day free trial — then $14/month, locked for life as a founding member. Use code FOUNDING20 for 20% off ($11.20/month forever)."
+        : "Start your 14-day free trial — then $14/month.",
     },
   });
 }
