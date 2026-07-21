@@ -10,6 +10,7 @@ export interface GalleryVideo {
   channelTitle: string;
   subscriberCount: number;
   viewCount: number;
+  publishedAt: string;
 }
 
 interface Bracket {
@@ -31,10 +32,17 @@ function formatCount(n: number): string {
   return String(n);
 }
 
+// Views-per-day, not lifetime viewCount — so "winning" means winning right
+// now, not just having had more time to accumulate views.
+function viewsPerDay(v: GalleryVideo): number {
+  const days = Math.max((Date.now() - new Date(v.publishedAt).getTime()) / 86_400_000, 1);
+  return v.viewCount / days;
+}
+
 function topInBracket(videos: GalleryVideo[], test: (subs: number) => boolean): GalleryVideo | null {
   const matches = videos.filter((v) => test(v.subscriberCount));
   if (!matches.length) return null;
-  return [...matches].sort((a, b) => b.viewCount - a.viewCount)[0];
+  return [...matches].sort((a, b) => viewsPerDay(b) - viewsPerDay(a))[0];
 }
 
 export default function TopVideosThisLane({ videos }: { videos: GalleryVideo[] }) {

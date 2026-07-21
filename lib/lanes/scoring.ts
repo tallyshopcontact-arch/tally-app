@@ -24,8 +24,15 @@ const median = (xs: number[]): number => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-const daysSincePublish = (publishedAt: string): number =>
+export const daysSincePublish = (publishedAt: string): number =>
   Math.max((Date.now() - new Date(publishedAt).getTime()) / 86_400_000, 1);
+
+/** Views-per-day — velocity, not lifetime total. A 59-day-old video with more
+ * total views can still be losing to a 5-day-old video that's hotter right
+ * now; ranking by this instead of raw viewCount is what makes "winning this
+ * lane" mean winning currently, not winning cumulatively. */
+export const viewsPerDay = (v: { viewCount: number; publishedAt: string }): number =>
+  v.viewCount / daysSincePublish(v.publishedAt);
 
 export interface DemandResult {
   score: number;
@@ -39,7 +46,7 @@ export interface DemandResult {
  * at 100 for nearly every lane. log10 spreads that range out meaningfully. */
 export function computeDemand(topPerformers: VideoDetails[]): DemandResult {
   const top20 = topPerformers.slice(0, 20);
-  const ratesPerDay = top20.map((v) => v.viewCount / daysSincePublish(v.publishedAt));
+  const ratesPerDay = top20.map(viewsPerDay);
   const medianVpd = median(ratesPerDay);
   const score = clamp(
     (Math.log10(medianVpd + 1) / Math.log10(SCORE_CALIBRATION.demandLogBase)) * 100
