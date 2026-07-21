@@ -55,6 +55,15 @@ interface TrendingArtist {
   count: number;
 }
 
+interface BestOpenLane {
+  laneId: string;
+  laneSlug: string;
+  displayName: string;
+  opportunity: number;
+  statusColor: LaneStatusColor;
+  daysAgo: number;
+}
+
 interface ReportData {
   laneCheckId: string;
   genre: string;
@@ -62,7 +71,14 @@ interface ReportData {
   isPaid: boolean;
   results: LaneResult[];
   trendingArtists: TrendingArtist[];
+  bestOpenLane: BestOpenLane | null;
   cta: { signupUrl: string; foundingSeatsRemain: boolean; promoCode: string | null; message: string };
+}
+
+function formatDaysAgo(days: number): string {
+  if (days <= 0) return "today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
 }
 
 function formatDuration(seconds: number): string {
@@ -270,6 +286,31 @@ function ReportContent() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-[#1a1a1a]">
             {rest.map((r) => (isFull(r) ? <FullLaneSection key={r.laneId} result={r} isPaid={data.isPaid} /> : <LockedLaneCard key={r.laneId} result={r} />))}
           </div>
+        </div>
+      )}
+
+      {data.bestOpenLane && (
+        <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-6 sm:p-8 mt-6">
+          <p className="text-xs text-[#94a3b8] font-medium tracking-[0.2em] uppercase mb-4">
+            Best open lane in {data.genre} right now
+          </p>
+          <p className="text-lg font-bold mb-3">{data.bestOpenLane.displayName}</p>
+          <div className="mb-3">
+            <ScoreMeter score={data.bestOpenLane.opportunity} />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap mb-4">
+            <StatusBadge status={data.bestOpenLane.statusColor} />
+          </div>
+          <p className="text-[#94a3b8] text-sm mb-5">
+            Scored {data.bestOpenLane.opportunity}/100 when we analyzed it {formatDaysAgo(data.bestOpenLane.daysAgo)}.
+          </p>
+          <Link
+            href={`/lane-check?artist=${encodeURIComponent(data.bestOpenLane.displayName)}`}
+            className="inline-block text-[#0a0a0a] text-sm font-semibold px-4 py-2.5 hover:brightness-110 transition-all"
+            style={{ backgroundColor: "#e8833a" }}
+          >
+            Check this lane →
+          </Link>
         </div>
       )}
 

@@ -5,6 +5,7 @@ import { isPaidUser } from "@/lib/lanes/entitlement";
 import { summarizeLane, fullLaneDetail, type LaneSummary, type FullLaneDetail } from "@/lib/lanes/present";
 import { getLatestAnalysis } from "@/lib/lanes/db";
 import { getTrendingCoMentionedArtists } from "@/lib/lanes/trending";
+import { getBestOpenLane } from "@/lib/lanes/recommendLane";
 import type { Lane } from "@/lib/lanes/types";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +111,14 @@ export async function GET(req: NextRequest) {
 
   const trendingArtists = await getTrendingCoMentionedArtists(supabase, laneCheck.genre);
 
+  const bestCheckedOpportunity = Math.max(-1, ...ranked.map(({ analysis }) => analysis?.opportunity ?? -1));
+  const bestOpenLane = await getBestOpenLane(
+    supabase,
+    laneCheck.genre,
+    laneCheck.lane_ids as string[],
+    bestCheckedOpportunity
+  );
+
   return NextResponse.json({
     laneCheckId: laneCheck.id,
     genre: laneCheck.genre,
@@ -117,6 +126,7 @@ export async function GET(req: NextRequest) {
     isPaid,
     results,
     trendingArtists,
+    bestOpenLane,
     cta: {
       signupUrl: "https://www.tallyagc.com/signup",
       foundingSeatsRemain,
