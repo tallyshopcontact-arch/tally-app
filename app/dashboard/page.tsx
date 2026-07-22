@@ -56,7 +56,7 @@ function SubscribedBanner() {
   return (
     <div className="bg-[#0a1a0a] border-b border-[#1a3a1a] px-6 py-3 text-center">
       <p className="text-sm text-[#4ade80] font-medium">
-        Welcome to TALLY Pro! Your trial has started — unlimited Lane Checks await.
+        Welcome to TALLY Pro! Your trial has started — unlimited Upload Kits await.
       </p>
     </div>
   );
@@ -127,12 +127,12 @@ export default function DashboardHome() {
     ctaStyle: "primary" | "secondary";
   }[] = [
     {
-      label: "Lane Check",
-      description: "Which artists should your next beat target?",
-      href: "/lane-check",
+      label: "Upload Kit",
+      description: "Name it, pick your artists, get the title, tags, and packaging",
+      href: "/upload-kit",
       icon: <Compass className="w-[18px] h-[18px]" style={{ color: "#e8833a" }} />,
       iconColor: "text-[#e8833a]",
-      cta: "Check My Lanes",
+      cta: "Get My Upload Kit",
       ctaStyle: "primary",
     },
     {
@@ -230,8 +230,8 @@ export default function DashboardHome() {
 
         {/* Quick links */}
         <div className="mt-8 flex flex-wrap gap-4">
-          <Link href="/lane-check" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Lane Check</Link>
-          <Link href="/lane-check/history" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Lane Check History</Link>
+          <Link href="/upload-kit" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Upload Kit</Link>
+          <Link href="/upload-kit/history" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Upload Kit History</Link>
           <Link href="/dashboard/title-tester" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Title Tester</Link>
           <Link href="/settings" className="text-xs text-[#94a3b8] hover:text-white transition-colors">→ Settings</Link>
         </div>

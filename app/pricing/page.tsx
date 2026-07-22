@@ -5,10 +5,10 @@ import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 
 const features = [
-  "Unlimited Lane Checks",
-  "All 3 lanes, full detail, every time",
+  "Unlimited Upload Kits",
+  "Both lanes, full detail, every time",
   "Co-mentions & adjacent-lane data",
-  "AI title generator",
+  "5 titles + regenerate",
   "Priority processing — no wait",
   "Full check history",
   "1 free Channel Diagnostic still included",
@@ -21,11 +21,11 @@ const faqs = [
   },
   {
     q: "What's included in the 7-day free trial?",
-    a: "Full Pro access — unlimited Lane Checks, all 3 lanes every time, the title generator, and your full check history. No credit card required upfront, and you can cancel before the trial ends without being charged.",
+    a: "Full Pro access — unlimited Upload Kits, both lanes every time, 5 titles with regenerate, and your full check history. No credit card required upfront, and you can cancel before the trial ends without being charged.",
   },
   {
     q: "Do I need a YouTube channel to use TALLY?",
-    a: "No — Lane Check works from just the artists and genre you give it. Connecting your channel unlocks personalized winnability for your subscriber range.",
+    a: "No — Upload Kit works from just the beat name, artists, and genre you give it. Connecting your channel unlocks personalized winnability for your subscriber range.",
   },
   {
     q: "Can I cancel anytime?",

@@ -1,14 +1,14 @@
 import Link from "next/link";
 import GenreTags from "./components/GenreTags";
 import FoundingBanner from "@/components/FoundingBanner";
-import ScoreMeter from "./lane-check/components/ScoreMeter";
-import StatusBadge from "./lane-check/components/StatusBadge";
+import ScoreMeter from "./upload-kit/components/ScoreMeter";
+import StatusBadge from "./upload-kit/components/StatusBadge";
 
 const steps = [
   {
     step: "01",
     title: "Describe your beat",
-    desc: "Up to 3 artists it sounds like, plus your genre. Takes about 10 seconds.",
+    desc: "Name it, up to 2 artists it sounds like, plus your genre. Takes about 10 seconds.",
   },
   {
     step: "02",
@@ -25,7 +25,7 @@ const steps = [
 const faqs = [
   {
     q: "Does this work for my genre?",
-    a: "Yes. TALLY works for any beat-making genre on YouTube — boom bap, trap, drill, lo-fi, afrobeats and more. Your lane check is always specific to the artists and genre you give it.",
+    a: "Yes. TALLY works for any beat-making genre on YouTube — boom bap, trap, drill, lo-fi, afrobeats and more. Your Upload Kit is always specific to the artists and genre you give it.",
   },
   {
     q: "How do you get this data?",
@@ -59,11 +59,11 @@ export default function HomePage() {
             <a href="#pricing" className="text-sm text-[#94a3b8] hover:text-white transition-colors hidden md:block">Pricing</a>
             <Link href="/login" className="text-sm text-[#94a3b8] hover:text-white transition-colors">Log in</Link>
             <Link
-              href="/lane-check"
+              href="/upload-kit"
               className="text-sm text-[#0a0a0a] font-semibold px-4 py-2 hover:brightness-110 transition-all"
               style={{ backgroundColor: "#e8833a" }}
             >
-              Check my lanes — free
+              Get my Upload Kit — free
             </Link>
           </div>
         </div>
@@ -82,16 +82,16 @@ export default function HomePage() {
             You just finished the beat. Now what?
           </h1>
           <p className="text-[#cbd5e1] text-lg leading-relaxed max-w-2xl mb-8">
-            Tell us what it sounds like. We&apos;ll tell you which artists to attach it to, how to
-            title it, and which lanes small channels are actually winning right now.
+            Name it, pick the artists you hear on it, and get your Upload Kit — the title, tags,
+            and packaging that&apos;s winning in that lane right now.
           </p>
           <div className="flex flex-wrap items-center gap-4">
             <Link
-              href="/lane-check"
+              href="/upload-kit"
               className="inline-block text-[#0a0a0a] text-sm font-semibold px-7 py-3.5 hover:brightness-110 transition-all"
               style={{ backgroundColor: "#e8833a" }}
             >
-              Check my lanes — free
+              Get my Upload Kit — free
             </Link>
             <Link href="/diagnostic" className="text-[#94a3b8] text-sm hover:text-white transition-colors">
               Scan my channel →
@@ -187,7 +187,8 @@ export default function HomePage() {
               </div>
               <ul className="space-y-3 mb-8">
                 {[
-                  "1 free Lane Check per month",
+                  "1 free Upload Kit per month for uncached lanes",
+                  "Unlimited kits for cached lanes",
                   "Top lane fully revealed",
                   "1 free Channel Diagnostic",
                 ].map((f) => (
@@ -198,10 +199,10 @@ export default function HomePage() {
                 ))}
               </ul>
               <Link
-                href="/lane-check"
+                href="/upload-kit"
                 className="block text-center border border-[#2a2a2a] text-white text-sm font-semibold py-3.5 hover:border-[#3a3a3a] transition-colors"
               >
-                Check my lanes — free
+                Get my Upload Kit — free
               </Link>
             </div>
 
@@ -218,10 +219,10 @@ export default function HomePage() {
               </div>
               <ul className="space-y-3 mb-8">
                 {[
-                  "Unlimited Lane Checks",
-                  "All 3 lanes, full detail, every time",
+                  "Unlimited Upload Kits",
+                  "Both lanes, full detail, every time",
                   "Co-mentions & adjacent-lane data",
-                  "AI title generator",
+                  "5 titles + regenerate",
                   "Priority processing — no wait",
                   "Full check history",
                 ].map((f) => (
@@ -255,15 +256,15 @@ export default function HomePage() {
             artists to target.
           </h2>
           <p className="text-[#94a3b8] text-sm mb-8 max-w-md mx-auto">
-            Free Lane Check. No signup required. See your results in seconds.
+            Free Upload Kit. No signup required. See your results in seconds.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
-              href="/lane-check"
+              href="/upload-kit"
               className="text-[#0a0a0a] text-sm font-bold px-8 py-4 hover:brightness-110 transition-all"
               style={{ backgroundColor: "#e8833a" }}
             >
-              Check my lanes — free
+              Get my Upload Kit — free
             </Link>
             <Link href="/login" className="text-sm text-[#94a3b8] hover:text-white transition-colors">
               Already have an account? Log in →

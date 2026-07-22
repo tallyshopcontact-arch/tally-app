@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { analyzeLane } from "@/lib/lanes/pipeline";
+import { sendLaneReadyEmail } from "@/lib/email";
 import type { Lane } from "@/lib/lanes/types";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   const { data: jobs, error } = await supabase
     .from("lane_jobs")
-    .select("id, lane_id")
+    .select("id, lane_id, notify_email")
     .eq("status", "queued")
     .order("priority", { ascending: false })
     .order("created_at", { ascending: true })
@@ -56,6 +57,12 @@ export async function GET(req: NextRequest) {
         .update({ status: "done", completed_at: new Date().toISOString() })
         .eq("id", job.id);
       succeeded++;
+
+      if (job.notify_email) {
+        const prefillUrl = `https://www.tallyagc.com/upload-kit?artist=${encodeURIComponent((lane as Lane).display_name)}`;
+        const { ok, error: emailErr } = await sendLaneReadyEmail(job.notify_email, (lane as Lane).display_name, prefillUrl);
+        if (!ok) console.error(`[cron/lane-jobs] notify email failed for job ${job.id}:`, emailErr);
+      }
     } catch (e) {
       console.error(`[cron/lane-jobs] job ${job.id} failed:`, e);
       await supabase

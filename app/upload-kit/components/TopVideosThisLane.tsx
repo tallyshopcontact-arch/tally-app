@@ -53,7 +53,7 @@ export default function TopVideosThisLane({ videos }: { videos: GalleryVideo[] }
   return (
     <div className="mb-8">
       <p className="text-xs text-[#94a3b8] font-medium tracking-widest uppercase mb-3">
-        Top Videos In This Lane
+        What winning uploads look like at every size
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {BRACKETS.map((bracket) => {

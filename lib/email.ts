@@ -108,10 +108,10 @@ export async function sendWelcomeEmail(
   const name = producerName || "Producer";
 
   const tools = [
-    { name: "Lane Check", desc: "Unlimited checks, all 3 lanes fully unlocked" },
+    { name: "Upload Kit", desc: "Unlimited kits, both lanes fully unlocked" },
     { name: "Title Generator", desc: "5 ready-to-use titles based on real winning patterns" },
     { name: "Full Lane Breakdowns", desc: "Patterns, video galleries, co-mentions" },
-    { name: "Lane Check History", desc: "Track how lanes shift over time" },
+    { name: "Upload Kit History", desc: "Track how lanes shift over time" },
     { name: "Title Tester", desc: "Score any YouTube title instantly" },
   ];
 
@@ -263,11 +263,11 @@ export async function sendTrialEndingEmail(
     : `in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`;
 
   const loseItems = [
-    "Lane Check — unlimited",
+    "Upload Kit — unlimited",
     "Title Generator",
-    "Full lane breakdowns — all 3 lanes",
+    "Full lane breakdowns — both lanes",
     "Video galleries",
-    "Lane Check history",
+    "Upload Kit history",
   ];
 
   const loseRows = loseItems
@@ -397,23 +397,23 @@ export async function sendLaneCheckMagicLink(
   const html = emailShell(`
     <tr>
       <td style="padding-bottom:12px;">
-        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.02em;line-height:1.2;">Your Lane Check results are ready.</h1>
+        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.02em;line-height:1.2;">Your Upload Kit is ready.</h1>
       </td>
     </tr>
     <tr>
       <td style="padding-bottom:32px;">
         <p style="margin:0;color:#94a3b8;font-size:15px;line-height:1.7;">
-          Click below to see your top lane's full breakdown — real numbers on
-          demand, competition, and who's actually winning right now.
-          Your report link is personal — don't share it.
+          Click below to see your top lane's full kit — the title, tags, and
+          packaging that's winning in that lane right now.
+          Your kit link is personal — don't share it.
         </p>
       </td>
     </tr>
-    ${ctaButton(reportUrl, "View my lane check →")}
+    ${ctaButton(reportUrl, "View my Upload Kit →")}
     <tr>
       <td style="padding-bottom:32px;">
         <p style="margin:0;font-size:12px;color:#475569;line-height:1.6;">
-          This link is valid for 30 days. If you didn't request a TALLY lane check, ignore this email.
+          This link is valid for 30 days. If you didn't request a TALLY Upload Kit, ignore this email.
         </p>
       </td>
     </tr>
@@ -424,7 +424,7 @@ export async function sendLaneCheckMagicLink(
   const { data, error } = await resend.emails.send({
     from: FROM,
     to: [email],
-    subject: "Your free TALLY Lane Check results",
+    subject: "Your free TALLY Upload Kit",
     html,
   });
 
@@ -434,6 +434,51 @@ export async function sendLaneCheckMagicLink(
   }
 
   console.log("[email:lane-check] sent id=", data?.id);
+  return { ok: true };
+}
+
+// ── sendLaneReadyEmail ────────────────────────────────────────────────────────
+// Upload Kit reframe: fires when a queued lane (deferred because request-time
+// YouTube quota was exhausted, or the inline analysis failed) finishes via
+// the nightly cron drain. See app/api/cron/lane-jobs/route.ts.
+
+export async function sendLaneReadyEmail(
+  email: string,
+  laneDisplayName: string,
+  prefillUrl: string
+): Promise<{ ok: boolean; error?: unknown }> {
+  const html = emailShell(`
+    <tr>
+      <td style="padding-bottom:12px;">
+        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.02em;line-height:1.2;">Your ${laneDisplayName} lane is ready.</h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding-bottom:32px;">
+        <p style="margin:0;color:#94a3b8;font-size:15px;line-height:1.7;">
+          We finished analyzing it. Head back to Upload Kit to pull your kit — it'll
+          generate instantly now that the lane's cached.
+        </p>
+      </td>
+    </tr>
+    ${ctaButton(prefillUrl, "Get my Upload Kit →")}
+  `);
+
+  console.log(`[email:lane-ready] sending to ${email} — RESEND_API_KEY set: ${!!process.env.RESEND_API_KEY}`);
+
+  const { data, error } = await resend.emails.send({
+    from: FROM,
+    to: [email],
+    subject: `Your ${laneDisplayName} lane is ready`,
+    html,
+  });
+
+  if (error) {
+    console.error("[email:lane-ready] resend error:", JSON.stringify(error));
+    return { ok: false, error };
+  }
+
+  console.log("[email:lane-ready] sent id=", data?.id);
   return { ok: true };
 }
 

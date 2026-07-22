@@ -460,7 +460,7 @@ export default function OnboardingPage() {
               <div className="flex items-start justify-between gap-4 mb-5">
                 <div>
                   <p className="text-sm font-bold">TALLY Pro</p>
-                  <p className="text-[#94a3b8] text-xs mt-0.5">Unlimited Lane Check access.</p>
+                  <p className="text-[#94a3b8] text-xs mt-0.5">Unlimited Upload Kit access.</p>
                 </div>
                 <div className="text-right shrink-0">
                   {pendingPromo === "FOUNDING20" ? (
@@ -476,11 +476,11 @@ export default function OnboardingPage() {
               </div>
               <ul className="space-y-2 mb-6">
                 {[
-                  "Lane Check — unlimited",
+                  "Upload Kit — unlimited",
                   "Title Generator",
-                  "Full lane breakdowns — all 3 lanes",
+                  "Full lane breakdowns — both lanes",
                   "Video galleries",
-                  "Lane Check history",
+                  "Upload Kit history",
                 ].map((f) => (
                   <li key={f} className="flex items-start gap-2 text-xs text-[#94a3b8]">
                     <Check className="w-3 h-3 text-[#475569] shrink-0 mt-0.5" />
