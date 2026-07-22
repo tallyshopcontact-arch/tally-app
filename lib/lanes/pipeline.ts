@@ -26,6 +26,9 @@ export interface GalleryVideo {
   subscriberCount: number;
   viewCount: number;
   publishedAt: string;
+  /** Raw YouTube Studio tags — source data for the gallery-based title/tag
+   * generator in lib/lanes/titles.ts. */
+  tags: string[];
 }
 
 export interface LaneAnalysisResult {
@@ -54,6 +57,7 @@ function toGalleryVideo(v: VideoDetails & { subscriberCount: number }): GalleryV
     subscriberCount: v.subscriberCount,
     viewCount: v.viewCount,
     publishedAt: v.publishedAt,
+    tags: v.tags,
   };
 }
 

@@ -23,8 +23,11 @@ interface RunResponse {
   bestOpenLane: BestOpenLane | null;
 }
 
-type PageStatus = "idle" | "loading" | "results" | "error";
-type EmailStatus = "idle" | "loading" | "sent" | "error";
+// No "loading" state here on purpose — submitting is tracked separately so
+// whichever step (form or email gate) triggered the request stays visible,
+// with its own inline loading treatment, instead of snapping back to the
+// main form mid-submission from the email gate.
+type PageStatus = "form" | "collectEmail" | "results" | "capped";
 
 const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats", "Other"];
 
@@ -81,20 +84,32 @@ function UploadKitForm() {
   const [customGenre, setCustomGenre] = useState(prefilledGenreIsCustom ? prefilledGenre : "");
   const [channelId, setChannelId] = useState(prefilledChannel);
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [pageStatus, setPageStatus] = useState<PageStatus>("idle");
+  const [pageStatus, setPageStatus] = useState<PageStatus>("form");
+  const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [cappedMessage, setCappedMessage] = useState("");
   const [result, setResult] = useState<RunResponse | null>(null);
   const [loadingArtists, setLoadingArtists] = useState<string[]>([]);
   const [loadingIndex, setLoadingIndex] = useState(0);
   const loadingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [email, setEmail] = useState("");
-  const [emailStatus, setEmailStatus] = useState<EmailStatus>("idle");
-  const [emailError, setEmailError] = useState("");
 
-  const handleRun = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPageStatus("loading");
+  const stopLoadingCycle = () => {
+    if (loadingIntervalRef.current) {
+      clearInterval(loadingIntervalRef.current);
+      loadingIntervalRef.current = null;
+    }
+  };
+
+  // Shared by both the initial form submit and the email-gate submit — the
+  // only difference is whether `email` is populated yet. Anonymous callers
+  // with no email get told requiresEmail:true before any analysis runs;
+  // submitting again with email attached does the real work. Neither call
+  // changes `pageStatus` while in flight, so whichever step triggered it
+  // stays on screen with its own inline loading treatment.
+  const runKit = async () => {
+    setSubmitting(true);
     setErrorMessage("");
 
     const activeArtists = artists.map((a) => a.trim()).filter(Boolean);
@@ -114,60 +129,49 @@ function UploadKitForm() {
           genre: genre === "Other" ? customGenre.trim() : genre,
           channelId: channelId.trim() || undefined,
           turnstileToken,
+          email: email.trim() || undefined,
         }),
       });
       const data = await res.json();
 
       if (!res.ok) {
-        setPageStatus("error");
+        if (data.capped) {
+          setCappedMessage(data.error);
+          setPageStatus("capped");
+          return;
+        }
         setErrorMessage(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      if (data.requiresEmail) {
+        setPageStatus("collectEmail");
         return;
       }
 
       setResult(data);
       setPageStatus("results");
     } catch {
-      setPageStatus("error");
       setErrorMessage("Network error. Please check your connection and try again.");
     } finally {
-      if (loadingIntervalRef.current) {
-        clearInterval(loadingIntervalRef.current);
-        loadingIntervalRef.current = null;
-      }
+      setSubmitting(false);
+      stopLoadingCycle();
     }
+  };
+
+  const handleSubmitForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    runKit();
+  };
+
+  const handleSubmitEmail = (e: React.FormEvent) => {
+    e.preventDefault();
+    runKit();
   };
 
   useEffect(() => {
-    return () => {
-      if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
-    };
+    return () => stopLoadingCycle();
   }, []);
-
-  const handleUnlock = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!result) return;
-    setEmailStatus("loading");
-    setEmailError("");
-
-    try {
-      const res = await fetch("/api/lane-check/unlock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ laneCheckId: result.laneCheckId, email }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setEmailStatus("error");
-        setEmailError(data.error ?? "Something went wrong. Please try again.");
-        return;
-      }
-      setEmailStatus("sent");
-    } catch {
-      setEmailStatus("error");
-      setEmailError("Network error. Please check your connection and try again.");
-    }
-  };
 
   const reset = () => {
     setBeatName("");
@@ -175,12 +179,19 @@ function UploadKitForm() {
     setGenre("");
     setCustomGenre("");
     setResult(null);
-    setPageStatus("idle");
+    setPageStatus("form");
     setErrorMessage("");
     setEmail("");
-    setEmailStatus("idle");
-    setEmailError("");
   };
+
+  const backToForm = () => {
+    setPageStatus("form");
+    setErrorMessage("");
+  };
+
+  const submitLabel = submitting
+    ? `Analyzing ${loadingArtists[loadingIndex] ?? "your"} lane…`
+    : null;
 
   return (
     <section className="max-w-2xl mx-auto px-6 pt-16 pb-24">
@@ -195,14 +206,14 @@ function UploadKitForm() {
         and packaging that&apos;s winning in that lane right now.
       </p>
 
-      {pageStatus !== "results" && (
-        <form onSubmit={handleRun} className="space-y-5">
+      {pageStatus === "form" && (
+        <form onSubmit={handleSubmitForm} className="space-y-5">
           <div>
             <label htmlFor="beatName" className={labelClass}>What&apos;s the beat called?</label>
             <input
               id="beatName"
               type="text"
-              disabled={pageStatus === "loading"}
+              disabled={submitting}
               value={beatName}
               onChange={(e) => setBeatName(e.target.value)}
               placeholder="e.g. Nightcrawler"
@@ -219,13 +230,13 @@ function UploadKitForm() {
                 id={`artist-${i}`}
                 type="text"
                 required={i === 0}
-                disabled={pageStatus === "loading"}
+                disabled={submitting}
                 value={val}
                 onChange={(e) => {
                   const next = [...artists];
                   next[i] = e.target.value;
                   setArtists(next);
-                  if (pageStatus === "error") setPageStatus("idle");
+                  if (errorMessage) setErrorMessage("");
                 }}
                 placeholder="e.g. MF DOOM"
                 className={inputClass}
@@ -238,7 +249,7 @@ function UploadKitForm() {
             <select
               id="genre"
               required
-              disabled={pageStatus === "loading"}
+              disabled={submitting}
               value={genre}
               onChange={(e) => {
                 setGenre(e.target.value);
@@ -253,7 +264,7 @@ function UploadKitForm() {
               <input
                 type="text"
                 required
-                disabled={pageStatus === "loading"}
+                disabled={submitting}
                 value={customGenre}
                 onChange={(e) => setCustomGenre(e.target.value)}
                 placeholder="Enter your genre (e.g. Phonk, Cloud Rap, Dancehall...)"
@@ -268,7 +279,7 @@ function UploadKitForm() {
             <input
               id="channelId"
               type="text"
-              disabled={pageStatus === "loading"}
+              disabled={submitting}
               value={channelId}
               onChange={(e) => setChannelId(e.target.value)}
               placeholder="@yourchannel"
@@ -278,23 +289,85 @@ function UploadKitForm() {
 
           <TurnstileWidget onVerify={setTurnstileToken} />
 
-          {pageStatus === "error" && <p className="text-[#f87171] text-sm">{errorMessage}</p>}
+          {errorMessage && <p className="text-[#f87171] text-sm">{errorMessage}</p>}
 
           <button
             type="submit"
-            disabled={pageStatus === "loading"}
+            disabled={submitting}
             className="w-full text-[#0a0a0a] text-sm font-semibold py-3.5 hover:brightness-110 disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a]"
             style={{ backgroundColor: "#e8833a" }}
           >
-            {pageStatus === "loading" && (
+            {submitting && (
               <span className="w-4 h-4 border border-[#0a0a0a]/40 border-t-[#0a0a0a] rounded-full animate-spin shrink-0" />
             )}
-            {pageStatus === "loading"
-              ? `Analyzing ${loadingArtists[loadingIndex] ?? "your"} lane…`
-              : "Get my Upload Kit — free"}
+            {submitLabel ?? "Get my Upload Kit — free"}
           </button>
-          <p className="text-center text-xs text-[#475569]">No signup required. 1 free upload kit per month for uncached lanes.</p>
+          <p className="text-center text-xs text-[#475569]">No signup required. Just your email.</p>
         </form>
+      )}
+
+      {pageStatus === "collectEmail" && (
+        <form onSubmit={handleSubmitEmail} className="space-y-5">
+          <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-6 py-6">
+            <p className="text-lg font-bold mb-1">Where should we send your kit?</p>
+            <p className="text-[#94a3b8] text-xs leading-relaxed mb-5">
+              No signup required. Just your email.
+            </p>
+            <label htmlFor="gateEmail" className={labelClass}>Email</label>
+            <input
+              id="gateEmail"
+              type="email"
+              required
+              autoFocus
+              disabled={submitting}
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); if (errorMessage) setErrorMessage(""); }}
+              placeholder="you@example.com"
+              className={inputClass}
+            />
+          </div>
+
+          {errorMessage && <p className="text-[#f87171] text-sm">{errorMessage}</p>}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full text-[#0a0a0a] text-sm font-semibold py-3.5 hover:brightness-110 disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a]"
+            style={{ backgroundColor: "#e8833a" }}
+          >
+            {submitting && (
+              <span className="w-4 h-4 border border-[#0a0a0a]/40 border-t-[#0a0a0a] rounded-full animate-spin shrink-0" />
+            )}
+            {submitLabel ?? "Get my kit →"}
+          </button>
+
+          {!submitting && (
+            <button type="button" onClick={backToForm} className="w-full text-center text-[#94a3b8] text-sm hover:text-white transition-colors">
+              ← Back
+            </button>
+          )}
+        </form>
+      )}
+
+      {pageStatus === "capped" && (
+        <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-6 py-8 text-center">
+          <p className="text-lg font-bold mb-2">{cappedMessage}</p>
+          <p className="text-[#94a3b8] text-sm leading-relaxed mb-6">
+            Upgrade to TALLY Pro for unlimited Upload Kits, every lane, every time.
+          </p>
+          <Link
+            href="/pricing"
+            className="inline-block text-[#0a0a0a] text-sm font-bold px-6 py-3.5 hover:brightness-110 transition-all"
+            style={{ backgroundColor: "#e8833a" }}
+          >
+            Upgrade to TALLY Pro →
+          </Link>
+          <div className="mt-4">
+            <button onClick={backToForm} className="text-[#94a3b8] text-sm hover:text-white transition-colors">
+              ← Check a different lane
+            </button>
+          </div>
+        </div>
       )}
 
       {pageStatus === "results" && result && (() => {
@@ -303,7 +376,7 @@ function UploadKitForm() {
           <div className="space-y-6">
             <div>
               {isFull(topResult) ? (
-                <UploadKitCard result={topResult} isPaid={result.isPaid} laneCheckId={result.laneCheckId} isTopLane laneCount={result.results.length} />
+                <UploadKitCard result={topResult} isPaid={result.isPaid} beatName={result.beatName} isTopLane laneCount={result.results.length} />
               ) : (
                 <LockedLaneCard result={topResult} />
               )}
@@ -312,7 +385,7 @@ function UploadKitForm() {
                 <div className="mt-4">
                   {rest.map((r) =>
                     isFull(r) ? (
-                      <UploadKitCard key={r.laneId} result={r} isPaid={result.isPaid} laneCheckId={result.laneCheckId} isTopLane={false} laneCount={result.results.length} />
+                      <UploadKitCard key={r.laneId} result={r} isPaid={result.isPaid} beatName={result.beatName} isTopLane={false} laneCount={result.results.length} />
                     ) : (
                       <LockedLaneCard key={r.laneId} result={r} />
                     )
@@ -324,50 +397,6 @@ function UploadKitForm() {
                 <AlsoConsider trendingArtists={result.trendingArtists} bestOpenLane={result.bestOpenLane} isPaid={result.isPaid} genre={result.genre} />
               )}
             </div>
-
-            {result.requiresEmail && (
-              <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-6 py-6">
-                {emailStatus === "sent" ? (
-                  <div>
-                    <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Check your inbox</p>
-                    <p className="text-lg font-bold mb-2">Your Upload Kit is on its way.</p>
-                    <p className="text-[#94a3b8] text-sm leading-relaxed">
-                      We sent a link to <span className="text-white">{email}</span>.
-                    </p>
-                  </div>
-                ) : (
-                  <form onSubmit={handleUnlock} className="space-y-4">
-                    <div>
-                      <p className="text-sm font-semibold mb-1">Get your Upload Kit — free.</p>
-                      <p className="text-[#94a3b8] text-xs leading-relaxed mb-4">
-                        Titles, tags, and packaging for your top lane, built from what&apos;s
-                        actually winning right now.
-                      </p>
-                      <label htmlFor="email" className={labelClass}>Email</label>
-                      <input
-                        id="email"
-                        type="email"
-                        required
-                        disabled={emailStatus === "loading"}
-                        value={email}
-                        onChange={(e) => { setEmail(e.target.value); if (emailStatus === "error") setEmailStatus("idle"); }}
-                        placeholder="you@example.com"
-                        className={inputClass}
-                      />
-                    </div>
-                    {emailStatus === "error" && <p className="text-[#f87171] text-sm">{emailError}</p>}
-                    <button
-                      type="submit"
-                      disabled={emailStatus === "loading"}
-                      className="w-full text-[#0a0a0a] text-sm font-semibold py-3.5 hover:brightness-110 disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a]"
-                      style={{ backgroundColor: "#e8833a" }}
-                    >
-                      {emailStatus === "loading" ? "Sending…" : "Send me my Upload Kit →"}
-                    </button>
-                  </form>
-                )}
-              </div>
-            )}
 
             <button onClick={reset} className="text-[#94a3b8] text-sm hover:text-white transition-colors">
               ← Check different lanes

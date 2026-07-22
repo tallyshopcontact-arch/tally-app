@@ -397,14 +397,14 @@ export async function sendLaneCheckMagicLink(
   const html = emailShell(`
     <tr>
       <td style="padding-bottom:12px;">
-        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.02em;line-height:1.2;">Your Upload Kit is ready.</h1>
+        <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.02em;line-height:1.2;">Here's your Upload Kit.</h1>
       </td>
     </tr>
     <tr>
       <td style="padding-bottom:32px;">
         <p style="margin:0;color:#94a3b8;font-size:15px;line-height:1.7;">
-          Click below to see your top lane's full kit — the title, tags, and
-          packaging that's winning in that lane right now.
+          Bookmark this link to come back to your kit anytime — the title, tags,
+          and packaging that's winning in that lane right now.
           Your kit link is personal — don't share it.
         </p>
       </td>

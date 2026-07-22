@@ -256,7 +256,7 @@ export default function HomePage() {
             artists to target.
           </h2>
           <p className="text-[#94a3b8] text-sm mb-8 max-w-md mx-auto">
-            Free Upload Kit. No signup required. See your results in seconds.
+            Free Upload Kit. No signup required. Just your email.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link

@@ -90,7 +90,7 @@ function ReportContent() {
   return (
     <div className="max-w-2xl mx-auto px-6 pt-16 pb-24">
       {isFull(topResult) ? (
-        <UploadKitCard result={topResult} isPaid={data.isPaid} laneCheckId={data.laneCheckId} isTopLane laneCount={data.results.length} />
+        <UploadKitCard result={topResult} isPaid={data.isPaid} beatName={data.beatName} isTopLane laneCount={data.results.length} />
       ) : (
         <LockedLaneCard result={topResult} />
       )}
@@ -99,7 +99,7 @@ function ReportContent() {
         <div className="mb-2 mt-4">
           {rest.map((r) =>
             isFull(r) ? (
-              <UploadKitCard key={r.laneId} result={r} isPaid={data.isPaid} laneCheckId={data.laneCheckId} isTopLane={false} laneCount={data.results.length} />
+              <UploadKitCard key={r.laneId} result={r} isPaid={data.isPaid} beatName={data.beatName} isTopLane={false} laneCount={data.results.length} />
             ) : (
               <LockedLaneCard key={r.laneId} result={r} />
             )

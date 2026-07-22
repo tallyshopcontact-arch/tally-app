@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { createServerClient } from "@/lib/supabase";
 import { createAuthClient } from "@/lib/supabase-server";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { sanitizeInput } from "@/lib/sanitize";
+import { sendLaneCheckMagicLink } from "@/lib/email";
 import { isPaidUser } from "@/lib/lanes/entitlement";
 import {
   getOrCreateLane,
@@ -20,22 +22,14 @@ import { getBestOpenLane } from "@/lib/lanes/recommendLane";
 import type { Lane } from "@/lib/lanes/types";
 
 export const dynamic = "force-dynamic";
-// Cache-miss analysis runs inline (see step 6 below) — a request with a cold
+// Cache-miss analysis runs inline (see step 8 below) — a request with a cold
 // lane needs real headroom beyond Vercel's default timeout.
 export const maxDuration = 60;
 
 const MAX_GENRE_LENGTH = 40;
 const MAX_BEAT_NAME_LENGTH = 60;
 const MAX_ARTISTS = 2;
-const IP_DAILY_CAP = 5;
-
-function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    req.headers.get("x-real-ip") ??
-    "unknown"
-  );
-}
+const WWW_BASE = "https://www.tallyagc.com";
 
 function analysisEnabled(): boolean {
   return process.env.LANE_ANALYSIS_ENABLED !== "false";
@@ -45,11 +39,22 @@ function queuedNote(displayName: string): string {
   return `We haven't analyzed the ${displayName} lane yet — it's queued and we'll email you when it's ready.`;
 }
 
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 export async function POST(req: NextRequest) {
   const supabase = createServerClient();
 
   // 1. Parse and validate input
-  let body: { artists?: string[]; genre?: string; channelId?: string; beatName?: string; turnstileToken?: string } = {};
+  let body: {
+    artists?: string[];
+    genre?: string;
+    channelId?: string;
+    beatName?: string;
+    turnstileToken?: string;
+    email?: string;
+  } = {};
   try {
     body = await req.json();
   } catch {
@@ -61,17 +66,13 @@ export async function POST(req: NextRequest) {
   const genre = sanitizeInput(body.genre ?? "", MAX_GENRE_LENGTH);
   const channelId = body.channelId?.trim() || null;
   const beatName = body.beatName?.trim() ? sanitizeInput(body.beatName.trim(), MAX_BEAT_NAME_LENGTH) : null;
+  const submittedEmail = body.email?.trim().toLowerCase() || null;
 
   if (!artists.length) {
     return NextResponse.json({ error: "At least one artist is required" }, { status: 400 });
   }
   if (!genre) {
     return NextResponse.json({ error: "Genre is required" }, { status: 400 });
-  }
-
-  const turnstileResult = await verifyTurnstileToken(body.turnstileToken);
-  if (!turnstileResult.success) {
-    return NextResponse.json({ error: "Bot verification failed. Please try again." }, { status: 403 });
   }
 
   // 2. Identity + entitlement
@@ -87,23 +88,31 @@ export async function POST(req: NextRequest) {
   }
   const isPaid = userId ? await isPaidUser(supabase, userId) : false;
 
-  // 3. IP daily cap — anti-abuse, unrelated to YouTube quota, always
-  // enforced for non-paid callers regardless of cache status.
-  if (!isPaid) {
-    const ip = getClientIp(req);
-    const today = new Date().toISOString().slice(0, 10);
-    const ipKey = `lanecheck:ip:${ip}:${today}`;
-    const { data: rl } = await supabase.from("diagnostic_rate_limits").select("count").eq("key", ipKey).maybeSingle();
-    if (rl && rl.count >= IP_DAILY_CAP) {
-      return NextResponse.json({ error: "You've run 5 upload kits today. Come back tomorrow." }, { status: 429 });
-    }
-    await supabase.from("diagnostic_rate_limits").upsert(
-      { key: ipKey, count: (rl?.count ?? 0) + 1, updated_at: new Date().toISOString() },
-      { onConflict: "key" }
-    );
+  // 3. Anonymous callers with no email yet get asked for one before we do
+  // anything else — no lane resolution, no Turnstile check, no analysis.
+  // The email gate is now the sole free-tier enforcement mechanism (no more
+  // IP-based daily cap).
+  if (!userId && !submittedEmail) {
+    return NextResponse.json({ requiresEmail: true });
   }
 
-  // 4. Resolve each artist to a lane and check cache freshness — cheap, no
+  let email: string | null = null;
+  if (!userId) {
+    if (!submittedEmail || !isValidEmail(submittedEmail)) {
+      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
+    }
+    email = submittedEmail;
+  }
+
+  // 4. Real work is about to happen (analysis or a cache read that still
+  // counts against a limit) — verify Turnstile now, not on the pre-check
+  // above, since that call does no analysis and doesn't need to burn the token.
+  const turnstileResult = await verifyTurnstileToken(body.turnstileToken);
+  if (!turnstileResult.success) {
+    return NextResponse.json({ error: "Bot verification failed. Please try again." }, { status: 403 });
+  }
+
+  // 5. Resolve each artist to a lane and check cache freshness — cheap, no
   // YouTube calls yet.
   const enabled = analysisEnabled();
   const resolved: { lane: Lane; fresh: boolean }[] = [];
@@ -113,26 +122,47 @@ export async function POST(req: NextRequest) {
   }
   const allCached = resolved.every((r) => r.fresh);
 
-  // 5. Monthly cap — only relevant when we're about to do real analysis
+  // 6. Monthly cap — only relevant when we're about to do real analysis
   // work. Fully cache-served kits are unlimited for free and paid alike.
-  if (!allCached && !isPaid && userId) {
-    const startOfMonth = new Date();
-    startOfMonth.setUTCDate(1);
-    startOfMonth.setUTCHours(0, 0, 0, 0);
-    const { count } = await supabase
-      .from("lane_checks")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .gte("created_at", startOfMonth.toISOString());
-    if ((count ?? 0) >= 1) {
-      return NextResponse.json(
-        { error: "You've used your free Upload Kit this month. Upgrade for unlimited kits." },
-        { status: 429 }
-      );
+  // Authenticated free users are capped by account; anonymous callers are
+  // capped by the email they just gave us.
+  const month = new Date().toISOString().slice(0, 7);
+  const emailCapKey = email ? `lanecheck:email:${email}:${month}` : null;
+  let emailCapCount = 0;
+
+  if (!allCached && !isPaid) {
+    if (userId) {
+      const startOfMonth = new Date();
+      startOfMonth.setUTCDate(1);
+      startOfMonth.setUTCHours(0, 0, 0, 0);
+      const { count } = await supabase
+        .from("lane_checks")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .gte("created_at", startOfMonth.toISOString());
+      if ((count ?? 0) >= 1) {
+        return NextResponse.json(
+          { error: "You've used your free Upload Kit this month. Upgrade for unlimited kits." },
+          { status: 429 }
+        );
+      }
+    } else if (emailCapKey) {
+      const { data: rl } = await supabase
+        .from("diagnostic_rate_limits")
+        .select("count")
+        .eq("key", emailCapKey)
+        .maybeSingle();
+      emailCapCount = rl?.count ?? 0;
+      if (emailCapCount >= 1) {
+        return NextResponse.json(
+          { error: "You've already used your free kit this month — upgrade for unlimited", capped: true },
+          { status: 429 }
+        );
+      }
     }
   }
 
-  // 6. Serve fresh lanes from cache (zero quota cost). For stale/missing
+  // 7. Serve fresh lanes from cache (zero quota cost). For stale/missing
   // lanes, reserve against the daily YouTube quota budget before analyzing;
   // if the budget's exhausted or the analysis fails, enqueue onto the
   // existing lane_jobs queue instead of hard-failing the request.
@@ -156,7 +186,7 @@ export async function POST(req: NextRequest) {
     const withinBudget = await reserveQuota(supabase, ESTIMATED_UNITS_PER_ANALYSIS);
     if (!withinBudget) {
       if (!(await hasPendingJob(supabase, lane.id))) {
-        await enqueueLaneJob(supabase, lane.id, { priority: isPaid ? 10 : 0, requestedBy: userId, notifyEmail: userEmail });
+        await enqueueLaneJob(supabase, lane.id, { priority: isPaid ? 10 : 0, requestedBy: userId, notifyEmail: userEmail ?? email });
       }
       lanes.push({ lane, analysis: null, note: queuedNote(lane.display_name) });
       continue;
@@ -168,18 +198,18 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       console.error(`[lane-check/run] analyzeLane failed for ${lane.slug}:`, e);
       if (!(await hasPendingJob(supabase, lane.id))) {
-        await enqueueLaneJob(supabase, lane.id, { priority: isPaid ? 10 : 0, requestedBy: userId, notifyEmail: userEmail });
+        await enqueueLaneJob(supabase, lane.id, { priority: isPaid ? 10 : 0, requestedBy: userId, notifyEmail: userEmail ?? email });
       }
       lanes.push({ lane, analysis: null, note: queuedNote(lane.display_name) });
     }
   }
 
-  // 7. Persist the check
+  // 8. Persist the check
   const { data: laneCheck, error: checkErr } = await supabase
     .from("lane_checks")
     .insert({
       user_id: userId,
-      email: null,
+      email,
       lane_ids: lanes.map((l) => l.lane.id),
       genre,
       channel_id: channelId,
@@ -192,27 +222,51 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to save upload kit" }, { status: 500 });
   }
 
-  // 8. Shape response — paid and authenticated-free callers get their top
-  // lane inline; anonymous callers still go through the email gate.
+  // 9. Shape response — paid, authenticated-free, and now-identified
+  // anonymous (gave a valid, non-capped email) callers all get their top
+  // lane inline. There's no second "unlock" step anymore.
   const ranked: RankedLane[] = [...lanes].sort((a, b) => {
     const oa = a.analysis?.opportunity ?? -1;
     const ob = b.analysis?.opportunity ?? -1;
     return ob - oa;
   });
 
-  const results = shapeLaneResults(ranked, isPaid, !!userId);
+  const revealTopLane = isPaid || !!userId || !!email;
+  const results = shapeLaneResults(ranked, isPaid, revealTopLane);
 
-  // "Also consider" data — only worth computing once we actually have a top
-  // lane to attach it to (paid or authenticated-free callers only; anonymous
-  // callers get locked summaries and haven't cleared the email gate yet).
   let trendingArtists: Awaited<ReturnType<typeof getTrendingCoMentionedArtists>> = [];
   let bestOpenLane: Awaited<ReturnType<typeof getBestOpenLane>> = null;
-  if (userId) {
+  if (revealTopLane) {
     trendingArtists = await getTrendingCoMentionedArtists(supabase, genre);
     const bestCheckedOpportunity = Math.max(-1, ...ranked.map((r) => r.analysis?.opportunity ?? -1));
     bestOpenLane = await getBestOpenLane(supabase, genre, lanes.map((l) => l.lane.id), bestCheckedOpportunity);
   }
   const alsoConsider = capAlsoConsider(trendingArtists, bestOpenLane, isPaid);
+
+  // 10. Anonymous success: record the lead, send a bookmark link to their
+  // kit, and — only when this request actually drew against the monthly
+  // cap (i.e. wasn't a free unlimited cache hit) — bump that counter.
+  if (!userId && email) {
+    if (emailCapKey && !allCached && !isPaid) {
+      await supabase.from("diagnostic_rate_limits").upsert(
+        { key: emailCapKey, count: emailCapCount + 1, updated_at: new Date().toISOString() },
+        { onConflict: "key" }
+      );
+    }
+
+    const verifyToken = randomBytes(32).toString("hex");
+    const { error: leadErr } = await supabase.from("lane_check_leads").upsert(
+      { email, lane_check_id: laneCheck.id, verified: true, verify_token: verifyToken },
+      { onConflict: "email,lane_check_id" }
+    );
+    if (leadErr) {
+      console.error("[lane-check/run] lead upsert error:", leadErr.message);
+    } else {
+      const reportUrl = `${WWW_BASE}/upload-kit/report?token=${verifyToken}`;
+      const { ok, error: emailErr } = await sendLaneCheckMagicLink(email, reportUrl);
+      if (!ok) console.error("[lane-check/run] bookmark email failed:", emailErr);
+    }
+  }
 
   return NextResponse.json({
     laneCheckId: laneCheck.id,
@@ -220,7 +274,7 @@ export async function POST(req: NextRequest) {
     genre,
     isPaid,
     results,
-    requiresEmail: !userId,
+    requiresEmail: false,
     trendingArtists: alsoConsider.trendingArtists,
     bestOpenLane: alsoConsider.bestOpenLane,
   });
