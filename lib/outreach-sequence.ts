@@ -126,7 +126,7 @@ export async function generateOutreachSequence(
   const msg4BodyFounding =
     `I'll give you founding member access — 14 days completely free, no credit card needed, then $14/month locked for life even if we raise prices later. Use code FOUNDING20 at checkout for an extra 20% off — $11.20/month forever. Only available to the first 20 producers. Sign up at tallyagc.com.`;
   const msg4BodyStandard =
-    `I'll give you full free access for 7 days — sign up at tallyagc.com and try it before your next upload. No commitment.`;
+    `I'll give you full free access for 14 days — sign up at tallyagc.com and try it before your next upload. No commitment.`;
   const msg4Body = offerType === "founding" ? msg4BodyFounding : msg4BodyStandard;
 
   const messages: OutreachMessage[] =

@@ -443,14 +443,14 @@ export default function OnboardingPage() {
                 <>
                   <h1 className="text-2xl font-bold mb-2">Claim your founding member offer</h1>
                   <p className="text-[#4ade80] text-sm">
-                    14 days free · $11.20/month locked for life (20% off with FOUNDING20) · No credit card required.
+                    $11.20/month locked for life (20% off with FOUNDING20) · No credit card required.
                   </p>
                 </>
               ) : (
                 <>
                   <h1 className="text-2xl font-bold mb-2">Start your free trial</h1>
                   <p className="text-[#94a3b8] text-sm">
-                    7 days free. No charge until the trial ends. Cancel anytime.
+                    14 days free. No charge until the trial ends. Cancel anytime.
                   </p>
                 </>
               )}

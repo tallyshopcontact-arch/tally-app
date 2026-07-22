@@ -161,7 +161,7 @@ export default function SettingsPage() {
       color: "text-[#fbbf24]",
       description: profile.trial_ends_at
         ? `Trial ends ${new Date(profile.trial_ends_at).toLocaleDateString()}.`
-        : "7-day free trial active.",
+        : "14-day free trial active.",
     },
     active: {
       label: "Active",
@@ -354,7 +354,7 @@ export default function SettingsPage() {
                 </div>
                 <p className="text-[#94a3b8] text-xs mb-1">{statusInfo.description}</p>
                 {!isPaid && status !== "beta" && (
-                  <p className="text-[#475569] text-xs">$14/month — 7-day free trial</p>
+                  <p className="text-[#475569] text-xs">$14/month — 14-day free trial</p>
                 )}
               </div>
               <div className="shrink-0 flex flex-col items-end gap-2">

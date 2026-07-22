@@ -74,8 +74,8 @@ export default function TermsPage() {
             <strong className="text-white">TALLY Pro:</strong> $14/month or
             $99/year gets you unlimited kits for every lane, every time — full
             title and tag lists, and every &ldquo;also consider&rdquo; suggestion.
-            New subscribers get a free trial before their first charge: 14 days
-            for founding members using code FOUNDING20, 7 days otherwise.
+            New subscribers get a <strong className="text-white">14-day free trial</strong>{" "}
+            before their first charge, whether or not you use a promo code.
           </p>
         </div>
 

@@ -63,8 +63,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // FOUNDING20 gets a 14-day trial; default is 7 days
-    const trialDays = promoCode === "FOUNDING20" ? 14 : 7;
+    // All new subscriptions get a 14-day trial. FOUNDING20's benefit is the
+    // 20% off locked for life (applied via `discounts` above), not extra
+    // trial time.
+    const trialDays = 14;
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",

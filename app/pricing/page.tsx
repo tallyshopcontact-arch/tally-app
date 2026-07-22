@@ -20,7 +20,7 @@ const faqs = [
     a: "TALLY tells you which artists to attach your next beat to, how to title it, and which lanes small channels are actually winning right now — based on real YouTube data, not guesswork.",
   },
   {
-    q: "What's included in the 7-day free trial?",
+    q: "What's included in the 14-day free trial?",
     a: "Full Pro access — unlimited Upload Kits, both lanes every time, 5 titles with regenerate, and your full check history. No credit card required upfront, and you can cancel before the trial ends without being charged.",
   },
   {
@@ -57,7 +57,7 @@ export default function PricingPage() {
     if (code === "FOUNDING20") {
       setAppliedPromo(code);
       setPromoMessage(
-        "Founding member offer applied — 14 days free, then $11.20/month locked for life (20% off with FOUNDING20)."
+        "Founding member offer applied — $11.20/month locked for life (20% off with FOUNDING20)."
       );
     } else {
       // Pass unknown codes through to Stripe; it will validate
@@ -135,7 +135,7 @@ export default function PricingPage() {
                 Founding member offer applied
               </p>
               <p className="text-xs text-[#94a3b8]">
-                14 days free, no credit card required · $11.20/month locked for life (20% off with FOUNDING20)
+                No credit card required · $11.20/month locked for life (20% off with FOUNDING20)
               </p>
             </div>
           </div>
@@ -243,14 +243,14 @@ export default function PricingPage() {
               ? "Redirecting…"
               : isFoundingMember
               ? "Claim Founding Member Offer"
-              : "Start 7-Day Free Trial"}
+              : "Start 14-Day Free Trial"}
           </button>
           {checkError && (
             <p className="text-[#f87171] text-xs mt-3 text-center">{checkError}</p>
           )}
           <p className="text-center text-xs text-[#475569] mt-3">
             {isFoundingMember
-              ? "14 days free, no credit card required. $11.20/month after (20% off with FOUNDING20)."
+              ? "No credit card required. $11.20/month after (20% off with FOUNDING20)."
               : "No credit card required for trial. Cancel anytime."}
           </p>
         </div>

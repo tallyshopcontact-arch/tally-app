@@ -108,7 +108,7 @@ export default function SignupPage() {
         <h1 className="text-2xl font-bold mb-2">Create your account</h1>
         {pendingPromo === "FOUNDING20" ? (
           <p className="text-[#4ade80] text-sm mb-8">
-            Founding member offer applied — 14 days free, then $11.20/month locked for life (20% off with FOUNDING20).
+            Founding member offer applied — $11.20/month locked for life (20% off with FOUNDING20).
           </p>
         ) : (
           <p className="text-[#94a3b8] text-sm mb-8">
