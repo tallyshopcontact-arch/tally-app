@@ -96,7 +96,7 @@ export async function hasPendingJob(supabase: SupabaseClient, laneId: string): P
 export async function enqueueLaneJob(
   supabase: SupabaseClient,
   laneId: string,
-  opts: { priority?: number; requestedBy?: string | null } = {}
+  opts: { priority?: number; requestedBy?: string | null; notifyEmail?: string | null } = {}
 ): Promise<LaneJob> {
   const { data, error } = await supabase
     .from("lane_jobs")
@@ -104,9 +104,55 @@ export async function enqueueLaneJob(
       lane_id: laneId,
       priority: opts.priority ?? 0,
       requested_by: opts.requestedBy ?? null,
+      notify_email: opts.notifyEmail ?? null,
     })
     .select("*")
     .single();
   if (error) throw new Error(`enqueueLaneJob insert failed: ${error.message}`);
   return data as LaneJob;
+}
+
+// ── YouTube quota budget (Upload Kit reframe) ───────────────────────────────
+// Bounds INLINE (request-time) analysis spend only — see
+// supabase/upload-kit-migration.sql for why the cron drain doesn't share this.
+
+const DEFAULT_DAILY_UNIT_BUDGET = 8000;
+/** Conservative estimate: 2x search.list (100 each) + videos.list + channels.list. */
+export const ESTIMATED_UNITS_PER_ANALYSIS = 205;
+
+export function getDailyQuotaBudget(): number {
+  const raw = process.env.YOUTUBE_DAILY_UNIT_BUDGET;
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DAILY_UNIT_BUDGET;
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Atomically adds `units` (negative to roll back) to today's usage row,
+ * returning the new total. */
+async function adjustQuotaUsage(supabase: SupabaseClient, units: number): Promise<number> {
+  const { data, error } = await supabase.rpc("increment_quota_usage", {
+    p_day: todayIso(),
+    p_units: units,
+  });
+  if (error) throw new Error(`adjustQuotaUsage failed: ${error.message}`);
+  return data as number;
+}
+
+/** Reserve-then-check: atomically adds the estimate, and if that pushes the
+ * day's total over budget, immediately rolls the reservation back. Returns
+ * whether the reservation held (i.e. whether the caller may proceed). */
+export async function reserveQuota(
+  supabase: SupabaseClient,
+  units: number = ESTIMATED_UNITS_PER_ANALYSIS
+): Promise<boolean> {
+  const budget = getDailyQuotaBudget();
+  const newTotal = await adjustQuotaUsage(supabase, units);
+  if (newTotal > budget) {
+    await adjustQuotaUsage(supabase, -units);
+    return false;
+  }
+  return true;
 }

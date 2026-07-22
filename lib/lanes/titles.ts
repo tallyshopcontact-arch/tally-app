@@ -14,6 +14,11 @@ export interface TitleGeneratorInput {
   patterns: PatternStats;
   /** Raw titles from lane_analyses.winner_videos — the real small-channel wins. */
   winnerTitles: string[];
+  /** Shifts which skeleton/keyword-candidate index each output slot draws
+   * from — paid "Regenerate" increments this client-side and re-requests.
+   * Still built only from the same real winner-title skeletons/tags; this
+   * just varies which valid combination is shown, never invents content. */
+  offset?: number;
 }
 
 const QUOTE_RE = /["'"“”‘’].+?["'"“”‘’]/;
@@ -253,14 +258,15 @@ export function generateLaneTitles(input: TitleGeneratorInput): string[] {
   const comention = deriveTopCoMention(input);
   const keywordCandidates = buildKeywordFillCandidates(deriveUsableKeywordTags(input));
   const year = String(new Date().getFullYear());
+  const offset = input.offset ?? 0;
 
   const results: string[] = [];
   for (let i = 0; i < 5; i++) {
-    const skeleton = pool[i % pool.length];
+    const skeleton = pool[(i + offset) % pool.length];
     let candidate = "";
     let attempt = 0;
     do {
-      const keywords = keywordCandidates[(i + attempt) % keywordCandidates.length];
+      const keywords = keywordCandidates[(i + offset + attempt) % keywordCandidates.length];
       candidate = fillSkeleton(skeleton, { artistName: input.artistName, beatName: input.beatName, comention, keywords, year });
       attempt++;
     } while (results.includes(candidate) && attempt < keywordCandidates.length);

@@ -36,6 +36,7 @@ export interface LaneJob {
   status: LaneJobStatus;
   priority: number;
   requested_by: string | null;
+  notify_email: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -47,6 +48,7 @@ export interface LaneCheck {
   lane_ids: string[];
   genre: string | null;
   channel_id: string | null;
+  beat_name: string | null;
   created_at: string;
 }
 

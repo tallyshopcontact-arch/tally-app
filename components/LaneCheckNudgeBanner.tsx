@@ -30,10 +30,10 @@ export default function LaneCheckNudgeBanner() {
       <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
         <p className="text-xs text-[#94a3b8] leading-relaxed">
           We&apos;ve moved our focus to{" "}
-          <Link href="/lane-check" className="text-white font-medium hover:text-[#e8833a] transition-colors underline underline-offset-2">
-            Lane Check
+          <Link href="/upload-kit" className="text-white font-medium hover:text-[#e8833a] transition-colors underline underline-offset-2">
+            Upload Kit
           </Link>
-          {" "}— see which artists to target next.
+          {" "}— get the title, tags, and packaging for your next beat.
         </p>
         <button
           onClick={dismiss}

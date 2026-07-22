@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase";
 import { createAuthClient } from "@/lib/supabase-server";
 import { isPaidUser } from "@/lib/lanes/entitlement";
-import { summarizeLane, fullLaneDetail, type LaneSummary, type FullLaneDetail } from "@/lib/lanes/present";
+import { shapeLaneResults, capAlsoConsider, type RankedLane } from "@/lib/lanes/present";
 import { getLatestAnalysis } from "@/lib/lanes/db";
 import { getTrendingCoMentionedArtists } from "@/lib/lanes/trending";
 import { getBestOpenLane } from "@/lib/lanes/recommendLane";
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
 
   const { data: laneCheck, error: laneCheckErr } = await supabase
     .from("lane_checks")
-    .select("id, lane_ids, genre, channel_id, created_at")
+    .select("id, lane_ids, genre, channel_id, beat_name, created_at")
     .eq("id", laneCheckId)
     .single();
   if (laneCheckErr || !laneCheck) {
@@ -92,16 +92,11 @@ export async function GET(req: NextRequest) {
   );
   const lanes = withAnalyses.filter((x): x is NonNullable<typeof x> => x !== null);
 
-  const ranked = [...lanes].sort((a, b) => (b.analysis?.opportunity ?? -1) - (a.analysis?.opportunity ?? -1));
+  const ranked: RankedLane[] = [...lanes].sort((a, b) => (b.analysis?.opportunity ?? -1) - (a.analysis?.opportunity ?? -1));
 
-  const results: (FullLaneDetail | LaneSummary)[] = ranked.map(({ lane, analysis }, i) => {
-    if (!analysis) return summarizeLane(lane, null);
-    const isTopLane = i === 0;
-    // Free: top lane full (no co-mentions). Paid: everything full, co-mentions included.
-    if (isPaid) return fullLaneDetail(lane, analysis, true);
-    if (isTopLane) return fullLaneDetail(lane, analysis, false);
-    return summarizeLane(lane, analysis);
-  });
+  // Caller already proved ownership (auth or magic-link token), so the top
+  // lane reveals for non-paid callers too — no separate email gate here.
+  const results = shapeLaneResults(ranked, isPaid, true);
 
   const { count: paidCount } = await supabase
     .from("profiles")
@@ -118,15 +113,17 @@ export async function GET(req: NextRequest) {
     laneCheck.lane_ids as string[],
     bestCheckedOpportunity
   );
+  const alsoConsider = capAlsoConsider(trendingArtists, bestOpenLane, isPaid);
 
   return NextResponse.json({
     laneCheckId: laneCheck.id,
     genre: laneCheck.genre,
+    beatName: laneCheck.beat_name,
     generatedAt: laneCheck.created_at,
     isPaid,
     results,
-    trendingArtists,
-    bestOpenLane,
+    trendingArtists: alsoConsider.trendingArtists,
+    bestOpenLane: alsoConsider.bestOpenLane,
     cta: {
       signupUrl: "https://www.tallyagc.com/signup",
       foundingSeatsRemain,

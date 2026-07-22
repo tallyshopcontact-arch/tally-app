@@ -154,7 +154,7 @@ export default function SettingsPage() {
     free: {
       label: "Free",
       color: "text-[#94a3b8]",
-      description: "You have 1 free Lane Check per month.",
+      description: "You have 1 free Upload Kit per month for uncached lanes.",
     },
     trialing: {
       label: "Trial",
@@ -166,7 +166,7 @@ export default function SettingsPage() {
     active: {
       label: "Active",
       color: "text-[#4ade80]",
-      description: "Unlimited Lane Check access.",
+      description: "Unlimited Upload Kit access.",
     },
     past_due: {
       label: "Past Due",
