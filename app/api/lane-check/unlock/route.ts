@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServerClient();
 
-  // Free tier: 1 Lane Check per calendar month per email (mirrors the
+  // Free tier: 1 Upload Kit per calendar month per email (mirrors the
   // authenticated-user monthly cap enforced in /run for anonymous users, who
   // aren't identifiable until they unlock).
   const month = new Date().toISOString().slice(0, 7);
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (existingLead) {
-      const reportUrl = `${WWW_BASE}/lane-check/report?token=${existingLead.verify_token}`;
+      const reportUrl = `${WWW_BASE}/upload-kit/report?token=${existingLead.verify_token}`;
       const { ok, error: emailErr } = await sendLaneCheckMagicLink(emailNorm, reportUrl);
       if (!ok) {
         console.error("[lane-check/unlock] resend email error:", emailErr);
@@ -58,18 +58,31 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "You've already unlocked a Lane Check this month. Check your inbox or come back next month." },
+      { error: "You've already unlocked an Upload Kit this month. Check your inbox or come back next month." },
       { status: 429 }
     );
   }
 
   const { data: laneCheck, error: checkErr } = await supabase
     .from("lane_checks")
-    .select("id")
+    .select("id, lane_ids")
     .eq("id", laneCheckId)
     .single();
   if (checkErr || !laneCheck) {
     return NextResponse.json({ error: "Lane check not found" }, { status: 404 });
+  }
+
+  // Backfill notify_email onto any still-pending lane_jobs for this check's
+  // lanes — an anonymous user has no known email until this unlock step, so
+  // a lane that got queued during /run couldn't be notified until now.
+  const laneIds = laneCheck.lane_ids as string[];
+  if (laneIds.length) {
+    await supabase
+      .from("lane_jobs")
+      .update({ notify_email: emailNorm })
+      .in("lane_id", laneIds)
+      .in("status", ["queued", "running"])
+      .is("notify_email", null);
   }
 
   const verifyToken = randomBytes(32).toString("hex");
@@ -93,7 +106,7 @@ export async function POST(req: NextRequest) {
       { onConflict: "key" }
     );
 
-  const reportUrl = `${WWW_BASE}/lane-check/report?token=${verifyToken}`;
+  const reportUrl = `${WWW_BASE}/upload-kit/report?token=${verifyToken}`;
   const { ok, error: emailErr } = await sendLaneCheckMagicLink(emailNorm, reportUrl);
   if (!ok) {
     console.error("[lane-check/unlock] email error:", emailErr);

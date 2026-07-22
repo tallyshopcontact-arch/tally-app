@@ -12,7 +12,7 @@ import type { Lane, LaneAnalysis } from "./types.ts";
 import { searchVideos, getVideoDetails, getChannelSubCounts, type VideoDetails } from "./youtube.ts";
 import {
   computeDemand, computeSaturation, computeWinnability, computeOpportunity,
-  computeStatus, computeMomentum, SCORE_CALIBRATION, type DemandResult, type SaturationResult,
+  computeStatus, computeMomentum, viewsPerDay, SCORE_CALIBRATION, type DemandResult, type SaturationResult,
   type WinnabilityResult, type LaneStatus,
 } from "./scoring.ts";
 import { analyzePatterns, type PatternStats } from "./patterns.ts";
@@ -75,10 +75,14 @@ export async function analyzeLane(supabase: SupabaseClient, lane: Lane): Promise
   const details = await getVideoDetails(allIds);
   const detailsById = new Map(details.map((d) => [d.videoId, d]));
 
+  // Ranked by views-per-day, not lifetime viewCount — a video winning right
+  // now should outrank an older video that's merely accumulated more total
+  // views. YouTube's own order=viewCount search just supplies the candidate
+  // pool; this re-rank is what "top performer" actually means here.
   const topPerformerDetails = topByViews.items
     .map((v) => detailsById.get(v.videoId))
     .filter((v): v is VideoDetails => !!v)
-    .sort((a, b) => b.viewCount - a.viewCount);
+    .sort((a, b) => viewsPerDay(b) - viewsPerDay(a));
 
   // Step 4: channels.list (cached) for top performers' channels only
   const channelInfo = await getChannelSubCounts(

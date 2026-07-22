@@ -65,7 +65,7 @@ export default function LaneCheckHistoryPage() {
 
       <section className="max-w-2xl mx-auto px-6 pt-16 pb-24">
         <p className="text-xs text-[#94a3b8] font-medium tracking-widest uppercase mb-6">
-          Lane Check History
+          Upload Kit History
         </p>
         <h1 className="font-[family-name:var(--font-display)] font-bold text-3xl md:text-4xl leading-[1.1] tracking-tight mb-10">
           Every lane you&apos;ve checked.
@@ -80,7 +80,7 @@ export default function LaneCheckHistoryPage() {
 
         {status === "unauthenticated" && (
           <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-6 py-8 text-center">
-            <p className="text-sm text-[#94a3b8] mb-4">Sign in to see your Lane Check history.</p>
+            <p className="text-sm text-[#94a3b8] mb-4">Sign in to see your Upload Kit history.</p>
             <Link
               href="/login"
               className="inline-block text-[#0a0a0a] text-sm font-semibold px-6 py-3 hover:brightness-110 transition-all"
@@ -95,13 +95,13 @@ export default function LaneCheckHistoryPage() {
 
         {status === "ready" && checks.length === 0 && (
           <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-6 py-8 text-center">
-            <p className="text-sm text-[#94a3b8] mb-4">You haven&apos;t run a Lane Check yet.</p>
+            <p className="text-sm text-[#94a3b8] mb-4">You haven&apos;t gotten an Upload Kit yet.</p>
             <Link
-              href="/lane-check"
+              href="/upload-kit"
               className="inline-block text-[#0a0a0a] text-sm font-semibold px-6 py-3 hover:brightness-110 transition-all"
               style={{ backgroundColor: "#e8833a" }}
             >
-              Check my lanes →
+              Get my Upload Kit →
             </Link>
           </div>
         )}

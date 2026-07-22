@@ -100,9 +100,14 @@ export function analyzePatterns(winnerVideos: VideoDetails[], laneArtistName: st
       tagCounts.set(key, (tagCounts.get(key) ?? 0) + 1);
     }
   }
+  // 25, not a smaller display-sized number — this is the raw extraction pool
+  // that both the free tag cap (15) and the paid "full list" in
+  // lib/lanes/present.ts draw from; capping it near the display size would
+  // make free and paid identical whenever a lane has more than a handful of
+  // distinct tags across its winners.
   const topTags: TagStat[] = [...tagCounts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
+    .slice(0, 25)
     .map(([tag, count]) => ({ tag, count }));
 
   return {

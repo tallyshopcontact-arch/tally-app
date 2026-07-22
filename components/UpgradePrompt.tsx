@@ -10,7 +10,7 @@ interface UpgradePromptProps {
 
 export function UpgradePrompt({
   title = "Upgrade to TALLY Pro",
-  description = "Get unlimited Lane Check access for $14/month.",
+  description = "Get unlimited Upload Kit access for $14/month.",
   feature,
 }: UpgradePromptProps) {
   const [loading, setLoading] = useState(false);

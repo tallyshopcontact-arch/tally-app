@@ -39,11 +39,11 @@ function getRetentionOffer(reasons: string[]): "discount" | "pause" | "feature" 
 // ── What you'll lose ──────────────────────────────────────────────────────────
 
 const LOSSES = [
-  "Lane Check — unlimited artist-lane opportunity scoring",
+  "Upload Kit — unlimited artist-lane opportunity scoring",
   "Title Generator — deterministic titles built from real winning packaging",
-  "Full lane breakdowns — demand, competition & winnability across all 3 lanes",
+  "Full lane breakdowns — demand, competition & winnability across both lanes",
   "Video galleries — the actual winning videos behind each lane's score",
-  "Lane Check history — every lane you've checked, saved and revisitable",
+  "Upload Kit history — every lane you've checked, saved and revisitable",
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────

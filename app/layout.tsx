@@ -20,11 +20,11 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "TALLY — Which Artists Should Your Next Beat Target?",
+  title: "TALLY — Your Upload Kit for Every Beat",
   description:
-    "Describe your beat. TALLY tells you which artists to attach it to, how to title it, and which lanes small channels are actually winning on YouTube right now. Free Lane Check, no signup required.",
+    "Name your beat, pick the artists you hear on it, and get your Upload Kit — the title, tags, and packaging that's winning on YouTube right now. Free Upload Kit, no signup required.",
   keywords: [
-    "type beat lane check",
+    "type beat upload kit",
     "youtube beat producer",
     "type beat SEO",
     "youtube music producer tool",
@@ -34,18 +34,18 @@ export const metadata: Metadata = {
   authors: [{ name: "TALLY", url: "https://tallyagc.com" }],
   metadataBase: new URL("https://tallyagc.com"),
   openGraph: {
-    title: "TALLY — Which Artists Should Your Next Beat Target?",
+    title: "TALLY — Your Upload Kit for Every Beat",
     description:
-      "Tell us what your beat sounds like. We'll tell you which artists to attach it to, how to title it, and which lanes small channels are actually winning right now.",
+      "Name it, pick the artists you hear on it, and get your Upload Kit — the title, tags, and packaging that's winning in that lane right now.",
     url: "https://tallyagc.com",
     siteName: "TALLY",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "TALLY — Which Artists Should Your Next Beat Target?",
+    title: "TALLY — Your Upload Kit for Every Beat",
     description:
-      "Free Lane Check: which artists to target, how to title it, and who's winning that lane right now — based on real YouTube data.",
+      "Free Upload Kit: the title, tags, and packaging that's winning in your lane right now — based on real YouTube data.",
   },
   robots: {
     index: true,

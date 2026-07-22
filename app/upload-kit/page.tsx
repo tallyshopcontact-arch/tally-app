@@ -3,63 +3,30 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import ScoreMeter from "./components/ScoreMeter";
-import StatusBadge, { type LaneStatusColor } from "./components/StatusBadge";
-import TopVideosThisLane, { type GalleryVideo } from "./components/TopVideosThisLane";
-import TitleGenerator from "./components/TitleGenerator";
-
-// ── Types (mirrors lib/lanes/present.ts response shapes) ───────────────────
-
-interface LaneSummary {
-  laneId: string;
-  laneSlug: string;
-  displayName: string;
-  status: "ready" | "queued";
-  opportunity?: number;
-  statusColor?: LaneStatusColor;
-  verdict?: string;
-  demand?: number;
-  saturation?: number;
-  winnability?: number;
-  momentum?: number | null;
-}
-
-interface PatternStats {
-  winnerCount: number;
-  freePrefixPct: number;
-  quotedNamePct: number;
-  coMentionPct: number;
-  topCoMentions: { artist: string; count: number; pct: number }[];
-  medianTitleLength: number;
-  medianDurationSeconds: number;
-  medianTagCount: number;
-  topTags: { tag: string; count: number }[];
-  empty: boolean;
-}
-
-interface FullLaneDetail extends LaneSummary {
-  patterns: PatternStats;
-  winnerVideos: GalleryVideo[];
-  topVideos: GalleryVideo[];
-}
-
-type LaneResult = LaneSummary | FullLaneDetail;
-
-function isFull(l: LaneResult): l is FullLaneDetail {
-  return "patterns" in l;
-}
+import UploadKitCard, {
+  LockedLaneCard,
+  AlsoConsider,
+  isFull,
+  type LaneResult,
+  type TrendingArtist,
+  type BestOpenLane,
+} from "./components/UploadKitCard";
 
 interface RunResponse {
   laneCheckId: string;
+  beatName: string | null;
+  genre: string;
   isPaid: boolean;
   results: LaneResult[];
   requiresEmail: boolean;
+  trendingArtists: TrendingArtist[];
+  bestOpenLane: BestOpenLane | null;
 }
 
 type PageStatus = "idle" | "loading" | "results" | "error";
 type EmailStatus = "idle" | "loading" | "sent" | "error";
 
-const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats"];
+const GENRES = ["Boom Bap", "Trap", "Drill", "UK Drill", "Melodic", "R&B", "West Coast", "Afrobeats", "Other"];
 
 const inputClass =
   "w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a] transition-colors";
@@ -99,68 +66,19 @@ function TurnstileWidget({ onVerify }: { onVerify: (token: string) => void }) {
   return <div ref={containerRef} className="mb-4" />;
 }
 
-// ── Lane row (results list on this page — score/meter/verdict) ─────────────
+// ── Form + results ───────────────────────────────────────────────────────
 
-const STAGGER_MS = 600;
-
-function LaneRow({ result, index }: { result: LaneResult; index: number }) {
-  return (
-    <div
-      className="bg-[#0a0a0a] p-5 tab-content"
-      style={{ animationDelay: `${index * STAGGER_MS}ms`, animationFillMode: "backwards" }}
-    >
-      <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">{result.displayName}</p>
-      <div className="space-y-3">
-        <ScoreMeter score={result.opportunity ?? 0} size="sm" />
-        <div className="flex items-center gap-2 flex-wrap">
-          {result.statusColor && <StatusBadge status={result.statusColor} />}
-          <span className="text-[#94a3b8] text-xs">{result.verdict}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Full lane detail (rendered inline when the caller is already paid) ─────
-
-function FullLaneCard({ result, index }: { result: FullLaneDetail; index: number }) {
-  return (
-    <div
-      className="border border-[#1a1a1a] bg-[#0d0d0d] p-6 tab-content"
-      style={{ animationDelay: `${index * STAGGER_MS}ms`, animationFillMode: "backwards" }}
-    >
-      <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-2">{result.displayName}</p>
-      <div className="mb-4">
-        <ScoreMeter score={result.opportunity ?? 0} />
-      </div>
-      {result.statusColor && (
-        <div className="mb-4">
-          <StatusBadge status={result.statusColor} />
-        </div>
-      )}
-      {!result.patterns.empty && (
-        <div className="grid grid-cols-2 gap-3 mb-6 text-sm">
-          <div><span className="text-[#64748b] text-xs">[FREE]-prefixed</span><p>{result.patterns.freePrefixPct}%</p></div>
-          <div><span className="text-[#64748b] text-xs">Quoted beat name</span><p>{result.patterns.quotedNamePct}%</p></div>
-          <div><span className="text-[#64748b] text-xs">Median duration</span><p>{Math.floor(result.patterns.medianDurationSeconds / 60)}:{String(result.patterns.medianDurationSeconds % 60).padStart(2, "0")}</p></div>
-          <div><span className="text-[#64748b] text-xs">Median tags</span><p>{result.patterns.medianTagCount}</p></div>
-        </div>
-      )}
-      <TopVideosThisLane videos={result.topVideos} />
-
-      <TitleGenerator laneId={result.laneId} />
-    </div>
-  );
-}
-
-// ── Page ─────────────────────────────────────────────────────────────────
-
-function LaneCheckForm() {
+function UploadKitForm() {
   const searchParams = useSearchParams();
   const prefilledChannel = searchParams.get("channel") ?? "";
+  const prefilledArtist = searchParams.get("artist") ?? "";
+  const prefilledGenre = searchParams.get("genre") ?? "";
+  const prefilledGenreIsCustom = !!prefilledGenre && !GENRES.includes(prefilledGenre);
 
-  const [artists, setArtists] = useState(["", "", ""]);
-  const [genre, setGenre] = useState("");
+  const [beatName, setBeatName] = useState("");
+  const [artists, setArtists] = useState([prefilledArtist, ""]);
+  const [genre, setGenre] = useState(prefilledGenreIsCustom ? "Other" : prefilledGenre);
+  const [customGenre, setCustomGenre] = useState(prefilledGenreIsCustom ? prefilledGenre : "");
   const [channelId, setChannelId] = useState(prefilledChannel);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [pageStatus, setPageStatus] = useState<PageStatus>("idle");
@@ -182,8 +100,6 @@ function LaneCheckForm() {
     const activeArtists = artists.map((a) => a.trim()).filter(Boolean);
     setLoadingArtists(activeArtists);
     setLoadingIndex(0);
-    // Cycles through each artist's name every ~3.5s so the wait feels like
-    // per-lane progress, even though /run resolves all 3 in one response.
     loadingIntervalRef.current = setInterval(() => {
       setLoadingIndex((i) => (i + 1) % activeArtists.length);
     }, 3500);
@@ -193,8 +109,9 @@ function LaneCheckForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          beatName: beatName.trim() || undefined,
           artists: activeArtists,
-          genre,
+          genre: genre === "Other" ? customGenre.trim() : genre,
           channelId: channelId.trim() || undefined,
           turnstileToken,
         }),
@@ -253,8 +170,10 @@ function LaneCheckForm() {
   };
 
   const reset = () => {
-    setArtists(["", "", ""]);
+    setBeatName("");
+    setArtists(["", ""]);
     setGenre("");
+    setCustomGenre("");
     setResult(null);
     setPageStatus("idle");
     setErrorMessage("");
@@ -266,22 +185,35 @@ function LaneCheckForm() {
   return (
     <section className="max-w-2xl mx-auto px-6 pt-16 pb-24">
       <p className="text-xs text-[#94a3b8] font-medium tracking-widest uppercase mb-6">
-        Free Lane Check
+        Free Upload Kit
       </p>
       <h1 className="font-[family-name:var(--font-display)] font-bold text-4xl md:text-5xl leading-[1.1] tracking-tight mb-6">
-        Which artists should your next beat target?
+        You just finished the beat. Now what?
       </h1>
       <p className="text-[#cbd5e1] text-base leading-relaxed mb-10">
-        Enter up to 3 artists your beat sounds like and your genre. We&apos;ll score each lane on
-        demand, competition, and how winnable it is for a small channel right now.
+        Name it, pick the artists you hear on it, and get your Upload Kit — the title, tags,
+        and packaging that&apos;s winning in that lane right now.
       </p>
 
       {pageStatus !== "results" && (
         <form onSubmit={handleRun} className="space-y-5">
+          <div>
+            <label htmlFor="beatName" className={labelClass}>What&apos;s the beat called?</label>
+            <input
+              id="beatName"
+              type="text"
+              disabled={pageStatus === "loading"}
+              value={beatName}
+              onChange={(e) => setBeatName(e.target.value)}
+              placeholder="e.g. Nightcrawler"
+              className={inputClass}
+            />
+          </div>
+
           {artists.map((val, i) => (
             <div key={i}>
               <label htmlFor={`artist-${i}`} className={labelClass}>
-                Artist {i + 1}{i > 0 ? " (optional)" : ""}
+                {i === 0 ? "Which artists do you hear on it?" : "Second artist (optional)"}
               </label>
               <input
                 id={`artist-${i}`}
@@ -308,12 +240,27 @@ function LaneCheckForm() {
               required
               disabled={pageStatus === "loading"}
               value={genre}
-              onChange={(e) => setGenre(e.target.value)}
+              onChange={(e) => {
+                setGenre(e.target.value);
+                if (e.target.value !== "Other") setCustomGenre("");
+              }}
               className={`${inputClass} appearance-none cursor-pointer`}
             >
               <option value="" disabled>Select your genre</option>
               {GENRES.map((g) => <option key={g} value={g}>{g}</option>)}
             </select>
+            {genre === "Other" && (
+              <input
+                type="text"
+                required
+                disabled={pageStatus === "loading"}
+                value={customGenre}
+                onChange={(e) => setCustomGenre(e.target.value)}
+                placeholder="Enter your genre (e.g. Phonk, Cloud Rap, Dancehall...)"
+                autoFocus
+                className={`${inputClass} mt-2`}
+              />
+            )}
           </div>
 
           <div>
@@ -344,84 +291,107 @@ function LaneCheckForm() {
             )}
             {pageStatus === "loading"
               ? `Analyzing ${loadingArtists[loadingIndex] ?? "your"} lane…`
-              : "Analyze my lanes →"}
+              : "Get my Upload Kit — free"}
           </button>
-          <p className="text-center text-xs text-[#475569]">No signup required. 1 free lane check per month.</p>
+          <p className="text-center text-xs text-[#475569]">No signup required. 1 free upload kit per month for uncached lanes.</p>
         </form>
       )}
 
-      {pageStatus === "results" && result && (
-        <div className="space-y-10">
-          <div>
-            <p className="text-xs text-[#94a3b8] font-medium tracking-widest uppercase mb-4">
-              Your 3 lanes, ranked by opportunity
-            </p>
-            {result.isPaid ? (
-              <div className="space-y-4">
-                {result.results.map((r, i) =>
-                  isFull(r) ? <FullLaneCard key={r.laneId} result={r} index={i} /> : <LaneRow key={r.laneId} result={r} index={i} />
-                )}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-px bg-[#1a1a1a]">
-                {result.results.map((r, i) => <LaneRow key={r.laneId} result={r} index={i} />)}
-              </div>
-            )}
-          </div>
-
-          {result.requiresEmail && (
-            <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-6 py-6">
-              {emailStatus === "sent" ? (
-                <div>
-                  <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Check your inbox</p>
-                  <p className="text-lg font-bold mb-2">Your top lane&apos;s full breakdown is on its way.</p>
-                  <p className="text-[#94a3b8] text-sm leading-relaxed">
-                    We sent a link to <span className="text-white">{email}</span>.
-                  </p>
-                </div>
+      {pageStatus === "results" && result && (() => {
+        const [topResult, ...rest] = result.results;
+        return (
+          <div className="space-y-6">
+            <div>
+              {isFull(topResult) ? (
+                <UploadKitCard result={topResult} isPaid={result.isPaid} laneCheckId={result.laneCheckId} isTopLane laneCount={result.results.length} />
               ) : (
-                <form onSubmit={handleUnlock} className="space-y-4">
-                  <div>
-                    <p className="text-sm font-semibold mb-1">See your top lane&apos;s full breakdown — free.</p>
-                    <p className="text-[#94a3b8] text-xs leading-relaxed mb-4">
-                      Real numbers, who&apos;s winning it, and the patterns that work.
-                    </p>
-                    <label htmlFor="email" className={labelClass}>Email</label>
-                    <input
-                      id="email"
-                      type="email"
-                      required
-                      disabled={emailStatus === "loading"}
-                      value={email}
-                      onChange={(e) => { setEmail(e.target.value); if (emailStatus === "error") setEmailStatus("idle"); }}
-                      placeholder="you@example.com"
-                      className={inputClass}
-                    />
-                  </div>
-                  {emailStatus === "error" && <p className="text-[#f87171] text-sm">{emailError}</p>}
-                  <button
-                    type="submit"
-                    disabled={emailStatus === "loading"}
-                    className="w-full text-[#0a0a0a] text-sm font-semibold py-3.5 hover:brightness-110 disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a]"
-                    style={{ backgroundColor: "#e8833a" }}
-                  >
-                    {emailStatus === "loading" ? "Sending…" : "Send me the full breakdown →"}
-                  </button>
-                </form>
+                <LockedLaneCard result={topResult} />
+              )}
+
+              {rest.length > 0 && (
+                <div className="mt-4">
+                  {rest.map((r) =>
+                    isFull(r) ? (
+                      <UploadKitCard key={r.laneId} result={r} isPaid={result.isPaid} laneCheckId={result.laneCheckId} isTopLane={false} laneCount={result.results.length} />
+                    ) : (
+                      <LockedLaneCard key={r.laneId} result={r} />
+                    )
+                  )}
+                </div>
+              )}
+
+              {isFull(topResult) && (
+                <AlsoConsider trendingArtists={result.trendingArtists} bestOpenLane={result.bestOpenLane} isPaid={result.isPaid} genre={result.genre} />
               )}
             </div>
-          )}
 
-          <button onClick={reset} className="text-[#94a3b8] text-sm hover:text-white transition-colors">
-            ← Check different lanes
-          </button>
-        </div>
-      )}
+            {result.requiresEmail && (
+              <div className="border border-[#1a1a1a] bg-[#0d0d0d] px-6 py-6">
+                {emailStatus === "sent" ? (
+                  <div>
+                    <p className="text-xs text-[#94a3b8] uppercase tracking-widest mb-3">Check your inbox</p>
+                    <p className="text-lg font-bold mb-2">Your Upload Kit is on its way.</p>
+                    <p className="text-[#94a3b8] text-sm leading-relaxed">
+                      We sent a link to <span className="text-white">{email}</span>.
+                    </p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleUnlock} className="space-y-4">
+                    <div>
+                      <p className="text-sm font-semibold mb-1">Get your Upload Kit — free.</p>
+                      <p className="text-[#94a3b8] text-xs leading-relaxed mb-4">
+                        Titles, tags, and packaging for your top lane, built from what&apos;s
+                        actually winning right now.
+                      </p>
+                      <label htmlFor="email" className={labelClass}>Email</label>
+                      <input
+                        id="email"
+                        type="email"
+                        required
+                        disabled={emailStatus === "loading"}
+                        value={email}
+                        onChange={(e) => { setEmail(e.target.value); if (emailStatus === "error") setEmailStatus("idle"); }}
+                        placeholder="you@example.com"
+                        className={inputClass}
+                      />
+                    </div>
+                    {emailStatus === "error" && <p className="text-[#f87171] text-sm">{emailError}</p>}
+                    <button
+                      type="submit"
+                      disabled={emailStatus === "loading"}
+                      className="w-full text-[#0a0a0a] text-sm font-semibold py-3.5 hover:brightness-110 disabled:opacity-40 transition-all cursor-pointer disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8833a]"
+                      style={{ backgroundColor: "#e8833a" }}
+                    >
+                      {emailStatus === "loading" ? "Sending…" : "Send me my Upload Kit →"}
+                    </button>
+                  </form>
+                )}
+              </div>
+            )}
+
+            <button onClick={reset} className="text-[#94a3b8] text-sm hover:text-white transition-colors">
+              ← Check different lanes
+            </button>
+          </div>
+        );
+      })()}
     </section>
   );
 }
 
-export default function LaneCheckPage() {
+// "Check this lane →" links (Also Consider, trending, etc.) navigate to
+// /upload-kit?artist=...&genre=... while already on this route. A same-route
+// Link transition re-renders in place rather than remounting, which is too
+// fragile to rely on for resetting form state — so this wrapper forces a
+// real remount via `key` whenever the target artist/genre changes, which
+// guarantees UploadKitForm's useState initializers see the fresh values.
+function UploadKitFormRemountOnPrefillChange() {
+  const searchParams = useSearchParams();
+  const formKey = `${searchParams.get("artist") ?? ""}|${searchParams.get("genre") ?? ""}`;
+  return <UploadKitForm key={formKey} />;
+}
+
+export default function UploadKitPage() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
       <nav className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#1a1a1a] px-6 py-4">
@@ -436,7 +406,7 @@ export default function LaneCheckPage() {
       </nav>
 
       <Suspense fallback={null}>
-        <LaneCheckForm />
+        <UploadKitFormRemountOnPrefillChange />
       </Suspense>
 
       <footer className="border-t border-[#1a1a1a] py-8">

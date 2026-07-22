@@ -228,7 +228,7 @@ function ReportContent() {
           based on your genre and real YouTube data.
         </p>
         <a
-          href={`/lane-check?channel=${encodeURIComponent(data.channelId)}`}
+          href={`/upload-kit?channel=${encodeURIComponent(data.channelId)}`}
           className="block text-center text-[#0a0a0a] text-sm font-bold py-4 hover:brightness-110 transition-all"
           style={{ backgroundColor: "#e8833a" }}
         >

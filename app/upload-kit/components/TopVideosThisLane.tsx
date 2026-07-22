@@ -10,6 +10,7 @@ export interface GalleryVideo {
   channelTitle: string;
   subscriberCount: number;
   viewCount: number;
+  publishedAt: string;
 }
 
 interface Bracket {
@@ -20,8 +21,8 @@ interface Bracket {
 }
 
 const BRACKETS: Bracket[] = [
-  { key: "small", label: "Smallest channel winning this lane", emptyLabel: "smallest-channel", test: (s) => s < 1000 },
-  { key: "mid", label: "Mid-size channel winning this lane", emptyLabel: "mid-size-channel", test: (s) => s >= 1000 && s < 10000 },
+  { key: "small", label: "Smallest channel winning in this lane", emptyLabel: "smallest-channel", test: (s) => s < 1000 },
+  { key: "mid", label: "Mid-sized channel winning in this lane", emptyLabel: "mid-sized-channel", test: (s) => s >= 1000 && s < 10000 },
   { key: "established", label: "Established channel in this lane", emptyLabel: "established-channel", test: (s) => s >= 10000 },
 ];
 
@@ -31,10 +32,17 @@ function formatCount(n: number): string {
   return String(n);
 }
 
+// Views-per-day, not lifetime viewCount — so "winning" means winning right
+// now, not just having had more time to accumulate views.
+function viewsPerDay(v: GalleryVideo): number {
+  const days = Math.max((Date.now() - new Date(v.publishedAt).getTime()) / 86_400_000, 1);
+  return v.viewCount / days;
+}
+
 function topInBracket(videos: GalleryVideo[], test: (subs: number) => boolean): GalleryVideo | null {
   const matches = videos.filter((v) => test(v.subscriberCount));
   if (!matches.length) return null;
-  return [...matches].sort((a, b) => b.viewCount - a.viewCount)[0];
+  return [...matches].sort((a, b) => viewsPerDay(b) - viewsPerDay(a))[0];
 }
 
 export default function TopVideosThisLane({ videos }: { videos: GalleryVideo[] }) {
@@ -45,7 +53,7 @@ export default function TopVideosThisLane({ videos }: { videos: GalleryVideo[] }
   return (
     <div className="mb-8">
       <p className="text-xs text-[#94a3b8] font-medium tracking-widest uppercase mb-3">
-        Top Videos This Lane
+        What winning uploads look like at every size
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {BRACKETS.map((bracket) => {
