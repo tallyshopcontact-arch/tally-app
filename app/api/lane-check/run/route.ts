@@ -217,6 +217,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     laneCheckId: laneCheck.id,
     beatName,
+    genre,
     isPaid,
     results,
     requiresEmail: !userId,

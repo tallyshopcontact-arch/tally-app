@@ -334,18 +334,23 @@ export function AlsoConsider({
   trendingArtists,
   bestOpenLane,
   isPaid,
+  genre,
 }: {
   trendingArtists: TrendingArtist[];
   bestOpenLane: BestOpenLane | null;
   isPaid: boolean;
+  /** Carried into each "Check this lane" link so re-running lands the
+   * producer back on the same genre instead of an empty dropdown. */
+  genre?: string;
 }) {
+  const genreQuery = genre ? `&genre=${encodeURIComponent(genre)}` : "";
   const suggestions: { key: string; label: string; sub: string; href: string }[] = [];
   if (bestOpenLane) {
     suggestions.push({
       key: `open:${bestOpenLane.laneId}`,
       label: bestOpenLane.displayName,
       sub: `Scored ${bestOpenLane.opportunity}/100 when we analyzed it ${formatDaysAgo(bestOpenLane.daysAgo)}.`,
-      href: `/upload-kit?artist=${encodeURIComponent(bestOpenLane.displayName)}`,
+      href: `/upload-kit?artist=${encodeURIComponent(bestOpenLane.displayName)}${genreQuery}`,
     });
   }
   for (const t of trendingArtists) {
@@ -353,7 +358,7 @@ export function AlsoConsider({
       key: `trend:${t.artist}`,
       label: t.artist,
       sub: "Co-mentioned by winners across other producers' checks in this genre.",
-      href: `/upload-kit?artist=${encodeURIComponent(t.artist)}`,
+      href: `/upload-kit?artist=${encodeURIComponent(t.artist)}${genreQuery}`,
     });
   }
   if (!suggestions.length) return null;

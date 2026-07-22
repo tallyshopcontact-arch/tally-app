@@ -108,7 +108,7 @@ function ReportContent() {
       )}
 
       {isFull(topResult) && (
-        <AlsoConsider trendingArtists={data.trendingArtists} bestOpenLane={data.bestOpenLane} isPaid={data.isPaid} />
+        <AlsoConsider trendingArtists={data.trendingArtists} bestOpenLane={data.bestOpenLane} isPaid={data.isPaid} genre={data.genre} />
       )}
 
       {!data.isPaid && (

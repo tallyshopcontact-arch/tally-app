@@ -15,6 +15,7 @@ import UploadKitCard, {
 interface RunResponse {
   laneCheckId: string;
   beatName: string | null;
+  genre: string;
   isPaid: boolean;
   results: LaneResult[];
   requiresEmail: boolean;
@@ -71,11 +72,13 @@ function UploadKitForm() {
   const searchParams = useSearchParams();
   const prefilledChannel = searchParams.get("channel") ?? "";
   const prefilledArtist = searchParams.get("artist") ?? "";
+  const prefilledGenre = searchParams.get("genre") ?? "";
+  const prefilledGenreIsCustom = !!prefilledGenre && !GENRES.includes(prefilledGenre);
 
   const [beatName, setBeatName] = useState("");
   const [artists, setArtists] = useState([prefilledArtist, ""]);
-  const [genre, setGenre] = useState("");
-  const [customGenre, setCustomGenre] = useState("");
+  const [genre, setGenre] = useState(prefilledGenreIsCustom ? "Other" : prefilledGenre);
+  const [customGenre, setCustomGenre] = useState(prefilledGenreIsCustom ? prefilledGenre : "");
   const [channelId, setChannelId] = useState(prefilledChannel);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [pageStatus, setPageStatus] = useState<PageStatus>("idle");
@@ -88,20 +91,6 @@ function UploadKitForm() {
   const [email, setEmail] = useState("");
   const [emailStatus, setEmailStatus] = useState<EmailStatus>("idle");
   const [emailError, setEmailError] = useState("");
-
-  // "Check this lane →" links (Also Consider, trending, etc.) navigate to
-  // /upload-kit?artist=... while already on this route — a same-route Link
-  // transition doesn't remount the component, so the useState initializers
-  // above never see the new query param. Sync it explicitly and drop back to
-  // the form, prefilled and ready to submit, instead of leaving the previous
-  // run's results on screen.
-  useEffect(() => {
-    if (!prefilledArtist) return;
-    setArtists((prev) => (prev[0] === prefilledArtist ? prev : [prefilledArtist, ""]));
-    setResult(null);
-    setPageStatus("idle");
-    setErrorMessage("");
-  }, [prefilledArtist]);
 
   const handleRun = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -332,7 +321,7 @@ function UploadKitForm() {
               )}
 
               {isFull(topResult) && (
-                <AlsoConsider trendingArtists={result.trendingArtists} bestOpenLane={result.bestOpenLane} isPaid={result.isPaid} />
+                <AlsoConsider trendingArtists={result.trendingArtists} bestOpenLane={result.bestOpenLane} isPaid={result.isPaid} genre={result.genre} />
               )}
             </div>
 
@@ -390,6 +379,18 @@ function UploadKitForm() {
   );
 }
 
+// "Check this lane →" links (Also Consider, trending, etc.) navigate to
+// /upload-kit?artist=...&genre=... while already on this route. A same-route
+// Link transition re-renders in place rather than remounting, which is too
+// fragile to rely on for resetting form state — so this wrapper forces a
+// real remount via `key` whenever the target artist/genre changes, which
+// guarantees UploadKitForm's useState initializers see the fresh values.
+function UploadKitFormRemountOnPrefillChange() {
+  const searchParams = useSearchParams();
+  const formKey = `${searchParams.get("artist") ?? ""}|${searchParams.get("genre") ?? ""}`;
+  return <UploadKitForm key={formKey} />;
+}
+
 export default function UploadKitPage() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">
@@ -405,7 +406,7 @@ export default function UploadKitPage() {
       </nav>
 
       <Suspense fallback={null}>
-        <UploadKitForm />
+        <UploadKitFormRemountOnPrefillChange />
       </Suspense>
 
       <footer className="border-t border-[#1a1a1a] py-8">
