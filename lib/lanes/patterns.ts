@@ -110,6 +110,20 @@ export function analyzePatterns(winnerVideos: VideoDetails[], laneArtistName: st
     .slice(0, 25)
     .map(([tag, count]) => ({ tag, count }));
 
+  // Diagnostic only — the median calculation itself is unchanged. Logs every
+  // winner video's real duration (longest first) so a skewed
+  // medianDurationSeconds (e.g. from an extended version or a full mixtape
+  // slipping into the small-channel winner pool) is visible in server logs
+  // without having to re-derive it after the fact — durationSeconds isn't
+  // persisted anywhere past this point (GalleryVideo has no duration field).
+  const sortedByDuration = [...winnerVideos].sort((a, b) => b.durationSeconds - a.durationSeconds);
+  console.log(
+    `[patterns] ${laneArtistName} duration inputs (n=${n}, median will be ${Math.round(median(winnerVideos.map((v) => v.durationSeconds)))}s):`
+  );
+  for (const v of sortedByDuration) {
+    console.log(`  ${v.durationSeconds}s (${Math.floor(v.durationSeconds / 60)}:${String(v.durationSeconds % 60).padStart(2, "0")}) — "${v.title}"`);
+  }
+
   return {
     winnerCount: n,
     freePrefixPct: Math.round((freeCount / n) * 100),

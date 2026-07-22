@@ -225,14 +225,21 @@ function TagsSection({ patterns, isPaid }: { patterns: PatternStats; isPaid: boo
 function FormatGuidance({ patterns }: { patterns: PatternStats }) {
   if (patterns.empty) return null;
   const stats = [
-    `${patterns.freePrefixPct}% of winners use a [FREE] prefix`,
-    `Median length ${formatDuration(patterns.medianDurationSeconds)}`,
-    `${patterns.quotedNamePct}% include a quoted beat name`,
+    { label: "[FREE] prefix", value: `${patterns.freePrefixPct}%` },
+    { label: "Median length", value: formatDuration(patterns.medianDurationSeconds) },
+    { label: "Quoted beat name", value: `${patterns.quotedNamePct}%` },
   ];
   return (
     <div className="mb-6">
-      <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-2">Winners in this lane</p>
-      <p className="text-[#cbd5e1] text-sm leading-relaxed">{stats.join("  ·  ")}</p>
+      <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-3">Winners in this lane</p>
+      <div className="grid grid-cols-3 gap-4">
+        {stats.map((s) => (
+          <div key={s.label}>
+            <p className="text-[#64748b] text-[10px] uppercase tracking-widest mb-1">{s.label}</p>
+            <p className="text-white text-sm font-semibold">{s.value}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
