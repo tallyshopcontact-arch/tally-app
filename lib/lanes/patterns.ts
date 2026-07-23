@@ -20,7 +20,10 @@ const median = (xs: number[]): number => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
-function normalizeArtistName(raw: string): string {
+// Exported for lib/lanes/insights.ts, which reuses this exact extraction/
+// normalization so its co-mention-derived candidates never disagree with the
+// coMentionPct/topCoMentions computed below.
+export function normalizeArtistName(raw: string): string {
   let s = raw.trim().toLowerCase().replace(/\s+/g, " ");
   for (const prefix of COMMON_PREFIXES) {
     if (s.startsWith(prefix)) {
@@ -31,7 +34,7 @@ function normalizeArtistName(raw: string): string {
   return s;
 }
 
-function extractCoMention(title: string): string | null {
+export function extractCoMention(title: string): string | null {
   const m = title.match(CO_MENTION_RE);
   if (!m) return null;
   return m[1].trim().toLowerCase() || null;
