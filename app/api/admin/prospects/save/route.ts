@@ -41,21 +41,27 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = createServerClient();
-  const { error } = await supabase.from("outreach_prospects").upsert(
-    {
-      channel_id: channelId,
-      channel_name: channelName,
-      subscriber_count: body.subscriberCount ?? 0,
-      recent_video_title: body.recentVideoTitle ?? null,
-      lane_id: laneId,
-      artist_name: artistName,
-      status: "pending",
-    },
-    { onConflict: "channel_id" }
-  );
+  const { data, error } = await supabase
+    .from("outreach_prospects")
+    .upsert(
+      {
+        channel_id: channelId,
+        channel_name: channelName,
+        subscriber_count: body.subscriberCount ?? 0,
+        recent_video_title: body.recentVideoTitle ?? null,
+        lane_id: laneId,
+        artist_name: artistName,
+        status: "pending",
+      },
+      { onConflict: "channel_id" }
+    )
+    .select("*")
+    .single();
   if (error) {
     return NextResponse.json({ error: `Failed to save prospect: ${error.message}` }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  // Returns the saved row (including its id) so the UI can link straight to
+  // /admin/prospects/[id] (the DM composer) without a second round trip.
+  return NextResponse.json({ ok: true, prospect: data });
 }

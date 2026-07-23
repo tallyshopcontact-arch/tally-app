@@ -3,9 +3,9 @@
 // Lane-based Producer Finder. Deliberately separate from the older, genre/
 // artist-based Producer Finder tab in /admin (ProspectFinderSection) — that
 // one is a candidate for retirement once this simpler, lane-driven pipeline
-// is validated in real use, but isn't removed yet. No snapshot/AI generation
-// or DM composer here — just find candidates and save them to
-// outreach_prospects; that's a separate, later build.
+// is validated in real use, but isn't removed yet. Search + save happens
+// here; the "Saved Prospects" list below links each one to the DM composer
+// at /admin/prospects/[id] (Brief 3).
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
@@ -22,6 +22,16 @@ interface Prospect {
   subscriberCount: number;
   recentVideoTitle: string | null;
   channelUrl: string;
+}
+
+interface SavedProspect {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  subscriber_count: number;
+  recent_video_title: string | null;
+  artist_name: string;
+  status: string;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -213,6 +223,42 @@ function ProspectCard({
   );
 }
 
+// ── Saved prospect row — links to the DM composer (Brief 3) ─────────────
+
+function SavedProspectRow({ prospect }: { prospect: SavedProspect }) {
+  return (
+    <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-5 flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <a
+            href={`https://youtube.com/channel/${prospect.channel_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-white font-semibold text-sm hover:text-[#94a3b8] transition-colors truncate"
+          >
+            {prospect.channel_name || "(untitled channel)"}
+          </a>
+          <span className="text-xs text-[#94a3b8] shrink-0">{formatCount(prospect.subscriber_count)} subs</span>
+          <span className={`text-[10px] px-2 py-0.5 shrink-0 ${prospect.status === "responded" ? "text-[#a78bfa] bg-[#a78bfa]/10" : "text-[#94a3b8] bg-[#111]"}`}>
+            {prospect.status}
+          </span>
+        </div>
+        <p className="text-[#64748b] text-xs">{prospect.artist_name}</p>
+        {prospect.recent_video_title && (
+          <p className="text-[#cbd5e1] text-xs leading-relaxed mt-1 truncate">{prospect.recent_video_title}</p>
+        )}
+      </div>
+      <Link
+        href={`/admin/prospects/${prospect.id}`}
+        className="text-xs font-semibold px-3 py-2 hover:brightness-110 transition-all shrink-0"
+        style={{ backgroundColor: "#e8833a", color: "#0a0a0a" }}
+      >
+        Compose DM →
+      </Link>
+    </div>
+  );
+}
+
 // ── Builder ──────────────────────────────────────────────────────────────
 
 function ProspectsBuilder({ lanes, password }: { lanes: LaneOption[]; password: string }) {
@@ -224,9 +270,33 @@ function ProspectsBuilder({ lanes, password }: { lanes: LaneOption[]; password: 
   const [searchError, setSearchError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
 
+  const [savedProspects, setSavedProspects] = useState<SavedProspect[]>([]);
+  const [savedLoading, setSavedLoading] = useState(true);
+  const [savedError, setSavedError] = useState("");
+
   // Session-only — a skipped channel shouldn't reappear even after a fresh
   // "Find Producers" click on the same (or a different) lane this session.
   const skippedRef = useRef<Set<string>>(new Set());
+
+  const loadSaved = useCallback(async () => {
+    setSavedLoading(true);
+    setSavedError("");
+    try {
+      const res = await fetch("/api/admin/prospects/list", { headers: { "x-admin-password": password } });
+      const data = await res.json();
+      if (!res.ok) {
+        setSavedError(data.error ?? "Failed to load saved prospects");
+        return;
+      }
+      setSavedProspects(data.prospects ?? []);
+    } catch {
+      setSavedError("Network error.");
+    } finally {
+      setSavedLoading(false);
+    }
+  }, [password]);
+
+  useEffect(() => { loadSaved(); }, [loadSaved]);
 
   const handleFind = useCallback(async () => {
     if (!laneId) return;
@@ -271,11 +341,17 @@ function ProspectsBuilder({ lanes, password }: { lanes: LaneOption[]; password: 
           artistName,
         }),
       });
+      const data = await res.json();
       if (!res.ok) {
         setSaveStatuses((s) => ({ ...s, [prospect.channelId]: "error" }));
         return;
       }
       setSaveStatuses((s) => ({ ...s, [prospect.channelId]: "saved" }));
+      // Prepend rather than refetch — the save route already returns the
+      // full upserted row (including its id), so the new "Compose DM" link
+      // is available immediately without a second round trip.
+      const saved: SavedProspect = data.prospect;
+      setSavedProspects((prev) => [saved, ...prev.filter((p) => p.id !== saved.id)]);
     } catch {
       setSaveStatuses((s) => ({ ...s, [prospect.channelId]: "error" }));
     }
@@ -342,6 +418,27 @@ function ProspectsBuilder({ lanes, password }: { lanes: LaneOption[]; password: 
             ))}
           </div>
         )}
+
+        {/* Saved prospects — status pending/responded, each links to the DM composer */}
+        <div className="mt-12">
+          <h2 className="text-sm font-semibold mb-4">Saved Prospects</h2>
+          {savedError && <p className="text-[#f87171] text-sm mb-4">{savedError}</p>}
+          {savedLoading ? (
+            <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-8 text-center">
+              <div className="w-4 h-4 border border-[#475569] border-t-white rounded-full animate-spin mx-auto" />
+            </div>
+          ) : savedProspects.length === 0 ? (
+            <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-8 text-center">
+              <p className="text-[#475569] text-sm">No saved prospects yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {savedProspects.map((p) => (
+                <SavedProspectRow key={p.id} prospect={p} />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
