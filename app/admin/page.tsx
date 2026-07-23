@@ -49,7 +49,7 @@ interface Prospect {
   notes: string | null;
 }
 
-type Tab = "waitlist" | "beta" | "prospects" | "financials";
+type Tab = "waitlist" | "beta" | "prospects" | "financials" | "tools";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1423,6 +1423,59 @@ function FinancialsSection({ password }: { password: string }) {
   );
 }
 
+// ── Tools ─────────────────────────────────────────────────────────────────────
+// Standalone admin tools — each is its own route with its own password gate
+// (same shared-secret pattern as this page, just a separate session). Append
+// new tools here as they're built; nothing else on this page needs to change.
+
+interface AdminTool {
+  key: string;
+  name: string;
+  description: string;
+  href: string;
+}
+
+const ADMIN_TOOLS: AdminTool[] = [
+  {
+    key: "insights",
+    name: "Insights",
+    description: "Lane insight extractor — copy-friendly market intel per lane.",
+    href: "/admin/insights",
+  },
+  {
+    key: "cards",
+    name: "Cards",
+    description: "Social card generator — branded lane PNGs for X/Instagram.",
+    href: "/admin/cards",
+  },
+];
+
+function ToolsSection() {
+  return (
+    <div>
+      <div className="mb-8">
+        <h2 className="text-xl font-bold mb-1">Tools</h2>
+        <p className="text-[#94a3b8] text-sm">Standalone admin tools — each opens in its own page.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {ADMIN_TOOLS.map((tool) => (
+          <Link
+            key={tool.key}
+            href={tool.href}
+            className="block border border-[#1a1a1a] bg-[#0d0d0d] p-6 hover:border-[#333] transition-colors group"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-semibold text-white">{tool.name}</h3>
+              <span className="text-[#94a3b8] text-sm group-hover:text-white transition-colors">→</span>
+            </div>
+            <p className="text-[#94a3b8] text-sm leading-relaxed">{tool.description}</p>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Admin dashboard ───────────────────────────────────────────────────────────
 
 function AdminDashboard({ initialEntries, password, onSignOut }: {
@@ -1477,6 +1530,7 @@ function AdminDashboard({ initialEntries, password, onSignOut }: {
     { key: "beta", label: "Beta Access" },
     { key: "prospects", label: "Producer Finder" },
     { key: "financials", label: "Financials" },
+    { key: "tools", label: "Tools" },
   ];
 
   return (
@@ -1511,6 +1565,7 @@ function AdminDashboard({ initialEntries, password, onSignOut }: {
         )}
         {tab === "prospects" && <ProspectFinderSection password={password} />}
         {tab === "financials" && <FinancialsSection password={password} />}
+        {tab === "tools" && <ToolsSection />}
       </div>
     </div>
   );
