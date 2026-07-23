@@ -1448,6 +1448,12 @@ const ADMIN_TOOLS: AdminTool[] = [
     description: "Social card generator — branded lane PNGs for X/Instagram.",
     href: "/admin/cards",
   },
+  {
+    key: "prospects",
+    name: "Prospects",
+    description: "Lane-based Producer Finder — find and save candidate producers by lane.",
+    href: "/admin/prospects",
+  },
 ];
 
 function ToolsSection() {
