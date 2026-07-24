@@ -81,6 +81,24 @@ export async function getLatestAnalysis(
   return (data as LaneAnalysis) ?? null;
 }
 
+/** Second-most-recent lane_analyses row for a lane (the "prior period" the
+ * latest one should be compared against), or null if there isn't one yet.
+ * Used by insights.ts's lane_trend_direction — same table getLatestAnalysis
+ * reads, just offset by one row instead of always taking the newest. */
+export async function getPriorAnalysis(
+  supabase: SupabaseClient,
+  laneId: string
+): Promise<LaneAnalysis | null> {
+  const { data, error } = await supabase
+    .from("lane_analyses")
+    .select("*")
+    .eq("lane_id", laneId)
+    .order("created_at", { ascending: false })
+    .range(1, 1);
+  if (error) throw new Error(`getPriorAnalysis query failed: ${error.message}`);
+  return ((data as LaneAnalysis[] | null) ?? [])[0] ?? null;
+}
+
 export async function hasPendingJob(supabase: SupabaseClient, laneId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from("lane_jobs")

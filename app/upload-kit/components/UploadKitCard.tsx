@@ -42,10 +42,17 @@ export interface LaneSummary {
   note?: string;
 }
 
+export interface LaneInsight {
+  type: string;
+  sentence: string;
+  rawValue: number;
+}
+
 export interface FullLaneDetail extends LaneSummary {
   patterns: PatternStats;
   winnerVideos: GalleryVideo[];
   topVideos: GalleryVideo[];
+  insights: LaneInsight[];
 }
 
 export type LaneResult = LaneSummary | FullLaneDetail;
@@ -164,6 +171,31 @@ function TagsSection({ patterns, isPaid }: { patterns: PatternStats; isPaid: boo
   );
 }
 
+// ── Insights — server already picked the right set for the tier (see
+// lib/lanes/present.ts selectInsightsForTier); this just renders what it was
+// given and, for free, shows the same generic "upgrade for more" caption
+// used by TagsSection above rather than a new upsell pattern. ─────────────
+
+function InsightsSection({ insights, isPaid }: { insights: LaneInsight[]; isPaid: boolean }) {
+  if (!insights.length) return null;
+
+  return (
+    <div className="mb-6">
+      <p className="text-xs text-[#94a3b8] font-medium tracking-widest uppercase mb-3">Insights</p>
+      <div className="space-y-2">
+        {insights.map((insight, i) => (
+          <div key={i} className="bg-[#0a0a0a] border border-[#1a1a1a] px-4 py-3">
+            <p className="text-[#cbd5e1] text-sm leading-relaxed">{insight.sentence}</p>
+          </div>
+        ))}
+      </div>
+      {!isPaid && (
+        <p className="text-[#475569] text-xs mt-3">Upgrade to see every insight for this lane.</p>
+      )}
+    </div>
+  );
+}
+
 // ── Format guidance ──────────────────────────────────────────────────────
 
 function FormatGuidance({ patterns }: { patterns: PatternStats }) {
@@ -229,6 +261,7 @@ export default function UploadKitCard({
         </div>
       )}
 
+      <InsightsSection insights={result.insights} isPaid={isPaid} />
       <TitlesSection topVideos={result.topVideos} beatName={beatName} isPaid={isPaid} />
       <TagsSection patterns={result.patterns} isPaid={isPaid} />
       <FormatGuidance patterns={result.patterns} />
@@ -253,7 +286,7 @@ export function LockedLaneCard({ result, onUpgrade }: { result: LaneSummary; onU
             {result.statusColor && <StatusBadge status={result.statusColor} />}
             <span className="text-[#94a3b8] text-xs">{result.verdict}</span>
           </div>
-          <p className="text-[#64748b] text-xs mb-3">Kit locked — titles, tags, and packaging for this lane.</p>
+          <p className="text-[#64748b] text-xs mb-3">Kit locked — titles, tags, insights, and packaging for this lane.</p>
           {onUpgrade ? (
             <button
               onClick={onUpgrade}

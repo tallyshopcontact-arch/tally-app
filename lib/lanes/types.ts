@@ -65,5 +65,9 @@ export interface ChannelCacheEntry {
   channel_id: string;
   title: string | null;
   subscriber_count: number | null;
+  /** Channel creation date (YouTube's snippet.publishedAt). Nullable because
+   * rows cached before this field was added won't have it until the channel
+   * is looked up again — see supabase/insights-migration.sql. */
+  channel_published_at: string | null;
   updated_at: string;
 }

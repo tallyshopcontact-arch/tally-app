@@ -19,10 +19,21 @@
 // reuses a couple of them (small_channel_rate as the 10K fallback,
 // underused_pairing and demand_percentile as-is) rather than recomputing the
 // same data twice.
+//
+// Additive expansion (mood_split, differential_tags, winner_channel_age,
+// time_to_traction, winner_concentration_over_time, lane_trend_direction):
+// still no new YouTube calls. winner_channel_age reads channels_cache.
+// channel_published_at, a field channels.list already returned for free
+// (part=snippet,statistics) but wasn't captured until now — see
+// supabase/insights-migration.sql and getChannelSubCounts in youtube.ts; it
+// omits itself on analyses stored before that shipped. lane_trend_direction
+// is the only one that costs anything extra, and it's a Postgres read (the
+// prior lane_analyses row via getPriorAnalysis in db.ts), not a YouTube call.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getLatestAnalysis } from "./db";
-import { computeStatus, viewsPerDay } from "./scoring";
+import type { LaneAnalysis } from "./types";
+import { getLatestAnalysis, getPriorAnalysis } from "./db";
+import { computeStatus, daysSincePublish, viewsPerDay } from "./scoring";
 import { extractCoMention, normalizeArtistName, type PatternStats } from "./patterns";
 import { getTrendingCoMentionedArtists, type TrendingArtist } from "./trending";
 
@@ -30,11 +41,17 @@ export type InsightType =
   // Displayed, in this fixed order:
   | "demand_percentile"
   | "small_channel_winnability"
+  | "winner_channel_age"
   | "winning_co_mention"
+  | "differential_tags"
   | "underused_pairing"
+  | "mood_split"
   | "cumulative_views"
+  | "time_to_traction"
   | "breakout_video"
   | "view_concentration"
+  | "winner_concentration_over_time"
+  | "lane_trend_direction"
   // Computed but not displayed (demoted / kept for later use — see file header):
   | "small_channel_rate"
   | "momentum"
@@ -145,7 +162,15 @@ interface TitledVideo {
   publishedAt: string;
 }
 
-type PoolVideo = TitledVideo & { subscriberCount: number };
+type PoolVideo = TitledVideo & {
+  subscriberCount: number;
+  videoId: string;
+  channelId: string;
+  tags: string[];
+  /** Channel creation date — undefined/null on analyses stored before
+   * winner_channel_age shipped (see getChannelSubCounts in youtube.ts). */
+  channelPublishedAt: string | null;
+};
 
 function avgVelocity(videos: TitledVideo[]): number {
   return videos.reduce((sum, v) => sum + viewsPerDay(v), 0) / videos.length;
@@ -507,10 +532,242 @@ function buildViewConcentration(laneDisplayName: string, sortedByVelocity: PoolV
   };
 }
 
+// ── New insight types (additive) ────────────────────────────────────────────
+
+// -- mood_split --
+// Coarse keyword scan over winner titles, ranked by velocity (not raw count)
+// so the result reflects which mood is actually performing, not just which
+// one shows up in more titles.
+const MOOD_KEYWORDS = [
+  "sad", "dark", "chill", "hard", "emotional", "smooth", "aggressive",
+  "sinister", "uplifting", "angry", "moody", "gritty", "soulful", "dreamy",
+  "energetic", "calm",
+];
+const MOOD_MIN_SAMPLE = 2; // min videos matching a keyword to trust its avg velocity
+const MOOD_MIN_RATIO = 2; // dominant mood must out-velocity the runner-up by at least 2x to be worth reporting
+
+function buildMoodSplit(laneDisplayName: string, winnerVideos: TitledVideo[]): LaneInsight | null {
+  const groups = new Map<string, TitledVideo[]>();
+  for (const v of winnerVideos) {
+    // First matching keyword only, so one title never counts toward two mood
+    // buckets at once and inflates both.
+    const match = MOOD_KEYWORDS.find((kw) => new RegExp(`\\b${kw}\\b`, "i").test(v.title));
+    if (!match) continue;
+    const list = groups.get(match) ?? [];
+    list.push(v);
+    groups.set(match, list);
+  }
+
+  const ranked = [...groups.entries()]
+    .filter(([, vids]) => vids.length >= MOOD_MIN_SAMPLE)
+    .map(([mood, vids]) => ({ mood, avgVelocity: avgVelocity(vids) }))
+    .sort((a, b) => b.avgVelocity - a.avgVelocity);
+
+  if (ranked.length < 2) return null;
+  const [top, second] = ranked;
+  if (second.avgVelocity <= 0) return null;
+  const ratio = top.avgVelocity / second.avgVelocity;
+  if (ratio < MOOD_MIN_RATIO) return null;
+
+  const ratioRounded = Math.round(ratio);
+  return {
+    type: "mood_split",
+    sentence: `${titleCase(top.mood)} ${laneDisplayName} type beats are outperforming ${second.mood} ones roughly ${ratioRounded}:1 right now.`,
+    rawValue: ratioRounded,
+  };
+}
+
+// -- differential_tags --
+// Winner tags (from patterns.topTags) vs. tags on the rest of the stored
+// top-performer pool. NOTE: "non-winner" here means "top-25 performers that
+// aren't small-channel winners" — the broader universe of every video ever
+// uploaded in this lane isn't persisted anywhere, so this is a proxy, not a
+// literal winners-vs-everyone comparison.
+const DIFFERENTIAL_TAG_MIN_WINNER_PCT = 30;
+const DIFFERENTIAL_TAG_MAX_NONWINNER_PCT = 10;
+const DIFFERENTIAL_TAG_MIN_NONWINNER_POOL = 5;
+
+function buildDifferentialTags(
+  laneDisplayName: string,
+  patterns: PatternStats,
+  winnerVideos: PoolVideo[],
+  topVideos: PoolVideo[]
+): LaneInsight | null {
+  if (patterns.empty || !patterns.topTags.length) return null;
+
+  const winnerIds = new Set(winnerVideos.map((v) => v.videoId));
+  const nonWinnerPool = topVideos.filter((v) => !winnerIds.has(v.videoId));
+  if (nonWinnerPool.length < DIFFERENTIAL_TAG_MIN_NONWINNER_POOL) return null;
+
+  let best: { tag: string; gap: number } | null = null;
+  for (const { tag, count } of patterns.topTags) {
+    const winnerPct = Math.round((count / patterns.winnerCount) * 100);
+    if (winnerPct < DIFFERENTIAL_TAG_MIN_WINNER_PCT) continue;
+
+    const nonWinnerCount = nonWinnerPool.filter((v) => v.tags.some((t) => t.toLowerCase() === tag)).length;
+    const nonWinnerPct = Math.round((nonWinnerCount / nonWinnerPool.length) * 100);
+    if (nonWinnerPct > DIFFERENTIAL_TAG_MAX_NONWINNER_PCT) continue;
+
+    const gap = winnerPct - nonWinnerPct;
+    if (!best || gap > best.gap) best = { tag, gap };
+  }
+  if (!best) return null;
+
+  return {
+    type: "differential_tags",
+    sentence: `Winners in this lane use "${best.tag}" far more than everyone else.`,
+    rawValue: best.gap,
+  };
+}
+
+// -- winner_concentration_over_time --
+// Channel-repeat distribution within the current top-performer window
+// (top_videos, a single ~60-day snapshot) — a proxy for "is this lane locked
+// up by a few channels or wide open," not a literal week-by-week history
+// (lanes aren't guaranteed to have weekly analysis rows to compare across).
+const CONCENTRATION_MIN_POOL = 8;
+const CONCENTRATION_LOCKED_MAX_CHANNELS = 3;
+const CONCENTRATION_OPEN_MIN_UNIQUE_PCT = 90;
+
+function buildWinnerConcentration(laneDisplayName: string, topSlice: PoolVideo[]): LaneInsight | null {
+  if (topSlice.length < CONCENTRATION_MIN_POOL) return null;
+  const distinctChannels = new Set(topSlice.map((v) => v.channelId)).size;
+  const uniquePct = Math.round((distinctChannels / topSlice.length) * 100);
+
+  if (distinctChannels <= CONCENTRATION_LOCKED_MAX_CHANNELS) {
+    return {
+      type: "winner_concentration_over_time",
+      sentence: `The same ${distinctChannels} channels have taken nearly every top spot in ${laneDisplayName} recently — this lane is locked up.`,
+      rawValue: distinctChannels,
+    };
+  }
+  if (uniquePct >= CONCENTRATION_OPEN_MIN_UNIQUE_PCT) {
+    return {
+      type: "winner_concentration_over_time",
+      sentence: `A different channel wins in ${laneDisplayName} almost every time — genuinely open.`,
+      rawValue: uniquePct,
+    };
+  }
+  return null;
+}
+
+// -- winner_channel_age --
+// Requires channels_cache.channel_published_at (see supabase/insights-migration.sql
+// and getChannelSubCounts in youtube.ts) — analyses stored before that shipped
+// simply won't have enough coverage and this omits itself below.
+const CHANNEL_AGE_MS = 12 * 30 * 24 * 60 * 60 * 1000; // ~12 months
+const CHANNEL_AGE_MIN_KNOWN = 5; // need at least this many videos with known channel age
+const CHANNEL_AGE_MIN_COVERAGE = 0.7; // and it must cover at least this share of topSlice
+
+function buildWinnerChannelAge(laneDisplayName: string, topSlice: PoolVideo[]): LaneInsight | null {
+  if (!topSlice.length) return null;
+  const known = topSlice.filter((v) => v.channelPublishedAt);
+  if (known.length < CHANNEL_AGE_MIN_KNOWN) return null;
+  if (known.length / topSlice.length < CHANNEL_AGE_MIN_COVERAGE) return null;
+
+  const now = Date.now();
+  const newCount = known.filter((v) => now - new Date(v.channelPublishedAt!).getTime() <= CHANNEL_AGE_MS).length;
+  const pct = Math.round((newCount / known.length) * 100);
+
+  return {
+    type: "winner_channel_age",
+    sentence: `${pct}% of last month's top performing ${laneDisplayName} type beat channels were created in the past year.`,
+    rawValue: pct,
+  };
+}
+
+// -- time_to_traction --
+// Publish-age of the winner set at analysis time, as a proxy for how fast
+// winning videos accumulate views — no time-series view data is stored, so
+// this can't measure "views at 48h" directly.
+const TIME_TO_TRACTION_MIN_SAMPLE = 5;
+const POP_FAST_MAX_MEDIAN_DAYS = 3;
+const SLOW_BUILD_MIN_MEDIAN_DAYS = 14;
+
+function medianOf(xs: number[]): number {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function buildTimeToTraction(laneDisplayName: string, winnerVideos: PoolVideo[]): LaneInsight | null {
+  if (winnerVideos.length < TIME_TO_TRACTION_MIN_SAMPLE) return null;
+  const medianDays = medianOf(winnerVideos.map((v) => daysSincePublish(v.publishedAt)));
+
+  if (medianDays <= POP_FAST_MAX_MEDIAN_DAYS) {
+    return {
+      type: "time_to_traction",
+      sentence: `Winning videos in ${laneDisplayName} tend to pop within 48 hours.`,
+      rawValue: Math.round(medianDays),
+    };
+  }
+  if (medianDays >= SLOW_BUILD_MIN_MEDIAN_DAYS) {
+    return {
+      type: "time_to_traction",
+      sentence: `Winners in ${laneDisplayName} build slowly — most took 2+ weeks to take off.`,
+      rawValue: Math.round(medianDays),
+    };
+  }
+  return null; // ambiguous middle — not confidently either story
+}
+
+// -- lane_trend_direction --
+// Only the two "mismatch" narratives are surfaced — upload volume and view
+// volume moving in the same direction is less distinct from momentum/
+// saturation already shown elsewhere; the mismatch is what's actually new.
+const TREND_UPLOAD_MIN_PCT = 15;
+const TREND_VIEWS_HELD_MAX_PCT = 15;
+
+interface TrendMetrics {
+  uploadsLast30d: number;
+  demandMedianViewsPerDay: number;
+}
+
+function extractTrendMetrics(rawMetrics: Record<string, unknown>): TrendMetrics | null {
+  const uploads = rawMetrics.uploadsLast30d;
+  const views = rawMetrics.demandMedianViewsPerDay;
+  if (typeof uploads !== "number" || typeof views !== "number") return null;
+  return { uploadsLast30d: uploads, demandMedianViewsPerDay: views };
+}
+
+function buildLaneTrendDirection(
+  laneDisplayName: string,
+  current: TrendMetrics,
+  prior: TrendMetrics
+): LaneInsight | null {
+  if (prior.uploadsLast30d <= 0 || prior.demandMedianViewsPerDay <= 0) return null;
+
+  const uploadPctChange = Math.round(
+    ((current.uploadsLast30d - prior.uploadsLast30d) / prior.uploadsLast30d) * 100
+  );
+  const viewsPctChange = Math.round(
+    ((current.demandMedianViewsPerDay - prior.demandMedianViewsPerDay) / prior.demandMedianViewsPerDay) * 100
+  );
+
+  if (uploadPctChange <= -TREND_UPLOAD_MIN_PCT && Math.abs(viewsPctChange) <= TREND_VIEWS_HELD_MAX_PCT) {
+    return {
+      type: "lane_trend_direction",
+      sentence: `Uploads in ${laneDisplayName} dropped ${Math.abs(uploadPctChange)}% but views held steady — this lane is opening up.`,
+      rawValue: uploadPctChange,
+    };
+  }
+  if (uploadPctChange >= TREND_UPLOAD_MIN_PCT && viewsPctChange <= -TREND_VIEWS_HELD_MAX_PCT) {
+    return {
+      type: "lane_trend_direction",
+      sentence: `Uploads in ${laneDisplayName} are up ${uploadPctChange}% but views per video are down ${Math.abs(viewsPctChange)}% — more crowded without more demand to match.`,
+      rawValue: uploadPctChange,
+    };
+  }
+  return null;
+}
+
 function buildDisplayInsights(
   laneDisplayName: string,
   patterns: PatternStats,
   topVideos: PoolVideo[],
+  winnerVideos: PoolVideo[],
+  trendMetrics: { current: TrendMetrics; prior: TrendMetrics } | null,
   allCandidates: Candidate[]
 ): LaneInsight[] {
   const insights: LaneInsight[] = [];
@@ -529,14 +786,26 @@ function buildDisplayInsights(
   const winnability = buildSmallChannelWinnability(laneDisplayName, topSlice, fallback10k);
   if (winnability) insights.push(winnability);
 
+  const winnerChannelAge = buildWinnerChannelAge(laneDisplayName, topSlice);
+  if (winnerChannelAge) insights.push(winnerChannelAge);
+
   const winningCoMention = buildWinningCoMention(laneDisplayName, patterns);
   if (winningCoMention) insights.push(winningCoMention);
+
+  const differentialTags = buildDifferentialTags(laneDisplayName, patterns, winnerVideos, topVideos);
+  if (differentialTags) insights.push(differentialTags);
 
   const gap = allCandidates.find((c) => c.type === "underused_pairing");
   if (gap) insights.push({ type: gap.type, sentence: gap.sentence, rawValue: gap.rawValue });
 
+  const moodSplit = buildMoodSplit(laneDisplayName, winnerVideos);
+  if (moodSplit) insights.push(moodSplit);
+
   const cumulativeViews = buildCumulativeViews(laneDisplayName, topSlice);
   if (cumulativeViews) insights.push(cumulativeViews);
+
+  const timeToTraction = buildTimeToTraction(laneDisplayName, winnerVideos);
+  if (timeToTraction) insights.push(timeToTraction);
 
   const breakout = buildBreakoutVideo(laneDisplayName, sortedByVelocity);
   if (breakout) insights.push(breakout);
@@ -544,7 +813,64 @@ function buildDisplayInsights(
   const concentration = buildViewConcentration(laneDisplayName, sortedByVelocity);
   if (concentration) insights.push(concentration);
 
+  const winnerConcentration = buildWinnerConcentration(laneDisplayName, topSlice);
+  if (winnerConcentration) insights.push(winnerConcentration);
+
+  if (trendMetrics) {
+    const trendDirection = buildLaneTrendDirection(laneDisplayName, trendMetrics.current, trendMetrics.prior);
+    if (trendDirection) insights.push(trendDirection);
+  }
+
   return insights;
+}
+
+interface LaneRef {
+  id: string;
+  display_name: string;
+  genre_hint: string | null;
+}
+
+/** Core insight computation, split out from getLaneInsights so callers that
+ * already have `lane` and `analysis` loaded (e.g. present.ts's Upload Kit
+ * gating, which is shaping the same rows for other purposes) can reuse this
+ * without a redundant lane + getLatestAnalysis round trip. getLaneInsights
+ * below is just this plus the initial fetch, for the admin insights page. */
+export async function buildLaneInsights(
+  supabase: SupabaseClient,
+  lane: LaneRef,
+  analysis: LaneAnalysis
+): Promise<LaneInsight[]> {
+  // Only worth the query when there's a genre to scope it to — getTrendingCoMentionedArtists
+  // returns [] for a null/empty genre anyway, so this just skips a pointless round trip.
+  const trendingArtists = lane.genre_hint
+    ? await getTrendingCoMentionedArtists(supabase, lane.genre_hint)
+    : [];
+  const demandRank = lane.genre_hint
+    ? await getGenreDemandRank(supabase, lane.genre_hint, lane.id, analysis.demand)
+    : null;
+
+  const patterns = analysis.patterns as unknown as PatternStats;
+  const topVideos = (analysis.top_videos as PoolVideo[] | null) ?? [];
+  const winnerVideos = (analysis.winner_videos as PoolVideo[] | null) ?? [];
+
+  const priorAnalysis = await getPriorAnalysis(supabase, lane.id);
+  const currentTrend = extractTrendMetrics(analysis.raw_metrics);
+  const priorTrend = priorAnalysis ? extractTrendMetrics(priorAnalysis.raw_metrics) : null;
+  const trendMetrics = currentTrend && priorTrend ? { current: currentTrend, prior: priorTrend } : null;
+
+  const candidates = buildCandidates(
+    lane.display_name,
+    {
+      opportunity: analysis.opportunity,
+      momentum: analysis.momentum,
+      patterns,
+      top_videos: topVideos,
+    },
+    trendingArtists,
+    demandRank
+  );
+
+  return buildDisplayInsights(lane.display_name, patterns, topVideos, winnerVideos, trendMetrics, candidates);
 }
 
 export async function getLaneInsights(supabase: SupabaseClient, laneId: string): Promise<LaneInsightsResult> {
@@ -559,34 +885,16 @@ export async function getLaneInsights(supabase: SupabaseClient, laneId: string):
   const analysis = await getLatestAnalysis(supabase, laneId);
   if (!analysis) return { ok: false, error: "No analysis available for this lane yet" };
 
-  // Only worth the query when there's a genre to scope it to — getTrendingCoMentionedArtists
-  // returns [] for a null/empty genre anyway, so this just skips a pointless round trip.
-  const trendingArtists = lane.genre_hint
-    ? await getTrendingCoMentionedArtists(supabase, lane.genre_hint as string)
-    : [];
-  const demandRank = lane.genre_hint
-    ? await getGenreDemandRank(supabase, lane.genre_hint as string, laneId, analysis.demand)
-    : null;
-
-  const patterns = analysis.patterns as unknown as PatternStats;
-  const topVideos = (analysis.top_videos as PoolVideo[] | null) ?? [];
-
-  const candidates = buildCandidates(
-    lane.display_name as string,
-    {
-      opportunity: analysis.opportunity,
-      momentum: analysis.momentum,
-      patterns,
-      top_videos: topVideos,
-    },
-    trendingArtists,
-    demandRank
-  );
+  const laneRef: LaneRef = {
+    id: lane.id as string,
+    display_name: lane.display_name as string,
+    genre_hint: (lane.genre_hint as string | null) ?? null,
+  };
 
   return {
     ok: true,
-    laneDisplayName: lane.display_name as string,
+    laneDisplayName: laneRef.display_name,
     analyzedAt: analysis.created_at,
-    insights: buildDisplayInsights(lane.display_name as string, patterns, topVideos, candidates),
+    insights: await buildLaneInsights(supabase, laneRef, analysis),
   };
 }

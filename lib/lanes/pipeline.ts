@@ -29,6 +29,9 @@ export interface GalleryVideo {
   /** Raw YouTube Studio tags — source data for the gallery-based title/tag
    * generator in lib/lanes/titles.ts. */
   tags: string[];
+  /** Channel creation date, for insights.ts's winner_channel_age — null when
+   * unavailable (see getChannelSubCounts). */
+  channelPublishedAt: string | null;
 }
 
 export interface LaneAnalysisResult {
@@ -47,7 +50,7 @@ export interface LaneAnalysisResult {
   analysisRow: LaneAnalysis;
 }
 
-function toGalleryVideo(v: VideoDetails & { subscriberCount: number }): GalleryVideo {
+function toGalleryVideo(v: VideoDetails & { subscriberCount: number; channelPublishedAt: string | null }): GalleryVideo {
   return {
     videoId: v.videoId,
     title: v.title,
@@ -58,6 +61,7 @@ function toGalleryVideo(v: VideoDetails & { subscriberCount: number }): GalleryV
     viewCount: v.viewCount,
     publishedAt: v.publishedAt,
     tags: v.tags,
+    channelPublishedAt: v.channelPublishedAt,
   };
 }
 
@@ -96,6 +100,7 @@ export async function analyzeLane(supabase: SupabaseClient, lane: Lane): Promise
   const topPerformersWithSubs = topPerformerDetails.map((v) => ({
     ...v,
     subscriberCount: channelInfo.get(v.channelId)?.subscriberCount ?? 0,
+    channelPublishedAt: channelInfo.get(v.channelId)?.channelPublishedAt ?? null,
   }));
 
   // Scoring

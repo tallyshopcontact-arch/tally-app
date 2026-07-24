@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
 
   // Caller already proved ownership (auth or magic-link token), so the top
   // lane reveals for non-paid callers too — no separate email gate here.
-  const results = shapeLaneResults(ranked, isPaid, true);
+  const results = await shapeLaneResults(supabase, ranked, isPaid, true);
 
   const { count: paidCount } = await supabase
     .from("profiles")

@@ -232,7 +232,7 @@ export async function POST(req: NextRequest) {
   });
 
   const revealTopLane = isPaid || !!userId || !!email;
-  const results = shapeLaneResults(ranked, isPaid, revealTopLane);
+  const results = await shapeLaneResults(supabase, ranked, isPaid, revealTopLane);
 
   let trendingArtists: Awaited<ReturnType<typeof getTrendingCoMentionedArtists>> = [];
   let bestOpenLane: Awaited<ReturnType<typeof getBestOpenLane>> = null;
