@@ -4,6 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
 
+// Fixed, not window.location.origin — matches the canonical base used
+// everywhere else (lib/email.ts, signup/route.ts, layout.tsx) so this redirect
+// always matches what's allow-listed in Supabase, regardless of whether the
+// user reached the app via the apex domain or a www/preview host.
+const BASE_URL = "https://tallyagc.com";
+
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
@@ -20,7 +26,7 @@ export default function ForgotPasswordPage() {
 
     const supabase = createSupabaseBrowserClient();
     const { error: authError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${BASE_URL}/reset-password`,
     });
 
     if (authError) {
