@@ -24,10 +24,19 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = createServerClient();
-  const result = await getLaneInsights(supabase, laneId);
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 404 });
+  try {
+    const result = await getLaneInsights(supabase, laneId);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: 404 });
+    }
+    return NextResponse.json(result);
+  } catch (err) {
+    // Insight computation is best-effort per-candidate (see lib/lanes/insights.ts's
+    // safeCompute), but a lane/analysis lookup itself can still fail (DB hiccup,
+    // truly malformed row) — surface that as a clean 500 instead of an unhandled
+    // exception, which the client just sees as a network error.
+    console.error(`[admin/insights] laneId=${laneId} failed:`, err);
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: `Failed to load insights: ${message}` }, { status: 500 });
   }
-
-  return NextResponse.json(result);
 }

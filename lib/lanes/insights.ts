@@ -119,6 +119,29 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Runs a single candidate/insight computation in isolation — stale, partial,
+ * or oddly-shaped cached data (e.g. a stored video missing a field a newer
+ * insight expects) should make that ONE insight silently disappear, never
+ * take down the whole /admin/insights response. Logs so the gap is still
+ * visible server-side. */
+function safeCompute<T>(label: string, fn: () => T | null): T | null {
+  try {
+    return fn();
+  } catch (err) {
+    console.error(`[insights] ${label} failed, omitting:`, err);
+    return null;
+  }
+}
+
+async function safeComputeAsync<T>(label: string, fallback: T, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`[insights] ${label} failed, using fallback:`, err);
+    return fallback;
+  }
+}
+
 /** 2,400,000 -> "2.4M", 380,000 -> "380K" — matches the brief's own examples
  * (note: unlike this file's K/M rounding, other components in the app such
  * as TopVideosThisLane.tsx's formatCount always show one decimal for K too;
@@ -277,99 +300,118 @@ function buildCandidates(
   const patterns = analysis.patterns;
   const topVideos = (analysis.top_videos as PoolVideo[] | null) ?? [];
 
+  // Each numbered block below is independently wrapped in safeCompute — one
+  // candidate choking on unexpected/partial cached data (a stored video
+  // missing a field, an empty group where one wasn't expected, etc.) must
+  // never take the other candidates down with it.
+
   // 1. Small-channel win rate — derived by re-filtering the already-stored
   // top_videos (each already carries subscriberCount), not by re-fetching or
   // re-scoring anything.
   const topSlice = topVideos.slice(0, TOP_N);
-  if (topSlice.length > 0) {
+  const smallChannelRate = safeCompute("small_channel_rate", () => {
+    if (topSlice.length === 0) return null;
     const smallCount = topSlice.filter((v) => v.subscriberCount < SMALL_CHANNEL_SUB_THRESHOLD_10K).length;
     const pct = Math.round((smallCount / topSlice.length) * 100);
-    candidates.push({
-      type: "small_channel_rate",
+    return {
+      type: "small_channel_rate" as const,
       sentence: `${pct}% of this month's winning videos came from channels under 10K subs.`,
       rawValue: pct,
       deviation: extremityFromMidpoint(pct),
-    });
-  }
+    };
+  });
+  if (smallChannelRate) candidates.push(smallChannelRate);
 
   // 2. Momentum — a signed delta in the Demand score (view-velocity, log
   // scaled) versus the prior analysis, not a raw upload-count percentage.
   // Omitted entirely when there's no prior analysis to compare against
   // (momentum === null) or when it's exactly flat (nothing to say).
-  if (analysis.momentum !== null && analysis.momentum !== 0) {
+  const momentum = safeCompute("momentum", () => {
+    if (analysis.momentum === null || analysis.momentum === 0) return null;
     const m = analysis.momentum;
     const direction = m > 0 ? "up" : "down";
-    candidates.push({
-      type: "momentum",
+    return {
+      type: "momentum" as const,
       sentence: `Demand in this lane is ${direction} ${Math.abs(m)} points versus the last analysis.`,
       rawValue: m,
       deviation: Math.abs(m),
-    });
-  }
+    };
+  });
+  if (momentum) candidates.push(momentum);
 
   // 3 & 4. Title pattern — [FREE] prefix and quoted-artist-name.
-  if (!patterns.empty) {
-    if (patterns.freePrefixPct > 0) {
-      candidates.push({
-        type: "free_prefix_pattern",
-        sentence: `${patterns.freePrefixPct}% of winning titles use the [FREE] prefix.`,
-        rawValue: patterns.freePrefixPct,
-        deviation: extremityFromMidpoint(patterns.freePrefixPct),
-      });
-    }
-    if (patterns.quotedNamePct > 0) {
-      candidates.push({
-        type: "quoted_name_pattern",
-        sentence: `${patterns.quotedNamePct}% of winning titles quote ${laneDisplayName}'s name directly.`,
-        rawValue: patterns.quotedNamePct,
-        deviation: extremityFromMidpoint(patterns.quotedNamePct),
-      });
-    }
+  const freePrefix = safeCompute("free_prefix_pattern", () => {
+    if (patterns.empty || patterns.freePrefixPct <= 0) return null;
+    return {
+      type: "free_prefix_pattern" as const,
+      sentence: `${patterns.freePrefixPct}% of winning titles use the [FREE] prefix.`,
+      rawValue: patterns.freePrefixPct,
+      deviation: extremityFromMidpoint(patterns.freePrefixPct),
+    };
+  });
+  if (freePrefix) candidates.push(freePrefix);
 
-    // 5. Co-mention (frequency-only framing) — superseded on the display
-    // page by "winning_co_mention" below, kept computed as-is here.
+  const quotedName = safeCompute("quoted_name_pattern", () => {
+    if (patterns.empty || patterns.quotedNamePct <= 0) return null;
+    return {
+      type: "quoted_name_pattern" as const,
+      sentence: `${patterns.quotedNamePct}% of winning titles quote ${laneDisplayName}'s name directly.`,
+      rawValue: patterns.quotedNamePct,
+      deviation: extremityFromMidpoint(patterns.quotedNamePct),
+    };
+  });
+  if (quotedName) candidates.push(quotedName);
+
+  // 5. Co-mention (frequency-only framing) — superseded on the display
+  // page by "winning_co_mention" below, kept computed as-is here.
+  const coMention = safeCompute("co_mention", () => {
+    if (patterns.empty) return null;
     const top = patterns.topCoMentions[0];
-    if (top) {
-      candidates.push({
-        type: "co_mention",
-        sentence: `The most common pairing in winning titles is ${laneDisplayName} + ${titleCase(top.artist)}.`,
-        rawValue: top.pct,
-        deviation: top.pct,
-      });
-    }
-  }
+    if (!top) return null;
+    return {
+      type: "co_mention" as const,
+      sentence: `The most common pairing in winning titles is ${laneDisplayName} + ${titleCase(top.artist)}.`,
+      rawValue: top.pct,
+      deviation: top.pct,
+    };
+  });
+  if (coMention) candidates.push(coMention);
 
   // 6. Opportunity framing.
-  const status = computeStatus(analysis.opportunity);
-  candidates.push({
-    type: "opportunity",
-    sentence: `This lane is sitting at ${analysis.opportunity}/100 — ${STATUS_LABELS[status]}.`,
-    rawValue: analysis.opportunity,
-    deviation: extremityFromMidpoint(analysis.opportunity),
+  const opportunity = safeCompute("opportunity", () => {
+    const status = computeStatus(analysis.opportunity);
+    return {
+      type: "opportunity" as const,
+      sentence: `This lane is sitting at ${analysis.opportunity}/100 — ${STATUS_LABELS[status]}.`,
+      rawValue: analysis.opportunity,
+      deviation: extremityFromMidpoint(analysis.opportunity),
+    };
   });
+  if (opportunity) candidates.push(opportunity);
 
   // 7. Pairing performance — velocity comparison for the lane's #1 co-mention.
-  if (!patterns.empty && patterns.topCoMentions[0]) {
+  const pairingPerformance = safeCompute("pairing_performance", () => {
+    if (patterns.empty || !patterns.topCoMentions[0]) return null;
     const topArtist = cleanArtistName(patterns.topCoMentions[0].artist);
     const { solo, byArtist } = groupByCoMention(topVideos, laneDisplayName);
     const paired = byArtist.get(topArtist) ?? [];
-    if (solo.length >= MIN_GROUP_SAMPLE && paired.length >= MIN_GROUP_SAMPLE) {
-      const soloAvg = avgVelocity(solo);
-      if (soloAvg > 0) {
-        const pctDiff = Math.round(((avgVelocity(paired) - soloAvg) / soloAvg) * 100);
-        const direction = pctDiff >= 0 ? "outperform" : "underperform";
-        candidates.push({
-          type: "pairing_performance",
-          sentence: `Videos titled "${laneDisplayName} x ${titleCase(topArtist)} type beat" ${direction} solo "${laneDisplayName} type beat" titles by ${Math.abs(pctDiff)}%.`,
-          rawValue: pctDiff,
-          deviation: Math.abs(pctDiff),
-        });
-      }
-    }
-  }
+    if (solo.length < MIN_GROUP_SAMPLE || paired.length < MIN_GROUP_SAMPLE) return null;
+    const soloAvg = avgVelocity(solo);
+    if (soloAvg <= 0) return null;
+    const pctDiff = Math.round(((avgVelocity(paired) - soloAvg) / soloAvg) * 100);
+    const direction = pctDiff >= 0 ? "outperform" : "underperform";
+    return {
+      type: "pairing_performance" as const,
+      sentence: `Videos titled "${laneDisplayName} x ${titleCase(topArtist)} type beat" ${direction} solo "${laneDisplayName} type beat" titles by ${Math.abs(pctDiff)}%.`,
+      rawValue: pctDiff,
+      deviation: Math.abs(pctDiff),
+    };
+  });
+  if (pairingPerformance) candidates.push(pairingPerformance);
 
   // 8. Underused pairing gap — displayed as-is (see buildDisplayInsights).
-  if (!patterns.empty && topVideos.length >= MIN_POOL_FOR_RARITY) {
+  const underusedPairing = safeCompute("underused_pairing", () => {
+    if (patterns.empty || topVideos.length < MIN_POOL_FOR_RARITY) return null;
     const topArtist = patterns.topCoMentions[0] ? cleanArtistName(patterns.topCoMentions[0].artist) : null;
     const { solo, byArtist } = groupByCoMention(topVideos, laneDisplayName);
     const rareEntries = [...byArtist.entries()].filter(
@@ -418,23 +460,26 @@ function buildCandidates(
       }
     }
 
-    if (gap) candidates.push(gap);
-  }
+    return gap;
+  });
+  if (underusedPairing) candidates.push(underusedPairing);
 
   // 9. Demand percentile — genre-scoped ranking against every other lane's
   // latest Demand score. Needs no winner-pool data at all, so this can fire
   // even on lanes where every winner-pool-dependent candidate above has
   // nothing to work with (see file header).
-  if (demandRank) {
+  const demandPercentile = safeCompute("demand_percentile", () => {
+    if (!demandRank) return null;
     const rawPct = (demandRank.rank / demandRank.poolSize) * 100;
     const bucket = snapPercentileUp(rawPct);
-    candidates.push({
-      type: "demand_percentile",
+    return {
+      type: "demand_percentile" as const,
       sentence: `This lane ranks in the top ${bucket}% for demand across all ${demandRank.genreLabel} lanes tracked by TALLY.`,
       rawValue: bucket,
       deviation: 100 - bucket, // a smaller/more-elite bucket is the more surprising, more postable result
-    });
-  }
+    };
+  });
+  if (demandPercentile) candidates.push(demandPercentile);
 
   return candidates;
 }
@@ -604,7 +649,7 @@ function buildDifferentialTags(
     const winnerPct = Math.round((count / patterns.winnerCount) * 100);
     if (winnerPct < DIFFERENTIAL_TAG_MIN_WINNER_PCT) continue;
 
-    const nonWinnerCount = nonWinnerPool.filter((v) => v.tags.some((t) => t.toLowerCase() === tag)).length;
+    const nonWinnerCount = nonWinnerPool.filter((v) => (v.tags ?? []).some((t) => t.toLowerCase() === tag)).length;
     const nonWinnerPct = Math.round((nonWinnerCount / nonWinnerPool.length) * 100);
     if (nonWinnerPct > DIFFERENTIAL_TAG_MAX_NONWINNER_PCT) continue;
 
@@ -724,7 +769,8 @@ interface TrendMetrics {
   demandMedianViewsPerDay: number;
 }
 
-function extractTrendMetrics(rawMetrics: Record<string, unknown>): TrendMetrics | null {
+function extractTrendMetrics(rawMetrics: Record<string, unknown> | null): TrendMetrics | null {
+  if (!rawMetrics) return null;
   const uploads = rawMetrics.uploadsLast30d;
   const views = rawMetrics.demandMedianViewsPerDay;
   if (typeof uploads !== "number" || typeof views !== "number") return null;
@@ -783,41 +829,49 @@ function buildDisplayInsights(
   }
 
   const fallback10k = allCandidates.find((c) => c.type === "small_channel_rate") ?? null;
-  const winnability = buildSmallChannelWinnability(laneDisplayName, topSlice, fallback10k);
+  const winnability = safeCompute("small_channel_winnability", () =>
+    buildSmallChannelWinnability(laneDisplayName, topSlice, fallback10k)
+  );
   if (winnability) insights.push(winnability);
 
-  const winnerChannelAge = buildWinnerChannelAge(laneDisplayName, topSlice);
+  const winnerChannelAge = safeCompute("winner_channel_age", () => buildWinnerChannelAge(laneDisplayName, topSlice));
   if (winnerChannelAge) insights.push(winnerChannelAge);
 
-  const winningCoMention = buildWinningCoMention(laneDisplayName, patterns);
+  const winningCoMention = safeCompute("winning_co_mention", () => buildWinningCoMention(laneDisplayName, patterns));
   if (winningCoMention) insights.push(winningCoMention);
 
-  const differentialTags = buildDifferentialTags(laneDisplayName, patterns, winnerVideos, topVideos);
+  const differentialTags = safeCompute("differential_tags", () =>
+    buildDifferentialTags(laneDisplayName, patterns, winnerVideos, topVideos)
+  );
   if (differentialTags) insights.push(differentialTags);
 
   const gap = allCandidates.find((c) => c.type === "underused_pairing");
   if (gap) insights.push({ type: gap.type, sentence: gap.sentence, rawValue: gap.rawValue });
 
-  const moodSplit = buildMoodSplit(laneDisplayName, winnerVideos);
+  const moodSplit = safeCompute("mood_split", () => buildMoodSplit(laneDisplayName, winnerVideos));
   if (moodSplit) insights.push(moodSplit);
 
-  const cumulativeViews = buildCumulativeViews(laneDisplayName, topSlice);
+  const cumulativeViews = safeCompute("cumulative_views", () => buildCumulativeViews(laneDisplayName, topSlice));
   if (cumulativeViews) insights.push(cumulativeViews);
 
-  const timeToTraction = buildTimeToTraction(laneDisplayName, winnerVideos);
+  const timeToTraction = safeCompute("time_to_traction", () => buildTimeToTraction(laneDisplayName, winnerVideos));
   if (timeToTraction) insights.push(timeToTraction);
 
-  const breakout = buildBreakoutVideo(laneDisplayName, sortedByVelocity);
+  const breakout = safeCompute("breakout_video", () => buildBreakoutVideo(laneDisplayName, sortedByVelocity));
   if (breakout) insights.push(breakout);
 
-  const concentration = buildViewConcentration(laneDisplayName, sortedByVelocity);
+  const concentration = safeCompute("view_concentration", () => buildViewConcentration(laneDisplayName, sortedByVelocity));
   if (concentration) insights.push(concentration);
 
-  const winnerConcentration = buildWinnerConcentration(laneDisplayName, topSlice);
+  const winnerConcentration = safeCompute("winner_concentration_over_time", () =>
+    buildWinnerConcentration(laneDisplayName, topSlice)
+  );
   if (winnerConcentration) insights.push(winnerConcentration);
 
   if (trendMetrics) {
-    const trendDirection = buildLaneTrendDirection(laneDisplayName, trendMetrics.current, trendMetrics.prior);
+    const trendDirection = safeCompute("lane_trend_direction", () =>
+      buildLaneTrendDirection(laneDisplayName, trendMetrics.current, trendMetrics.prior)
+    );
     if (trendDirection) insights.push(trendDirection);
   }
 
@@ -840,37 +894,52 @@ export async function buildLaneInsights(
   lane: LaneRef,
   analysis: LaneAnalysis
 ): Promise<LaneInsight[]> {
+  // Every DB read/computation below is independently fault-tolerant — a
+  // lane with stale, partial, or missing cached data should degrade to
+  // fewer insights, never a thrown error that takes the whole response down
+  // (see lib/lanes/db.ts's getLatestAnalysis/getPriorAnalysis, which throw
+  // on query errors).
+
   // Only worth the query when there's a genre to scope it to — getTrendingCoMentionedArtists
   // returns [] for a null/empty genre anyway, so this just skips a pointless round trip.
   const trendingArtists = lane.genre_hint
-    ? await getTrendingCoMentionedArtists(supabase, lane.genre_hint)
+    ? await safeComputeAsync("trendingArtists", [], () => getTrendingCoMentionedArtists(supabase, lane.genre_hint!))
     : [];
   const demandRank = lane.genre_hint
-    ? await getGenreDemandRank(supabase, lane.genre_hint, lane.id, analysis.demand)
+    ? await safeComputeAsync("demandRank", null, () =>
+        getGenreDemandRank(supabase, lane.genre_hint!, lane.id, analysis.demand)
+      )
     : null;
 
-  const patterns = analysis.patterns as unknown as PatternStats;
+  const patterns = (analysis.patterns as unknown as PatternStats | null) ?? ({ empty: true } as PatternStats);
   const topVideos = (analysis.top_videos as PoolVideo[] | null) ?? [];
   const winnerVideos = (analysis.winner_videos as PoolVideo[] | null) ?? [];
 
-  const priorAnalysis = await getPriorAnalysis(supabase, lane.id);
+  const priorAnalysis = await safeComputeAsync("priorAnalysis", null, () => getPriorAnalysis(supabase, lane.id));
   const currentTrend = extractTrendMetrics(analysis.raw_metrics);
   const priorTrend = priorAnalysis ? extractTrendMetrics(priorAnalysis.raw_metrics) : null;
   const trendMetrics = currentTrend && priorTrend ? { current: currentTrend, prior: priorTrend } : null;
 
-  const candidates = buildCandidates(
-    lane.display_name,
-    {
-      opportunity: analysis.opportunity,
-      momentum: analysis.momentum,
-      patterns,
-      top_videos: topVideos,
-    },
-    trendingArtists,
-    demandRank
-  );
+  const candidates =
+    safeCompute("buildCandidates", () =>
+      buildCandidates(
+        lane.display_name,
+        {
+          opportunity: analysis.opportunity,
+          momentum: analysis.momentum,
+          patterns,
+          top_videos: topVideos,
+        },
+        trendingArtists,
+        demandRank
+      )
+    ) ?? [];
 
-  return buildDisplayInsights(lane.display_name, patterns, topVideos, winnerVideos, trendMetrics, candidates);
+  return (
+    safeCompute("buildDisplayInsights", () =>
+      buildDisplayInsights(lane.display_name, patterns, topVideos, winnerVideos, trendMetrics, candidates)
+    ) ?? []
+  );
 }
 
 export async function getLaneInsights(supabase: SupabaseClient, laneId: string): Promise<LaneInsightsResult> {
