@@ -167,8 +167,10 @@ function primaryCoMentionName(raw: string): string {
  * co-mention artist identity in this file (extracted locally or read back
  * from trending.ts, which sources the same patterns.topCoMentions data)
  * should go through this so a chained name can never slip into a sentence
- * or silently fail to match against a cleaned name on the other side. */
-function cleanArtistName(raw: string): string {
+ * or silently fail to match against a cleaned name on the other side.
+ * Exported for lib/reports/channelAnalyzer.ts, which reads the same
+ * patterns.topCoMentions data when picking a title-rewrite co-mention. */
+export function cleanArtistName(raw: string): string {
   return normalizeArtistName(primaryCoMentionName(raw));
 }
 

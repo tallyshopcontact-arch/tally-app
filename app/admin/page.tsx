@@ -1454,6 +1454,12 @@ const ADMIN_TOOLS: AdminTool[] = [
     description: "Lane-based Producer Finder — find and save candidate producers by lane.",
     href: "/admin/prospects",
   },
+  {
+    key: "report-builder",
+    name: "Report Builder",
+    description: "Generate a growth report HTML file from any YouTube channel URL.",
+    href: "/admin/report-builder",
+  },
 ];
 
 function ToolsSection() {
