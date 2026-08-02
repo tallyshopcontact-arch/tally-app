@@ -112,6 +112,7 @@ ${REPORT_CSS}
   ${buildSection3(analysis)}
   ${buildSection4(analysis)}
   ${buildSection5(experiment, monthYear)}
+  ${buildMethodologySection(analysis)}
 
   <div class="report-footer">
     <div class="rf-logo"><span>t</span>ally</div>
@@ -575,6 +576,51 @@ function buildSection5(experiment: string, monthYear: string): string {
   </div>`;
 }
 
+function buildMethodologySection(analysis: ChannelAnalysis): string {
+  const risingWindowsText = analysis.risingWindowsAvailable
+    ? "Spotify monthly listener growth over the past 30 days, cross-referenced against current upload competition on YouTube. Streaming momentum precedes YouTube search volume by 2–4 weeks."
+    : "Momentum data is still building for this channel.";
+
+  return `
+  <div class="section methodology">
+    <div class="section-eyebrow">How We Built This Report</div>
+    <div class="section-title">The Data Behind Every Number</div>
+    <div class="methodology-grid">
+
+      <div class="method-item">
+        <div class="method-label">Opportunity Score</div>
+        <div class="method-text">Computed from upload volume, views-per-day velocity, and how often small channels break through — pulled from the last 30 days of YouTube data for each niche.</div>
+      </div>
+
+      <div class="method-item">
+        <div class="method-label">Niche Movement</div>
+        <div class="method-text">The arrow and score change reflect a real delta — TALLY&#39;s current analysis compared against the prior stored analysis for that niche. Not an estimate.</div>
+      </div>
+
+      <div class="method-item">
+        <div class="method-label">Rising Windows</div>
+        <div class="method-text">${risingWindowsText}</div>
+      </div>
+
+      <div class="method-item">
+        <div class="method-label">Benchmark Comparison</div>
+        <div class="method-text">Your uploads are measured against the median views-per-day of small channels (under 10K subscribers) in the same niche over the same 30-day window.</div>
+      </div>
+
+      <div class="method-item">
+        <div class="method-label">Title Rewrite</div>
+        <div class="method-text">Generated from the winning title structure used by top-performing videos in your best niche this month — [FREE] prefix rate, co-mention patterns, and quoted name usage pulled from real winner data.</div>
+      </div>
+
+      <div class="method-item">
+        <div class="method-label">30-Day Plan</div>
+        <div class="method-text">Upload schedule and niche recommendations are ranked by opportunity score. Title formats and tags are extracted directly from top-performing videos in each recommended niche — not generic advice.</div>
+      </div>
+
+    </div>
+  </div>`;
+}
+
 // ── CSS — copied from tally_report_dark.html verbatim ────────────────────
 
 const REPORT_CSS = `
@@ -968,6 +1014,44 @@ body {
 .rf-logo span { color: var(--cyan); }
 .rf-meta { font-size: 10px; letter-spacing: 1.5px; color: var(--muted); text-align: center; text-transform: uppercase; }
 .rf-page { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+
+.methodology {
+  border-top: 1px solid var(--border);
+  background: var(--panel2);
+}
+.methodology .section-title {
+  font-size: 16px;
+  margin-bottom: 20px;
+}
+.methodology-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.method-item {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.method-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--cyan);
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.method-text {
+  font-size: 12px;
+  color: var(--sub);
+  line-height: 1.65;
+  font-weight: 300;
+}
+
+@media (max-width: 600px) {
+  .methodology-grid { grid-template-columns: 1fr; }
+}
 
 @media print {
   body { background: #0B0E14; }
