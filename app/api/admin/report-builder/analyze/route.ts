@@ -25,10 +25,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => null) as { channelUrl?: string } | null;
+  const body = await req.json().catch(() => null) as
+    | { channelUrl?: string; month?: number; year?: number }
+    | null;
   const channelUrl = body?.channelUrl?.trim();
   if (!channelUrl) {
     return NextResponse.json({ error: "Missing channelUrl" }, { status: 400 });
+  }
+
+  const month = body?.month;
+  const year = body?.year;
+  if (!month || !year || !Number.isInteger(month) || month < 1 || month > 12) {
+    return NextResponse.json({ error: "Missing or invalid month/year" }, { status: 400 });
   }
 
   const supabase = createServerClient();
@@ -42,11 +50,16 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const analysis = await analyzeChannel(supabase, channelUrl);
+    const analysis = await analyzeChannel(supabase, channelUrl, month, year);
     return NextResponse.json({ analysis });
   } catch (err) {
     console.error("[report-builder/analyze] failed:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
+    // Zero uploads in the selected month is an expected, user-actionable
+    // outcome (pick a different month) — surface it as-is, not as a 500.
+    if (message.startsWith("No uploads found for")) {
+      return NextResponse.json({ error: message }, { status: 404 });
+    }
     return NextResponse.json({ error: `Channel analysis failed: ${message}` }, { status: 500 });
   }
 }

@@ -10,6 +10,7 @@ import type {
   NicheScore,
   RecentUpload,
 } from "@/lib/reports/channelAnalyzer";
+import { monthLabel } from "@/lib/reports/channelAnalyzer";
 
 export const dynamic = "force-dynamic";
 
@@ -23,14 +24,19 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => null)) as
-    | { analysis?: ChannelAnalysis; experiment?: string }
+    | { analysis?: ChannelAnalysis; experiment?: string; month?: number; year?: number }
     | null;
   if (!body?.analysis) {
     return NextResponse.json({ error: "Missing analysis" }, { status: 400 });
   }
+  const month = body.month ?? body.analysis.reportMonth;
+  const year = body.year ?? body.analysis.reportYear;
+  if (!month || !year) {
+    return NextResponse.json({ error: "Missing month/year" }, { status: 400 });
+  }
 
   try {
-    const html = buildReportHtml(body.analysis, (body.experiment ?? "").trim());
+    const html = buildReportHtml(body.analysis, (body.experiment ?? "").trim(), month, year);
     return NextResponse.json({ html });
   } catch (err) {
     console.error("[report-builder/report] failed:", err);
@@ -75,9 +81,8 @@ const UNTRACKED_BADGE = { label: "Untracked", color: "#475569", bg: "rgba(71,85,
 
 // ── Report builder ───────────────────────────────────────────────────────
 
-function buildReportHtml(analysis: ChannelAnalysis, experiment: string): string {
-  const now = new Date();
-  const monthYear = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: number, year: number): string {
+  const monthYear = monthLabel(month, year);
 
   const uploads = analysis.recentUploads;
   const nicheByVideoId = new Map<string, DetectedNiche>();
@@ -102,7 +107,7 @@ ${REPORT_CSS}
 <div class="page">
 
   ${buildCoverHeader(analysis, monthYear, genreLabel)}
-  ${buildSection1(analysis, uploads, nicheByVideoId, nicheScoreByLaneId)}
+  ${buildSection1(analysis, uploads, nicheByVideoId, nicheScoreByLaneId, monthYear)}
   ${buildSection2(analysis)}
   ${buildSection3(analysis)}
   ${buildSection4(analysis)}
@@ -182,7 +187,8 @@ function buildSection1(
   analysis: ChannelAnalysis,
   uploads: RecentUpload[],
   nicheByVideoId: Map<string, DetectedNiche>,
-  nicheScoreByLaneId: Map<string, NicheScore>
+  nicheScoreByLaneId: Map<string, NicheScore>,
+  monthYear: string
 ): string {
   if (!uploads.length) {
     return `
@@ -235,6 +241,7 @@ function buildSection1(
   <div class="kpi-section">
     <div class="section-eyebrow">01 · Performance</div>
     <div class="section-title">Your Month at a Glance</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:22px;font-weight:300;">Based on uploads from ${escapeHtml(monthYear)}</p>
     <div class="kpi-grid">
       <div class="kpi-card green">
         <div class="kpi-label">Uploads</div>

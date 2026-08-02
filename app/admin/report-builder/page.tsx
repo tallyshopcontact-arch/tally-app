@@ -73,17 +73,34 @@ function slugify(name: string): string {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "channel";
 }
 
-function downloadFilename(channelName: string): string {
+function downloadFilename(channelName: string, month: number, year: number): string {
+  const mm = String(month).padStart(2, "0");
+  return `tally_report_${slugify(channelName)}_${mm}${year}.html`;
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// Defaults to the previous completed calendar month — a report about the
+// current month mid-way through would be misleading (see channelAnalyzer.ts).
+function getDefaultMonthYear(): { month: number; year: number } {
   const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const year = String(now.getFullYear());
-  return `tally_report_${slugify(channelName)}_${month}${year}.html`;
+  const currentMonth = now.getMonth() + 1; // 1-12
+  const currentYear = now.getFullYear();
+  return currentMonth === 1
+    ? { month: 12, year: currentYear - 1 }
+    : { month: currentMonth - 1, year: currentYear };
 }
 
 // ── Builder ───────────────────────────────────────────────────────────────
 
 function ReportBuilder({ password }: { password: string }) {
   const [channelUrl, setChannelUrl] = useState("");
+  const defaultMonthYear = getDefaultMonthYear();
+  const [month, setMonth] = useState<number>(defaultMonthYear.month);
+  const [year, setYear] = useState<number>(defaultMonthYear.year);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState("");
   const [analysis, setAnalysis] = useState<ChannelAnalysis | null>(null);
@@ -94,7 +111,7 @@ function ReportBuilder({ password }: { password: string }) {
   const [reportHtml, setReportHtml] = useState<string | null>(null);
 
   const handleAnalyze = async () => {
-    if (!channelUrl.trim()) return;
+    if (!channelUrl.trim() || !month || !year) return;
     setAnalyzing(true);
     setAnalyzeError("");
     setAnalysis(null);
@@ -103,7 +120,7 @@ function ReportBuilder({ password }: { password: string }) {
       const res = await fetch("/api/admin/report-builder/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-password": password },
-        body: JSON.stringify({ channelUrl: channelUrl.trim() }),
+        body: JSON.stringify({ channelUrl: channelUrl.trim(), month, year }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -126,7 +143,7 @@ function ReportBuilder({ password }: { password: string }) {
       const res = await fetch("/api/admin/report-builder/report", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-password": password },
-        body: JSON.stringify({ analysis, experiment }),
+        body: JSON.stringify({ analysis, experiment, month, year }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -147,7 +164,7 @@ function ReportBuilder({ password }: { password: string }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = downloadFilename(analysis.channel.channelName);
+    a.download = downloadFilename(analysis.channel.channelName, month, year);
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -167,6 +184,37 @@ function ReportBuilder({ password }: { password: string }) {
           Generate a growth report from any YouTube channel URL. Analysis takes 5-10 seconds.
         </p>
 
+        {/* Report month/year */}
+        <div className="mb-4 flex gap-3">
+          <div className="w-40">
+            <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Report Month</label>
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              required
+              className="w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#3a3a3a] transition-colors"
+            >
+              {MONTH_NAMES.map((name, i) => (
+                <option key={name} value={i + 1}>{name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-32">
+            <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">Report Year</label>
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              required
+              className="w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white focus:outline-none focus:border-[#3a3a3a] transition-colors"
+            >
+              {[0, 1, 2].map((back) => {
+                const y = new Date().getFullYear() - back;
+                return <option key={y} value={y}>{y}</option>;
+              })}
+            </select>
+          </div>
+        </div>
+
         {/* Channel URL input */}
         <div className="mb-8">
           <label className="block text-xs text-[#94a3b8] uppercase tracking-widest mb-2">YouTube Channel URL</label>
@@ -181,7 +229,7 @@ function ReportBuilder({ password }: { password: string }) {
             />
             <button
               onClick={handleAnalyze}
-              disabled={analyzing || !channelUrl.trim()}
+              disabled={analyzing || !channelUrl.trim() || !month || !year}
               className="text-sm font-semibold bg-white text-black px-6 py-3 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors whitespace-nowrap"
             >
               {analyzing ? "Analyzing..." : "Analyze Channel"}

@@ -20,9 +20,31 @@ import { cleanArtistName } from "@/lib/lanes/insights";
 const YT = "https://www.googleapis.com/youtube/v3";
 const KEY = process.env.YOUTUBE_API_KEY!;
 
-const MAX_RECENT_UPLOADS = 30;
 const MIN_UPLOADS_FOR_FULL_ANALYSIS = 5;
 const MAX_RISING_WINDOWS = 5;
+
+// Uploads playlist paging when scanning for a specific calendar month — the
+// playlist is newest-first, so paging stops the moment an item published
+// before the month's start turns up. The page cap is a safety net against a
+// pathological/misordered playlist, not an expected case.
+const PLAYLIST_PAGE_SIZE = 50;
+const MAX_PLAYLIST_PAGES = 10;
+const MAX_UPLOADS_PER_MONTH = 50; // videos.list accepts at most 50 ids per call
+
+export const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+export function monthLabel(month: number, year: number): string {
+  return `${MONTH_NAMES[month - 1]} ${year}`;
+}
+
+function monthBounds(month: number, year: number): { start: Date; end: Date } {
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)); // day 0 of next month = last day of this month
+  return { start, end };
+}
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -86,6 +108,9 @@ export interface TitleRewrite {
 
 export interface ChannelAnalysis {
   channel: ChannelMeta;
+  /** The calendar month/year recentUploads (and Section 1's stats) are scoped to. */
+  reportMonth: number;
+  reportYear: number;
   recentUploads: RecentUpload[];
   detectedNiches: DetectedNiche[];
   nicheScores: NicheScore[];
@@ -143,23 +168,54 @@ async function fetchChannelFull(channelId: string): Promise<ChannelFull> {
 
 // ── Step 3 — recent uploads via playlistItems.list + videos.list ────────
 
-async function fetchUploadsPlaylistVideoIds(playlistId: string, maxResults: number): Promise<string[]> {
-  const params = new URLSearchParams({
-    part: "contentDetails",
-    playlistId,
-    maxResults: String(Math.min(maxResults, 50)),
-    key: KEY,
-  });
-  const res = await fetch(`${YT}/playlistItems?${params.toString()}`);
-  if (!res.ok) throw new Error(`YouTube playlistItems.list failed: ${res.status}`);
-  const data = await res.json();
-  return ((data.items ?? []) as { contentDetails?: { videoId?: string } }[])
-    .map((item) => item.contentDetails?.videoId)
-    .filter((id): id is string => !!id);
+async function fetchUploadsPlaylistVideoIdsForMonth(
+  playlistId: string,
+  month: number,
+  year: number
+): Promise<string[]> {
+  const { start, end } = monthBounds(month, year);
+  const videoIds: string[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < MAX_PLAYLIST_PAGES; page++) {
+    const params = new URLSearchParams({
+      part: "snippet,contentDetails",
+      playlistId,
+      maxResults: String(PLAYLIST_PAGE_SIZE),
+      key: KEY,
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const res = await fetch(`${YT}/playlistItems?${params.toString()}`);
+    if (!res.ok) throw new Error(`YouTube playlistItems.list failed: ${res.status}`);
+    const data = await res.json();
+    const items = (data.items ?? []) as {
+      snippet?: { publishedAt?: string };
+      contentDetails?: { videoId?: string };
+    }[];
+
+    let pastTargetMonth = false;
+    for (const item of items) {
+      const videoId = item.contentDetails?.videoId;
+      const publishedAt = item.snippet?.publishedAt;
+      if (!videoId || !publishedAt) continue;
+      const publishedDate = new Date(publishedAt);
+      if (publishedDate > end) continue; // still newer than the target month — keep paging
+      if (publishedDate < start) { pastTargetMonth = true; break; } // playlist is newest-first — nothing further can match
+      videoIds.push(videoId);
+      if (videoIds.length >= MAX_UPLOADS_PER_MONTH) return videoIds;
+    }
+
+    if (pastTargetMonth) break;
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+  }
+
+  return videoIds;
 }
 
-async function fetchRecentUploads(uploadsPlaylistId: string): Promise<RecentUpload[]> {
-  const videoIds = await fetchUploadsPlaylistVideoIds(uploadsPlaylistId, MAX_RECENT_UPLOADS);
+async function fetchRecentUploads(uploadsPlaylistId: string, month: number, year: number): Promise<RecentUpload[]> {
+  const videoIds = await fetchUploadsPlaylistVideoIdsForMonth(uploadsPlaylistId, month, year);
   if (!videoIds.length) return [];
 
   const params = new URLSearchParams({ part: "snippet,statistics", id: videoIds.join(","), key: KEY });
@@ -437,11 +493,20 @@ function buildTitleRewrite(
 
 // ── Entry point ────────────────────────────────────────────────────────
 
-export async function analyzeChannel(supabase: SupabaseClient, channelUrl: string): Promise<ChannelAnalysis> {
+export async function analyzeChannel(
+  supabase: SupabaseClient,
+  channelUrl: string,
+  month: number,
+  year: number
+): Promise<ChannelAnalysis> {
   const channelId = await resolveChannelId(channelUrl);
   const { uploadsPlaylistId, ...channel } = await fetchChannelFull(channelId);
 
-  const recentUploads = uploadsPlaylistId ? await fetchRecentUploads(uploadsPlaylistId) : [];
+  const recentUploads = uploadsPlaylistId ? await fetchRecentUploads(uploadsPlaylistId, month, year) : [];
+
+  if (!recentUploads.length) {
+    throw new Error(`No uploads found for ${monthLabel(month, year)} — try a different month.`);
+  }
 
   const matchers = await fetchLaneMatchers(supabase);
   const detectedNiches = detectNiches(recentUploads, matchers);
@@ -454,6 +519,8 @@ export async function analyzeChannel(supabase: SupabaseClient, channelUrl: strin
 
   return {
     channel,
+    reportMonth: month,
+    reportYear: year,
     recentUploads,
     detectedNiches,
     nicheScores,
