@@ -4,16 +4,9 @@
 // tally_report_dark.html design (Nunito + Outfit, dark panel layout) as one
 // self-contained HTML string the client can preview in an iframe and download.
 import { NextRequest, NextResponse } from "next/server";
-import type {
-  ChannelAnalysis,
-  Diagnosis,
-  DetectedNiche,
-  ExpansionPick,
-  NicheScore,
-  RecentUpload,
-} from "@/lib/reports/channelAnalyzer";
-import { monthLabel, SATURATED_THRESHOLD } from "@/lib/reports/channelAnalyzer";
-import { SCORE_CALIBRATION } from "@/lib/lanes/scoring";
+import type { ChannelAnalysis, Diagnosis, DetectedNiche, NicheScore, RecentUpload } from "@/lib/reports/channelAnalyzer";
+import { monthLabel } from "@/lib/reports/channelAnalyzer";
+import { findSmallChannelExample } from "@/lib/lanes/nicheMatch";
 import { createServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +21,13 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => null)) as
-    | { analysis?: ChannelAnalysis; experiment?: string; month?: number; year?: number }
+    | {
+        analysis?: ChannelAnalysis;
+        experiment?: string;
+        month?: number;
+        year?: number;
+        selectedPlan?: SelectedPlan;
+      }
     | null;
   if (!body?.analysis) {
     return NextResponse.json({ error: "Missing analysis" }, { status: 400 });
@@ -47,8 +46,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing experiment — add one before generating." }, { status: 400 });
   }
 
+  // Curator model — same defense-in-depth as the experiment check above:
+  // the picker UI already requires both before enabling Generate, but a
+  // direct API call could skip it.
+  const selectedPlan = body.selectedPlan ?? {};
+  if (!selectedPlan.priority1?.laneId || !selectedPlan.priority2?.laneId) {
+    return NextResponse.json(
+      { error: "Missing niche selections — assign Priority 1 and Priority 2 before generating." },
+      { status: 400 }
+    );
+  }
+
   try {
-    const { html, plan } = buildReportHtml(body.analysis, experiment, month, year);
+    const { html, plan } = buildReportHtml(body.analysis, experiment, month, year, selectedPlan);
 
     // Growth-report tracking — the input side of next month's (not-yet-built)
     // grading loop. Best-effort: a DB hiccup here must not cost the admin
@@ -156,7 +166,13 @@ interface ReportBuild {
   plan: ActionPlan;
 }
 
-function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: number, year: number): ReportBuild {
+function buildReportHtml(
+  analysis: ChannelAnalysis,
+  experiment: string,
+  month: number,
+  year: number,
+  selectedPlan: SelectedPlan
+): ReportBuild {
   const monthYear = monthLabel(month, year);
 
   const uploads = analysis.recentUploads;
@@ -188,7 +204,7 @@ function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: n
   if (analysis.risingWindowsAvailable && analysis.risingWindows.length) {
     sections.push(buildSection3(analysis, sectionNumber++));
   }
-  const plan = buildActionPlanCards(analysis);
+  const plan = buildSelectedPlanCards(analysis, selectedPlan);
   sections.push(buildSection4(analysis, sectionNumber++, plan));
   sections.push(buildSection5(experiment, monthYear, sectionNumber++));
 
@@ -376,7 +392,6 @@ function buildSection1(
     </div>`;
 
   const benchmarkHtml = buildBenchmarkNarrative(analysis, nicheScoreByLaneId);
-  const titleRewriteHtml = buildTitleRewriteHighlight(analysis);
 
   return `
   <div class="kpi-section">
@@ -415,9 +430,7 @@ function buildSection1(
   <div class="narrative-box">
     <div class="narrative-eyebrow">Benchmark Insight</div>
     <div class="narrative-text">${benchmarkHtml}</div>
-  </div>
-
-  ${titleRewriteHtml}`;
+  </div>`;
 }
 
 // Fix 1 — describes the actual title pattern behind a niche's winners
@@ -468,37 +481,6 @@ function buildBenchmarkNarrative(
   // since it isn't one.
   const sizeLabel = benchmark.isComparableSet ? "channels your size" : "top performers in this niche";
   return `Your <strong>${niche}</strong> uploads are performing above median for ${sizeLabel} — <strong>${avg} views/day</strong> vs <strong>${median} views/day</strong> median.`;
-}
-
-function buildTitleRewriteHighlight(analysis: ChannelAnalysis): string {
-  // Fix 4 — titles already winning: a rewrite suggestion would be cosmetic,
-  // so say what the real gap is instead of manufacturing a tweak.
-  if (!analysis.titleRewriteNeeded) {
-    const bestNiche = analysis.detectedNiches[0];
-    if (!bestNiche) return "";
-    return `
-  <div class="section" style="padding-top:0;border-top:none;">
-    <div class="narrative-box" style="border-left-color:var(--accent);">
-      <div class="narrative-eyebrow" style="color:var(--accent);">Title Rewrite</div>
-      <div class="narrative-text">
-        Your title structure already matches the winning format for this niche — [FREE] prefix ✓, artist name ✓, co-mention ✓. Your gap is niche selection, not titles.
-      </div>
-    </div>
-  </div>`;
-  }
-
-  const rewrite = analysis.titleRewrite;
-  if (!rewrite) return "";
-  return `
-  <div class="section" style="padding-top:0;border-top:none;">
-    <div class="narrative-box" style="border-left-color:var(--accent);">
-      <div class="narrative-eyebrow" style="color:var(--accent);">Title Rewrite</div>
-      <div class="narrative-text">
-        Your upload titled <strong>${escapeHtml(rewrite.originalTitle)}</strong> — optimized for your best niche: <strong>${escapeHtml(rewrite.bestNicheName)}</strong>.<br/>
-        Try: <strong>${escapeHtml(rewrite.rewrittenTitle)}</strong>
-      </div>
-    </div>
-  </div>`;
 }
 
 function buildSection2(analysis: ChannelAnalysis, sectionNumber: number): string {
@@ -647,34 +629,10 @@ interface NichePlanCard {
   receipt?: string;
 }
 
-interface SmallChannelExample {
-  /** 1-indexed position in score.topVideos, which lib/lanes/pipeline.ts
-   * already stores ranked by views/day desc — so this "#N" is the video's
-   * real rank among this niche's top performers, not a made-up number. */
-  rank: number;
-  subscriberCount: number;
-  title: string;
-}
-
-function findSmallChannelExample(topVideos: unknown[]): SmallChannelExample | null {
-  const videos = topVideos as { subscriberCount?: number; title?: string }[];
-  for (let i = 0; i < videos.length; i++) {
-    const v = videos[i];
-    if (
-      typeof v.subscriberCount === "number" &&
-      v.subscriberCount < SCORE_CALIBRATION.smallChannelSubThreshold &&
-      typeof v.title === "string"
-    ) {
-      return { rank: i + 1, subscriberCount: v.subscriberCount, title: v.title };
-    }
-  }
-  return null;
-}
-
 // Item 4 — "an 812-sub channel took #2 in this niche last month with this
-// title: X." Reuses the same small-channel threshold pipeline.ts already
-// uses to build winner_videos (SCORE_CALIBRATION.smallChannelSubThreshold)
-// rather than inventing a second "small" definition.
+// title: X." findSmallChannelExample (lib/lanes/nicheMatch.ts) reuses the
+// same small-channel threshold pipeline.ts already uses to build
+// winner_videos, rather than inventing a second "small" definition.
 // "an 812-sub channel" only reads right because 812 is spoken "eight
 // twelve" — a vowel sound. Most subscriber counts aren't: "a 133-sub
 // channel," not "an." Approximates by the leading digits actually spoken
@@ -716,33 +674,6 @@ function planCardForScore(label: string, score: NicheScore): NichePlanCard {
   };
 }
 
-// Step 4 — receipts, not just a score: a pick with a niche-specific
-// co-mention percentage cites it; a pick without one (genre-wide co-mention
-// signal only, or the exact-genre fallback with no co-mention data at all)
-// says so plainly instead of implying a specific pairing that was never
-// actually observed. planCardForScore above already attaches the item-4
-// top_videos receipt (inherited via the spread below), so this only needs
-// to swap the note for the co-mention-specific one.
-function planCardForExpansion(label: string, pick: ExpansionPick): NichePlanCard {
-  const base = planCardForScore(label, pick.score);
-  const note = pick.receipt
-    ? `⚡ ${escapeHtml(pick.score.artistName)} appears in ${pick.receipt.pct}% of winning ${escapeHtml(pick.receipt.nicheName)} titles — proven pairing, currently ${pick.score.opportunity}/100.`
-    : `⚡ No specific co-mention percentage on record for this pairing — recommended on opportunity fit for the niche, currently at ${pick.score.opportunity}/100.`;
-  return { ...base, note };
-}
-
-function planCardForNiche(label: string, niche: DetectedNiche): NichePlanCard {
-  return {
-    label,
-    niche: niche.artistName,
-    titleFormat: `${niche.artistName} Type Beat "{Name}"`,
-    tags: "no tag data yet — untracked niche",
-    note: `⚡ Averaging ${niche.avgViewsPerDay.toLocaleString()} views/day across ${niche.uploadCount} upload${niche.uploadCount === 1 ? "" : "s"} — not yet lane-tracked by TALLY.`,
-    // No lane data for an untracked niche, so no top_videos pool to cite a
-    // real example from — leaving receipt undefined here (not a fabricated one).
-  };
-}
-
 function renderPlanCards(cards: NichePlanCard[]): string {
   return cards
     .map(
@@ -770,117 +701,63 @@ interface ActionPlan {
   framing: string;
 }
 
-// Fix 2 — mono-niche, saturated, or all-weak: lead the plan with expansion
-// picks instead of re-recommending the crowded/narrow/ceiling-capped lineup
-// the channel is already stuck in. The current niche becomes a hold
-// (test-one-upload), never the lead — and never at all if that niche is
-// itself EXIT-flagged (a confirmed decline, not just "current top niche").
-function buildExpansionPlanCards(analysis: ChannelAnalysis): ActionPlan {
-  const topNiche = analysis.detectedNiches[0] ?? null;
-  const topScore = topNiche?.laneId
-    ? analysis.nicheScores.find((s) => s.laneId === topNiche.laneId)
-    : undefined;
-  const topIsExit = topScore ? getNicheReportStatus(topScore).key === "exit" : false;
+// Curator model — the admin picks Priority 1 & 2 from channelAnalyzer.ts's
+// Step 10 niche-picker shortlist (analysis.nicheCandidates) plus Priority 3
+// from the auto-filled hold (analysis.defaultHoldCandidate), editing each
+// title format in the picker UI before generating. This replaced the old
+// auto-computed plan (mono-niche/saturated/EXIT-aware ranking) entirely —
+// that logic now lives one step earlier, in what the picker offers as
+// candidates in the first place, not in what Section 4 renders.
 
-  const cards: NichePlanCard[] = analysis.expansionRecommendations.map((pick, i) =>
-    planCardForExpansion(`Priority ${i + 1}`, pick)
-  );
-
-  // Fix 2 — never hold an EXIT-flagged niche, even as a "test one upload"
-  // slot. Untracked niches (no score at all) have no EXIT concept and stay
-  // holdable, same as a "Tough" niche (low score, no confirmed decline).
-  if (!topIsExit) {
-    const holdLabel = `Priority ${cards.length + 1} · Hold`;
-    const holdBase: NichePlanCard = topScore
-      ? planCardForScore(holdLabel, topScore)
-      : topNiche
-      ? planCardForNiche(holdLabel, topNiche)
-      : { label: holdLabel, niche: "Current niche", titleFormat: "", tags: "", note: "" };
-    const nicheName = escapeHtml(topNiche?.artistName ?? "current");
-    cards.push({
-      ...holdBase,
-      note: `⚡ Test one upload in your existing ${nicheName} niche using the winning title format — hold, not lead.`,
-    });
-  }
-
-  // Item 5 — the opening line names the concentration/expansion problem.
-  // When the headline diagnosis (Step 8) already identified one as the
-  // report's root cause, reuse its exact framing instead of telling the
-  // same story twice in slightly different words.
-  const framing =
-    analysis.diagnosis.type === "expansion" || analysis.diagnosis.type === "concentration"
-      ? `${analysis.diagnosis.detail} The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`
-      : topScore && topScore.saturation >= SATURATED_THRESHOLD
-      ? `Your uploads are concentrated in a saturated niche (${topScore.saturation}/100). The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`
-      : `Your uploads are concentrated in a single niche. The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`;
-
-  return { cards, framing };
+export interface SelectedPlanSlot {
+  laneId: string;
+  titleFormat: string;
 }
 
-function buildDefaultPlanCards(analysis: ChannelAnalysis): ActionPlan {
-  // Fix 2 — the plan may only ever recommend niches the report hasn't
-  // flagged EXIT. Applies even outside the expansion-led path above: a
-  // channel with, say, 4 niches where 2 are EXIT and 2 are healthy still
-  // must not fill Section 4 with an EXIT-flagged one just because it ranks
-  // by raw opportunity.
-  const scoreByLaneId = new Map(analysis.nicheScores.map((s) => [s.laneId, s]));
-  const isExitNiche = (n: DetectedNiche): boolean => {
-    if (!n.laneId) return false; // untracked — no score, no EXIT concept
-    const score = scoreByLaneId.get(n.laneId);
-    return score ? getNicheReportStatus(score).key === "exit" : false;
-  };
+export interface SelectedPlan {
+  priority1?: SelectedPlanSlot;
+  priority2?: SelectedPlanSlot;
+  priority3?: SelectedPlanSlot;
+}
 
-  const rankedScores = [...analysis.nicheScores]
-    .filter((s) => getNicheReportStatus(s).key !== "exit")
-    .sort((a, b) => b.opportunity - a.opportunity);
-  const usedLaneIds = new Set<string>();
+/** A selected laneId can come from any of three places the client saw it:
+ * the picker shortlist, the auto-filled hold candidate, or (defensively)
+ * the channel's own scored niches — covers a hold slot the admin left
+ * untouched as well as one they reassigned to a picker candidate. */
+function resolveCandidateScore(analysis: ChannelAnalysis, laneId: string): NicheScore | null {
+  const fromCandidates = analysis.nicheCandidates.find((c) => c.score.laneId === laneId);
+  if (fromCandidates) return fromCandidates.score;
+  if (analysis.defaultHoldCandidate?.score.laneId === laneId) return analysis.defaultHoldCandidate.score;
+  return analysis.nicheScores.find((s) => s.laneId === laneId) ?? null;
+}
+
+/** Section 4's single source of truth now that the admin picks the plan
+ * instead of it being auto-computed — also what the POST handler persists
+ * into growth_reports.recommendations, so what the channel owner reads and
+ * what next month's grading loop checks against can't drift apart. Reuses
+ * planCardForScore for the note/receipt (still real, score-derived data);
+ * only titleFormat is overridden with whatever the admin edited it to in
+ * the picker, falling back to the auto-computed format if left blank. */
+function buildSelectedPlanCards(analysis: ChannelAnalysis, selectedPlan: SelectedPlan): ActionPlan {
+  const slots: { sel: SelectedPlanSlot | undefined; label: string }[] = [
+    { sel: selectedPlan.priority1, label: "Priority 1" },
+    { sel: selectedPlan.priority2, label: "Priority 2" },
+    { sel: selectedPlan.priority3, label: "Priority 3 · Hold" },
+  ];
+
   const cards: NichePlanCard[] = [];
-
-  const top2 = rankedScores.slice(0, 2);
-  top2.forEach((s, i) => {
-    usedLaneIds.add(s.laneId);
-    cards.push(planCardForScore(`Priority ${i + 1}`, s));
-  });
-
-  if (cards.length < 2) {
-    for (const n of analysis.detectedNiches) {
-      if (cards.length >= 2) break;
-      if (n.laneId && usedLaneIds.has(n.laneId)) continue;
-      if (isExitNiche(n)) continue; // never fall back to an EXIT-flagged niche either
-      cards.push(planCardForNiche(`Priority ${cards.length + 1}`, n));
-    }
+  for (const { sel, label } of slots) {
+    if (!sel?.laneId) continue;
+    const score = resolveCandidateScore(analysis, sel.laneId);
+    if (!score) continue;
+    const base = planCardForScore(label, score);
+    cards.push({ ...base, titleFormat: sel.titleFormat?.trim() || base.titleFormat });
   }
 
-  // Item 7 — no placeholder slot for a feature that isn't live for this
-  // channel yet (same rule Section 3 already follows). A real rising window
-  // adds a real priority card; without one, the plan just has fewer
-  // priorities this month instead of a hollow "data building" card.
-  const hasRisingWindow = analysis.risingWindowsAvailable && analysis.risingWindows.length > 0;
-  if (hasRisingWindow) {
-    const w = analysis.risingWindows[0];
-    cards.push({
-      label: `Priority ${cards.length + 1} · Rising Window Test`,
-      niche: w.artist,
-      titleFormat: `[FREE] ${w.artist} Type Beat "{Name}"`,
-      tags: "test upload — no tag history yet",
-      note: `⚡ Momentum +${Math.round(w.momentumPct)}% — get in before this floods.`,
-    });
-  }
-
-  const captionSuffix = hasRisingWindow ? ", plus one rising-window test." : ".";
-  const framing = `Top ${top2.length || cards.length} niche${cards.length === 1 ? "" : "s"} by opportunity${captionSuffix}`;
-  return { cards, framing };
-}
-
-/** The single source of truth for "what the 30-day plan recommends" — used
- * both to render Section 4 and (see the POST handler) to persist the exact
- * same cards into growth_reports.recommendations, so what the channel owner
- * reads and what next month's grading loop checks against can never drift
- * apart from each other. */
-function buildActionPlanCards(analysis: ChannelAnalysis): ActionPlan {
-  return analysis.expansionRecommended && analysis.expansionRecommendations.length
-    ? buildExpansionPlanCards(analysis)
-    : buildDefaultPlanCards(analysis);
+  // Always cite the diagnosis as framing — there's no separate auto-compute
+  // story to avoid duplicating anymore; the plan below is just the admin's
+  // response to the same root cause named above it.
+  return { cards, framing: analysis.diagnosis.detail };
 }
 
 // ── growth_reports persistence ───────────────────────────────────────────
@@ -1020,13 +897,8 @@ function buildMethodologySection(analysis: ChannelAnalysis): string {
       </div>
 
       <div class="method-item">
-        <div class="method-label">Title Rewrite</div>
-        <div class="method-text">Generated from the winning title structure used by top-performing videos in your best niche this month — [FREE] prefix rate, co-mention patterns, and quoted name usage pulled from real winner data.</div>
-      </div>
-
-      <div class="method-item">
         <div class="method-label">30-Day Plan</div>
-        <div class="method-text">Upload schedule and niche recommendations are ranked by opportunity score. Title formats and tags are extracted directly from top-performing videos in each recommended niche — not generic advice.</div>
+        <div class="method-text">Priority 1 & 2 are chosen by TALLY's producer from a shortlist ranked by opportunity score and co-mention proximity to your own catalog — not fully automated. Title formats are pre-filled from real top-performing videos in each niche, then reviewed and adjusted before sending.</div>
       </div>
 
     </div>

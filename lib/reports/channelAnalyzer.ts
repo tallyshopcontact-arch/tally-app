@@ -17,7 +17,15 @@ import { getLatestAnalysis, getPriorAnalysis, normalizeLaneSlug } from "@/lib/la
 import { viewsPerDay, computeStatus, type LaneStatus } from "@/lib/lanes/scoring";
 import { cleanArtistName } from "@/lib/lanes/insights";
 import { getGenreCoMentionCounts } from "@/lib/lanes/trending";
-import { fetchLaneMatchers, matchAllKnownLanes, normalizeForMatch, type LaneMatcher } from "@/lib/lanes/nicheMatch";
+import {
+  fetchLaneMatchers,
+  matchAllKnownLanes,
+  normalizeForMatch,
+  pickTitleFormatCoMention,
+  buildWinningTitleFormat,
+  findSmallChannelExample,
+  type LaneMatcher,
+} from "@/lib/lanes/nicheMatch";
 import { extractCoMention } from "@/lib/lanes/patterns";
 import { detectRisingWindows } from "@/lib/momentum/rising";
 
@@ -137,10 +145,21 @@ export interface RisingWindow {
   description: string | null;
 }
 
-export interface TitleRewrite {
-  originalTitle: string;
-  rewrittenTitle: string;
-  bestNicheName: string;
+/** Step 10 — the niche picker's shortlist. Wraps a full NicheScore (rather
+ * than a slimmer projection) so the report route's existing plan-card
+ * builder — note/receipt included — works unchanged on whichever candidate
+ * ends up picked. */
+export interface NicheCandidate {
+  score: NicheScore;
+  source: "own" | "expansion" | "genre";
+  /** Top 2-3 co-mentions performing well right now, cleaned and self-match-
+   * filtered (see lib/lanes/nicheMatch.ts's pickTitleFormatCoMention). */
+  topCoMentions: { artist: string; pct: number }[];
+  /** Pre-fill for the picker's editable title format field. */
+  titleFormatExample: string;
+  /** A real title from this niche's stored top_videos, filtered to small
+   * channels — cited on the candidate card as proof, not itself editable. */
+  realExampleTitle: string | null;
 }
 
 export interface ChannelAnalysis {
@@ -153,18 +172,20 @@ export interface ChannelAnalysis {
   nicheScores: NicheScore[];
   risingWindows: RisingWindow[];
   risingWindowsAvailable: boolean;
-  titleRewrite: TitleRewrite | null;
-  /** Fix 4 — false when the majority of the best niche's uploads already use
-   * [FREE], the artist name, and a co-mention: the title box would be
-   * cosmetic, so the report shows a different message ("gap is niche
-   * selection, not titles") instead of a rewrite suggestion. */
-  titleRewriteNeeded: boolean;
   /** Fix 2 — true when the channel is mono-niche (≤ MONO_NICHE_MAX_COUNT
    * detected niches) or its best niche is saturated (≥ SATURATED_THRESHOLD).
    * Report's Action Plan leads with expansionRecommendations instead of the
    * current (crowded) niche when this is true. */
   expansionRecommended: boolean;
   expansionRecommendations: ExpansionPick[];
+  /** Step 10 — curator model: up to 5 ranked, deduplicated niche candidates
+   * for the admin to choose Priority 1 & 2 from (see buildNicheCandidates). */
+  nicheCandidates: NicheCandidate[];
+  /** Step 10 — Priority 3's auto-filled starting point: the channel's own
+   * highest-OPPORTUNITY (not highest-velocity) current niche, still editable
+   * client-side same as the two picked candidates. Excluded from
+   * nicheCandidates so it's never offered as a "new" pick too. */
+  defaultHoldCandidate: NicheCandidate | null;
   /** Fewer than MIN_UPLOADS_FOR_FULL_ANALYSIS recent uploads were found —
    * callers should show a "limited data" note rather than a thin, overconfident report. */
   limitedData: boolean;
@@ -722,6 +743,104 @@ async function getExpansionRecommendations(
   return picks;
 }
 
+// ── Step 10 — niche picker candidates ────────────────────────────────────
+// Curator model: instead of auto-computing the action plan, the admin picks
+// 2 priority niches from a ranked shortlist, each with real supporting data.
+// Sources, ranked by opportunity, deduplicated by laneId, capped at 5:
+//   (a) the channel's own detected niches that aren't saturated (opportunity >= 40)
+//   (b) co-mention proximity expansion picks (Fix 2's getExpansionRecommendations, above)
+//   (c) top open niches in the channel's genre from lane_analyses
+// The channel's own highest-opportunity niche (the default Priority 3/hold)
+// is excluded from the shortlist — it's already covered by the hold slot,
+// so offering it again as a "new pick" would be redundant.
+
+const NICHE_CANDIDATE_LIMIT = 5;
+// Matches computeStatus's "yellow" floor — the same "not weak" bar used
+// everywhere else in this file, so "not saturated" means the same thing
+// here that it means in the diagnosis engine and the badge logic.
+const NICHE_CANDIDATE_MIN_OPPORTUNITY = 40;
+const CO_MENTION_DISPLAY_LIMIT = 3;
+
+/** Top co-mentions "performing well right now," cleaned and self-match-
+ * filtered the same way buildWinningTitleFormat is (see
+ * lib/lanes/nicheMatch.ts) — a display list can't show "Joey Bada$$" as its
+ * own co-mention any more than a title format can be built from it. */
+function buildCoMentionDisplay(score: NicheScore): { artist: string; pct: number }[] {
+  const raw = (score.patterns?.topCoMentions as { artist: string; pct: number }[] | undefined) ?? [];
+  const primaryNormalized = normalizeForMatch(cleanArtistName(score.artistName));
+  const seen = new Set<string>();
+  const out: { artist: string; pct: number }[] = [];
+  for (const c of raw) {
+    const cleaned = cleanArtistName(c.artist);
+    if (!cleaned) continue;
+    const norm = normalizeForMatch(cleaned);
+    if (norm === primaryNormalized || seen.has(norm)) continue;
+    seen.add(norm);
+    out.push({ artist: titleCase(cleaned), pct: c.pct });
+    if (out.length >= CO_MENTION_DISPLAY_LIMIT) break;
+  }
+  return out;
+}
+
+function toCandidate(score: NicheScore, source: NicheCandidate["source"]): NicheCandidate {
+  const patterns = score.patterns as { topCoMentions?: { artist: string }[]; freePrefixPct?: number };
+  const titleFormatExample = buildWinningTitleFormat(score.artistName, patterns.topCoMentions, patterns.freePrefixPct);
+  const example = findSmallChannelExample(score.topVideos);
+  return {
+    score,
+    source,
+    topCoMentions: buildCoMentionDisplay(score),
+    titleFormatExample,
+    realExampleTitle: example?.title ?? null,
+  };
+}
+
+async function buildNicheCandidates(
+  supabase: SupabaseClient,
+  nicheScores: NicheScore[],
+  expansionRecommendations: ExpansionPick[],
+  genre: string | null,
+  channelSubs: number,
+  excludeLaneId: string | null
+): Promise<NicheCandidate[]> {
+  const byLaneId = new Map<string, NicheCandidate>();
+
+  const consider = (score: NicheScore, source: NicheCandidate["source"]) => {
+    if (score.laneId === excludeLaneId) return;
+    if (byLaneId.has(score.laneId)) return; // first source to introduce a lane keeps its label
+    byLaneId.set(score.laneId, toCandidate(score, source));
+  };
+
+  // (a) the channel's own detected niches that aren't saturated/weak
+  for (const s of nicheScores) {
+    if (s.opportunity >= NICHE_CANDIDATE_MIN_OPPORTUNITY) consider(s, "own");
+  }
+
+  // (b) co-mention proximity expansion picks — already computed above
+  for (const pick of expansionRecommendations) consider(pick.score, "expansion");
+
+  // (c) top open niches in the channel's genre from lane_analyses
+  if (genre?.trim()) {
+    const { data: genreLanes } = await supabase
+      .from("lanes")
+      .select("id, slug, display_name")
+      .ilike("genre_hint", genre.trim());
+    const candidates = ((genreLanes ?? []) as { id: string; slug: string; display_name: string }[]).filter(
+      (l) => !byLaneId.has(l.id) && l.id !== excludeLaneId
+    );
+    const scored = (
+      await Promise.all(candidates.map((l) => scoreLane(supabase, l.id, l.display_name, l.slug, channelSubs)))
+    ).filter((s): s is NicheScore => s !== null);
+    for (const s of scored) {
+      if (s.opportunity >= NICHE_CANDIDATE_MIN_OPPORTUNITY) consider(s, "genre");
+    }
+  }
+
+  return [...byLaneId.values()]
+    .sort((a, b) => b.score.opportunity - a.score.opportunity)
+    .slice(0, NICHE_CANDIDATE_LIMIT);
+}
+
 // ── Step 6 — rising windows ────────────────────────────────────────────
 // Wired to the real Phase 1 momentum engine (lib/momentum/rising.ts's
 // detectRisingWindows over public.watchlist_artists / artist_momentum_snapshots)
@@ -763,92 +882,36 @@ async function getRisingWindows(
   }
 }
 
-// ── Step 7 — title rewrite ────────────────────────────────────────────
-// Deterministic string manipulation only, no LLM: takes the worst-performing
-// recent upload and rewrites it into the winning format for the channel's
-// best-performing detected niche.
-
+// Title rewrite (formerly Step 7) was removed — the curator-picked action
+// plan's title formats (Step 10/report route) already show the right
+// structure, so a separate rewrite suggestion was redundant. QUOTED_NAME_RE/
+// FREE_PREFIX_RE stay: the diagnosis engine's titleHasWinnerPattern below
+// still needs both.
 const QUOTED_NAME_RE = /["'“”‘’](.+?)["'“”‘’]/;
+const FREE_PREFIX_RE = /\[\s*free\s*\]/i;
 
-function extractBeatName(title: string): string {
-  const quoted = title.match(QUOTED_NAME_RE);
-  if (quoted?.[1]?.trim()) return quoted[1].trim();
-
-  const stripped = title
-    .replace(/\[?free\]?/gi, "")
-    .replace(/\btype\s*beat\b/gi, "")
-    .replace(/\bx\b/gi, "")
-    .replace(/[-–—|[\]()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return stripped || "Untitled";
-}
-
-/** Shared by buildTitleRewrite and Step 9's generateExperiment — both need
- * "who does this niche's own winner data pair best with," and both should
- * fall back the same way (the channel's own second niche) when there's no
- * stored co-mention data to point to, rather than each picking differently. */
+/** Used by Step 9's generateExperiment for the discoverability bet's
+ * co-mention suggestion. Delegates the actual "find a valid, non-self
+ * co-mention" lookup to lib/lanes/nicheMatch.ts's pickTitleFormatCoMention
+ * (shared with Step 10's title-format builder, and where the self-match bug
+ * fix lives) and adds its own fallback on top: the channel's own second
+ * niche, when there's no stored co-mention data to point to at all. */
 function pickCoMentionPartner(
   best: DetectedNiche,
   bestScore: NicheScore | undefined,
   niches: DetectedNiche[]
 ): string | null {
-  const topCoMention = (bestScore?.patterns?.topCoMentions as { artist: string }[] | undefined)?.[0];
-  return topCoMention ? titleCase(cleanArtistName(topCoMention.artist)) : niches[1]?.artistName ?? null;
-}
-
-function buildTitleRewrite(
-  uploads: RecentUpload[],
-  niches: DetectedNiche[],
-  nicheScores: NicheScore[]
-): TitleRewrite | null {
-  if (!uploads.length || !niches.length) return null;
-
-  const worst = [...uploads].sort((a, b) => a.viewsPerDay - b.viewsPerDay)[0];
-  const best = niches[0]; // already sorted by totalViewsPerDay desc
-
-  const bestScore = best.laneId ? nicheScores.find((s) => s.laneId === best.laneId) : undefined;
-  const coMention = pickCoMentionPartner(best, bestScore, niches);
-
-  const beatName = extractBeatName(worst.title);
-  const rewrittenTitle = coMention
-    ? `[FREE] ${best.artistName} x ${coMention} Type Beat "${beatName}"`
-    : `[FREE] ${best.artistName} Type Beat "${beatName}"`;
-
-  return { originalTitle: worst.title, rewrittenTitle, bestNicheName: best.artistName };
-}
-
-// Fix 4 — before generating a rewrite, check whether the best niche's own
-// uploads already follow the winning format ([FREE] + artist name +
-// co-mention with the niche's top co-mentioned artist). If a majority
-// already do, a rewrite suggestion would be cosmetic — the real gap is
-// niche selection, not titling, so the caller should say that instead.
-const FREE_PREFIX_RE = /\[\s*free\s*\]/i;
-
-function computeTitleRewriteNeeded(bestNiche: DetectedNiche, bestScore: NicheScore | undefined): boolean {
-  if (!bestNiche.videos.length) return true;
-
-  const topCoMention = (bestScore?.patterns?.topCoMentions as { artist: string }[] | undefined)?.[0];
-  const coMentionNorm = topCoMention ? normalizeForMatch(cleanArtistName(topCoMention.artist)) : null;
-  const artistNorm = normalizeForMatch(bestNiche.artistName);
-
-  const matches = bestNiche.videos.filter((v) => {
-    const titleNorm = normalizeForMatch(v.title);
-    const hasFree = FREE_PREFIX_RE.test(v.title);
-    const hasArtist = titleNorm.includes(artistNorm);
-    const hasCoMention = coMentionNorm ? titleNorm.includes(coMentionNorm) : false;
-    return hasFree && hasArtist && hasCoMention;
-  }).length;
-
-  return matches / bestNiche.videos.length <= 0.5;
+  const patterns = bestScore?.patterns as { topCoMentions?: { artist: string }[] } | undefined;
+  const coMention = pickTitleFormatCoMention(best.artistName, patterns?.topCoMentions);
+  return coMention ?? niches[1]?.artistName ?? null;
 }
 
 // ── Step 8 — diagnosis engine ────────────────────────────────────────────
 // The report headline: a rules ladder, first match wins, rendered above
 // Section 1 as one root cause instead of a wall of stats. Reuses data
 // already computed above (detectedNiches, nicheScores/benchmark from Step 5,
-// the same FREE_PREFIX_RE/QUOTED_NAME_RE Step 7 uses) rather than
-// recomputing any of it.
+// the same FREE_PREFIX_RE/QUOTED_NAME_RE above) rather than recomputing any
+// of it.
 
 export type DiagnosisType = "expansion" | "concentration" | "discoverability" | "positioning" | "consistency" | "scale";
 
@@ -867,10 +930,9 @@ const MIN_CONSISTENT_UPLOADS = 4;
 
 /** A title "has a winner pattern" if it uses any of the three signals real
  * winning titles in this genre lean on — [FREE], a co-mention, or a quoted
- * beat name. Channel-wide (every upload, not just the best niche's), unlike
- * Fix 4's computeTitleRewriteNeeded, which is deliberately scoped to one
- * niche's specific top co-mention — this is a coarser, whole-channel signal
- * for the discoverability rule below. */
+ * beat name. Channel-wide (every upload, not scoped to one niche's specific
+ * top co-mention) — a coarser, whole-channel signal for the discoverability
+ * rule below. */
 function titleHasWinnerPattern(title: string): boolean {
   return FREE_PREFIX_RE.test(title) || QUOTED_NAME_RE.test(title) || extractCoMention(title) !== null;
 }
@@ -1102,10 +1164,6 @@ export async function analyzeChannel(
   // Step 8 — the report headline: one root cause, first rule in the ladder to match.
   const diagnosis = buildDiagnosis(recentUploads, detectedNiches, nicheScores, bestNiche, bestScore);
 
-  // Fix 4 — skip the rewrite suggestion when the channel's titles already win.
-  const titleRewriteNeeded = bestNiche ? computeTitleRewriteNeeded(bestNiche, bestScore) : true;
-  const titleRewrite = titleRewriteNeeded ? buildTitleRewrite(recentUploads, detectedNiches, nicheScores) : null;
-
   // Fix 2 — mono-niche (or a tight co-mention cluster), a saturated best
   // niche, or every tracked niche reading low-opportunity all independently
   // warrant the same move: surface expansion picks instead of doubling down
@@ -1117,18 +1175,19 @@ export async function analyzeChannel(
   const allNichesWeak = nicheScores.length > 0 && nicheScores.every((s) => s.status === "red");
   const expansionRecommended = isMonoNiche || isSaturated || allNichesWeak;
 
-  let expansionRecommendations: ExpansionPick[] = [];
-  if (expansionRecommended) {
-    const excludeLaneIds = detectedNiches.map((n) => n.laneId).filter((id): id is string => !!id);
-    expansionRecommendations = await getExpansionRecommendations(
-      supabase,
-      detectedNiches,
-      nicheScores,
-      bestNiche?.genreHint ?? null,
-      excludeLaneIds,
-      channel.subscriberCount
-    );
-  }
+  // Computed unconditionally now (previously gated behind expansionRecommended)
+  // — Step 10's niche picker wants co-mention proximity candidates regardless
+  // of whether the channel structurally "needs" expansion, and Step 9's
+  // experiment generator already consumed this every time too.
+  const excludeLaneIds = detectedNiches.map((n) => n.laneId).filter((id): id is string => !!id);
+  const expansionRecommendations = await getExpansionRecommendations(
+    supabase,
+    detectedNiches,
+    nicheScores,
+    bestNiche?.genreHint ?? null,
+    excludeLaneIds,
+    channel.subscriberCount
+  );
 
   // Step 9 — the experiment is the diagnosis expressed as a testable bet.
   // Computed after expansionRecommendations so a concentration/positioning
@@ -1142,6 +1201,22 @@ export async function analyzeChannel(
     expansionRecommendations
   );
 
+  // Step 10 — the niche picker's shortlist. Priority 3/hold defaults to the
+  // channel's highest-OPPORTUNITY niche (not bestNiche, which is ranked by
+  // total velocity) — a different, deliberate ranking from everything else
+  // in this file, since "what to keep doing" should follow the opportunity
+  // score, not raw upload volume.
+  const holdScore = [...nicheScores].sort((a, b) => b.opportunity - a.opportunity)[0] ?? null;
+  const defaultHoldCandidate = holdScore ? toCandidate(holdScore, "own") : null;
+  const nicheCandidates = await buildNicheCandidates(
+    supabase,
+    nicheScores,
+    expansionRecommendations,
+    bestNiche?.genreHint ?? null,
+    channel.subscriberCount,
+    holdScore?.laneId ?? null
+  );
+
   return {
     channel,
     reportMonth: month,
@@ -1151,10 +1226,10 @@ export async function analyzeChannel(
     nicheScores,
     risingWindows,
     risingWindowsAvailable,
-    titleRewrite,
-    titleRewriteNeeded,
     expansionRecommended: expansionRecommended && expansionRecommendations.length > 0,
     expansionRecommendations,
+    nicheCandidates,
+    defaultHoldCandidate,
     limitedData: recentUploads.length < MIN_UPLOADS_FOR_FULL_ANALYSIS,
     diagnosis,
     generatedExperiment,

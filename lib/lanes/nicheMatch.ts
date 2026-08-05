@@ -4,8 +4,15 @@
 // duplicating the matcher and silently drifting from it. Both callers need
 // the same punctuation-normalization fix ("J. Cole" vs "J COLE" — see
 // normalizeForMatch) to apply identically.
+//
+// Also houses the winning-title-format builder and small-channel-example
+// lookup — both consumed by the report builder's niche picker
+// (channelAnalyzer.ts Step 10) AND the report route's plan cards, so they're
+// built from real winner data exactly once, not twice.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cleanArtistName } from "./insights";
+import { SCORE_CALIBRATION } from "./scoring";
 
 interface LaneRow {
   id: string;
@@ -102,4 +109,82 @@ export function matchAllKnownLanes(title: string, matchers: LaneMatcher[]): Lane
   }
 
   return found.sort((a, b) => a.index - b.index).map((f) => f.matcher);
+}
+
+function titleCase(s: string): string {
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ── Winning title format builder ─────────────────────────────────────────
+// Turns a niche's stored winner-pattern data into a "{Artist} x {CoMention}
+// Type Beat "{Name}"" template. Fixes a real bug found while building the
+// niche picker: patterns.ts's co-mention regex can chain through multiple
+// "x"s on a title ("MF DOOM x Joey Bada$$ x 90s Boom Bap Type Beat") and
+// capture "joey bada$$ x 90s boom bap" as one blob instead of just the real
+// artist. Naively title-casing that raw blob as "the co-mention" for a niche
+// that IS Joey Bada$$ produces "Joey Bada$$ x Joey Bada$$ X 90s Boom Bap" —
+// cleanArtistName's chain-collapse fixes the blob itself, and the explicit
+// self-comparison below catches the case where, even cleaned, the
+// "co-mention" turns out to just be the primary artist again.
+
+/** First co-mention candidate that (after cleaning) is a genuinely different
+ * artist than the primary niche — or null if every candidate turns out to
+ * be the primary artist itself (or there's no co-mention data at all). */
+export function pickTitleFormatCoMention(
+  primaryArtistName: string,
+  topCoMentions: { artist: string }[] | undefined
+): string | null {
+  const primaryNormalized = normalizeForMatch(cleanArtistName(primaryArtistName));
+  for (const candidate of topCoMentions ?? []) {
+    const cleaned = cleanArtistName(candidate.artist);
+    if (!cleaned) continue;
+    if (normalizeForMatch(cleaned) === primaryNormalized) continue; // same artist — not a real co-mention
+    return titleCase(cleaned);
+  }
+  return null;
+}
+
+/** "{prefix}{Artist} x {CoMention} Type Beat "{Name}"" — the exact template
+ * shape plan cards and the niche picker's pre-filled title format both use. */
+export function buildWinningTitleFormat(
+  primaryArtistName: string,
+  topCoMentions: { artist: string }[] | undefined,
+  freePrefixPct: number | undefined,
+  beatNamePlaceholder = "{Name}"
+): string {
+  const usesFree = (freePrefixPct ?? 0) >= 50;
+  const prefix = usesFree ? "[FREE] " : "";
+  const coMention = pickTitleFormatCoMention(primaryArtistName, topCoMentions);
+  return coMention
+    ? `${prefix}${primaryArtistName} x ${coMention} Type Beat "${beatNamePlaceholder}"`
+    : `${prefix}${primaryArtistName} Type Beat "${beatNamePlaceholder}"`;
+}
+
+// ── Small-channel example lookup ─────────────────────────────────────────
+// A real, citable title from a niche's stored top_videos — used both for
+// the report route's plan-card receipts ("an 812-sub channel took #2...")
+// and the niche picker's "current winning title format example."
+
+export interface SmallChannelExample {
+  /** 1-indexed position in topVideos, which lib/lanes/pipeline.ts already
+   * stores ranked by views/day desc — so this "#N" is the video's real rank
+   * among this niche's top performers, not a made-up number. */
+  rank: number;
+  subscriberCount: number;
+  title: string;
+}
+
+export function findSmallChannelExample(topVideos: unknown[]): SmallChannelExample | null {
+  const videos = topVideos as { subscriberCount?: number; title?: string }[];
+  for (let i = 0; i < videos.length; i++) {
+    const v = videos[i];
+    if (
+      typeof v.subscriberCount === "number" &&
+      v.subscriberCount < SCORE_CALIBRATION.smallChannelSubThreshold &&
+      typeof v.title === "string"
+    ) {
+      return { rank: i + 1, subscriberCount: v.subscriberCount, title: v.title };
+    }
+  }
+  return null;
 }
