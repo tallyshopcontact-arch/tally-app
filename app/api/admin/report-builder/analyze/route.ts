@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabase";
 import { analyzeChannel } from "@/lib/reports/channelAnalyzer";
+import { upsertTrackedChannel } from "@/lib/reports/channelTracking";
 import { reserveQuota } from "@/lib/lanes/db";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +52,21 @@ export async function POST(req: NextRequest) {
 
   try {
     const analysis = await analyzeChannel(supabase, channelUrl, month, year);
+
+    // Auto-enrollment (Phase 1 channel snapshot history) — every channel run
+    // through the report builder starts accumulating daily snapshot history
+    // immediately, no separate registration step. Best-effort: an enrollment
+    // failure must not fail the analysis response the admin is waiting on.
+    try {
+      await upsertTrackedChannel(supabase, {
+        channelId: analysis.channel.channelId,
+        channelName: analysis.channel.channelName,
+        subscriberCount: analysis.channel.subscriberCount,
+      });
+    } catch (enrollErr) {
+      console.error("[report-builder/analyze] tracked_channels auto-enrollment failed:", enrollErr);
+    }
+
     return NextResponse.json({ analysis });
   } catch (err) {
     console.error("[report-builder/analyze] failed:", err);

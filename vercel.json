@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/lane-refresh",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/track-channels",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/momentum-snapshot",
+      "schedule": "0 6 * * 0"
     }
   ]
 }

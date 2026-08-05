@@ -5,9 +5,18 @@
 // artist to target" tip).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { normalizeLaneSlug } from "./db";
+// Extension-explicit (allowImportingTsExtensions in tsconfig.json) so this
+// file is directly importable by a plain `node scripts/*.ts` run, not just
+// through the Next.js bundler — see scripts/seed-watchlist.ts.
+import { normalizeLaneSlug } from "./db.ts";
 
 export interface TrendingArtist {
+  artist: string;
+  count: number;
+}
+
+export interface GenreCoMentionCount {
+  /** Lowercase, as stored in patterns.topCoMentions — not title-cased. */
   artist: string;
   count: number;
 }
@@ -16,10 +25,17 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export async function getTrendingCoMentionedArtists(
+/** Raw genre-wide co-mention aggregation — every lane checked under this
+ * genre, summed by how often each artist shows up in their winners'
+ * co-mentions. No filtering of already-laned artists: that's specific to
+ * getTrendingCoMentionedArtists's "new artist to target" use case below.
+ * The report builder's expansion-recommendation neighborhood (see
+ * lib/reports/channelAnalyzer.ts) wants the opposite — laned artists are
+ * exactly the ones it can recommend — so it calls this directly instead. */
+export async function getGenreCoMentionCounts(
   supabase: SupabaseClient,
   genre: string | null
-): Promise<TrendingArtist[]> {
+): Promise<GenreCoMentionCount[]> {
   if (!genre?.trim()) return [];
 
   const { data: checks } = await supabase
@@ -48,16 +64,25 @@ export async function getTrendingCoMentionedArtists(
       counts.set(c.artist, (counts.get(c.artist) ?? 0) + (c.count ?? 0));
     }
   }
-  if (!counts.size) return [];
 
-  const candidates = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([artist, count]) => ({ artist, count }));
+}
 
-  const candidateSlugs = candidates.map(([artist]) => normalizeLaneSlug(artist)).filter(Boolean);
+export async function getTrendingCoMentionedArtists(
+  supabase: SupabaseClient,
+  genre: string | null
+): Promise<TrendingArtist[]> {
+  const candidates = await getGenreCoMentionCounts(supabase, genre);
+  if (!candidates.length) return [];
+
+  const candidateSlugs = candidates.map((c) => normalizeLaneSlug(c.artist)).filter(Boolean);
   const { data: existingLanes } = await supabase.from("lanes").select("slug").in("slug", candidateSlugs);
   const existingSlugs = new Set((existingLanes as { slug: string }[] | null)?.map((l) => l.slug) ?? []);
 
   return candidates
-    .filter(([artist]) => !existingSlugs.has(normalizeLaneSlug(artist)))
+    .filter((c) => !existingSlugs.has(normalizeLaneSlug(c.artist)))
     .slice(0, 3)
-    .map(([artist, count]) => ({ artist: titleCase(artist), count }));
+    .map((c) => ({ artist: titleCase(c.artist), count: c.count }));
 }

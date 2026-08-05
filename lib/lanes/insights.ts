@@ -32,10 +32,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LaneAnalysis } from "./types";
-import { getLatestAnalysis, getPriorAnalysis } from "./db";
-import { computeStatus, daysSincePublish, viewsPerDay } from "./scoring";
-import { extractCoMention, normalizeArtistName, type PatternStats } from "./patterns";
-import { getTrendingCoMentionedArtists, type TrendingArtist } from "./trending";
+// Extension-explicit (allowImportingTsExtensions in tsconfig.json) so this
+// file is directly importable by a plain `node scripts/*.ts` run, not just
+// through the Next.js bundler — see scripts/seed-watchlist.ts.
+import { getLatestAnalysis, getPriorAnalysis } from "./db.ts";
+import { computeStatus, daysSincePublish, viewsPerDay } from "./scoring.ts";
+import { extractCoMention, normalizeArtistName, type PatternStats } from "./patterns.ts";
+import { getTrendingCoMentionedArtists, type TrendingArtist } from "./trending.ts";
 
 export type InsightType =
   // Displayed, in this fixed order:
