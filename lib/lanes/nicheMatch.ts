@@ -49,7 +49,18 @@ export async function fetchLaneMatchers(supabase: SupabaseClient): Promise<LaneM
         slug: lane.slug,
         displayName: lane.display_name,
         genreHint: lane.genre_hint,
-        regex: new RegExp(`\\b${escapeRegExp(normalizeForMatch(name))}\\b`, "i"),
+        // Lookaround boundaries, not \b — \b anchors on a word/non-word
+        // transition, which silently fails for a name ending in a
+        // non-word character. "Joey Bada$$" normalizes to "joey bada$$";
+        // \b right after "$$" never matches (both "$" and the space/end
+        // after it are non-word, so there's no transition for \b to
+        // anchor on), so the whole regex NEVER matches "Joey Bada$$ Type
+        // beat" even though the text is right there — found verifying
+        // this exact channel. (?<![a-z0-9]) / (?![a-z0-9]) require only
+        // that a letter/digit doesn't sit directly against the match,
+        // which still blocks "wayne" matching inside "dwayne" the same
+        // way \b did, but doesn't choke on trailing punctuation.
+        regex: new RegExp(`(?<![a-z0-9])${escapeRegExp(normalizeForMatch(name))}(?![a-z0-9])`, "i"),
       });
     }
   }
@@ -58,14 +69,37 @@ export async function fetchLaneMatchers(supabase: SupabaseClient): Promise<LaneM
   return matchers.sort((a, b) => b.displayName.length - a.displayName.length);
 }
 
-export function matchKnownLane(title: string, matchers: LaneMatcher[]): LaneMatcher | null {
+/** Every distinct lane mentioned in a title, not just the best/first one —
+ * "Boldy James x Larry June x Roc Marciano Type Beat" must return all three,
+ * so a co-mention title counts toward every niche it names rather than
+ * crediting only whichever artist happens to match first. Returned in the
+ * order each name appears in the title (title order, not matcher-list order).
+ *
+ * Still respects the "longest name wins" collision rule a single-match
+ * lookup needed (e.g. "Lil Wayne" shouldn't also separately credit a
+ * hypothetical "Wayne" lane): matchers are pre-sorted longest-display-name
+ * first by fetchLaneMatchers, and a shorter match whose span overlaps a
+ * longer match already claimed in this title is skipped rather than counted
+ * as a second, spurious artist. */
+export function matchAllKnownLanes(title: string, matchers: LaneMatcher[]): LaneMatcher[] {
   const normalizedTitle = normalizeForMatch(title);
-  let best: { matcher: LaneMatcher; index: number } | null = null;
+  const claimed: { start: number; end: number }[] = [];
+  const seenLaneIds = new Set<string>();
+  const found: { matcher: LaneMatcher; index: number }[] = [];
+
   for (const m of matchers) {
+    if (seenLaneIds.has(m.laneId)) continue; // already matched via a different alias earlier in the list
     const match = m.regex.exec(normalizedTitle);
-    if (match && (best === null || match.index < best.index)) {
-      best = { matcher: m, index: match.index };
-    }
+    if (!match) continue;
+
+    const start = match.index;
+    const end = start + match[0].length;
+    if (claimed.some((c) => start < c.end && end > c.start)) continue; // overlaps an already-claimed (longer) match
+
+    claimed.push({ start, end });
+    seenLaneIds.add(m.laneId);
+    found.push({ matcher: m, index: start });
   }
-  return best?.matcher ?? null;
+
+  return found.sort((a, b) => a.index - b.index).map((f) => f.matcher);
 }

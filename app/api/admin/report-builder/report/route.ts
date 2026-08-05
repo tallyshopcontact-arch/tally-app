@@ -77,18 +77,49 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  green: "a strong opportunity",
-  yellow: "a moderate opportunity",
-  red: "a tough lane right now",
-};
+// Fix 2 — a low absolute score with no trend data is a different claim than
+// a declining niche. computeStatus (lib/lanes/scoring.ts) only ever sees the
+// current opportunity number, so its "red" tells us nothing about whether
+// this is a niche in decline or one that's simply always scored low and
+// hasn't been re-analyzed yet. "Exit" implies the former; without a prior
+// saturation reading to confirm it, this reports "Tough" instead — still a
+// real warning, but not a claim TALLY can't yet back up. green/yellow never
+// needed this distinction, so they pass straight through.
+type ReportStatusKey = "open" | "hold" | "tough" | "exit";
 
-const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  green: { label: "Open", color: "#10B981", bg: "rgba(16,185,129,0.12)" },
-  yellow: { label: "Hold", color: "#F59E0B", bg: "rgba(245,158,11,0.12)" },
-  red: { label: "Exit", color: "#EF4444", bg: "rgba(239,68,68,0.12)" },
-};
+interface ReportStatus {
+  key: ReportStatusKey;
+  label: string;
+  color: string;
+  bg: string;
+  /** Replaces the old flat STATUS_LABEL lookup — "tough" and "exit" now read
+   * differently since one is a confirmed decline and the other isn't. */
+  narrative: string;
+}
+
+const OPEN_COLOR = { color: "#10B981", bg: "rgba(16,185,129,0.12)" };
+const HOLD_COLOR = { color: "#F59E0B", bg: "rgba(245,158,11,0.12)" };
+const LOW_COLOR = { color: "#EF4444", bg: "rgba(239,68,68,0.12)" };
 const UNTRACKED_BADGE = { label: "Untracked", color: "#475569", bg: "rgba(71,85,105,0.14)" };
+
+function getNicheReportStatus(score: NicheScore): ReportStatus {
+  if (score.status === "green") {
+    return { key: "open", label: "Open", ...OPEN_COLOR, narrative: "a strong opportunity" };
+  }
+  if (score.status === "yellow") {
+    return { key: "hold", label: "Hold", ...HOLD_COLOR, narrative: "a moderate opportunity" };
+  }
+  // status === "red" (opportunity < 40) — Fix 2's split.
+  if (score.priorSaturation === null) {
+    return {
+      key: "tough",
+      label: "Tough",
+      ...LOW_COLOR,
+      narrative: "a tough lane right now — no trend data yet to call it a decline",
+    };
+  }
+  return { key: "exit", label: "Exit", ...LOW_COLOR, narrative: "a lane trending down, with a measurable decline" };
+}
 
 // ── Report builder ───────────────────────────────────────────────────────
 
@@ -96,8 +127,17 @@ function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: n
   const monthYear = monthLabel(month, year);
 
   const uploads = analysis.recentUploads;
-  const nicheByVideoId = new Map<string, DetectedNiche>();
-  for (const n of analysis.detectedNiches) for (const v of n.videos) nicheByVideoId.set(v.videoId, n);
+  // Fix 1 — a video can land in more than one niche group now (a co-mention
+  // title counts toward every artist it names), so this maps to an array,
+  // not a single DetectedNiche.
+  const nicheByVideoId = new Map<string, DetectedNiche[]>();
+  for (const n of analysis.detectedNiches) {
+    for (const v of n.videos) {
+      const list = nicheByVideoId.get(v.videoId) ?? [];
+      list.push(n);
+      nicheByVideoId.set(v.videoId, list);
+    }
+  }
   const nicheScoreByLaneId = new Map(analysis.nicheScores.map((s) => [s.laneId, s]));
 
   const bestNiche = analysis.detectedNiches[0] ?? null;
@@ -197,6 +237,7 @@ function buildCoverHeader(analysis: ChannelAnalysis, monthYear: string, genreLab
 // that turns them into markup, escaping both since they can embed a
 // channel-sourced niche/artist name.
 const DIAGNOSIS_EYEBROW: Record<Diagnosis["type"], string> = {
+  expansion: "The Diagnosis · Expansion",
   concentration: "The Diagnosis · Concentration",
   discoverability: "The Diagnosis · Discoverability",
   positioning: "The Diagnosis · Positioning",
@@ -213,26 +254,39 @@ function buildDiagnosisHeadline(diagnosis: Diagnosis): string {
   </div>`;
 }
 
+// Fix 1 — a video can carry several niches now ("Boldy James x Larry June x
+// Roc Marciano Type Beat" lands in all three), so this names every one of
+// them, then adds the score detail for whichever named niche actually has
+// lane data (the first one found, in title order) rather than picking just
+// one to describe and silently dropping the rest.
 function videoNicheCommentary(
   video: RecentUpload | null,
-  nicheByVideoId: Map<string, DetectedNiche>,
+  nicheByVideoId: Map<string, DetectedNiche[]>,
   nicheScoreByLaneId: Map<string, NicheScore>
 ): string {
   if (!video) return "";
-  const niche = nicheByVideoId.get(video.videoId);
-  if (!niche) return "This upload didn&#39;t match a niche TALLY currently tracks.";
-  if (!niche.laneId) {
-    return `This upload landed in your <strong>${escapeHtml(niche.artistName)}</strong> niche — TALLY doesn&#39;t have lane data for it yet (untracked niche).`;
+  const niches = nicheByVideoId.get(video.videoId) ?? [];
+  if (!niches.length) return "This upload didn&#39;t match a niche TALLY currently tracks.";
+
+  const names = niches.map((n) => `<strong>${escapeHtml(n.artistName)}</strong>`).join(", ");
+  const nicheWord = niches.length > 1 ? "niches" : "niche";
+
+  const scoredNiche = niches.find((n) => n.laneId && nicheScoreByLaneId.has(n.laneId));
+  if (!scoredNiche) {
+    const allUntracked = niches.every((n) => !n.laneId);
+    return allUntracked
+      ? `This upload landed in your ${names} ${nicheWord} — TALLY doesn&#39;t have lane data for ${niches.length > 1 ? "these yet (untracked niches)" : "it yet (untracked niche)"}.`
+      : `This upload landed in your ${names} ${nicheWord}.`;
   }
-  const score = nicheScoreByLaneId.get(niche.laneId);
-  if (!score) return `This upload landed in your <strong>${escapeHtml(niche.artistName)}</strong> niche.`;
-  return `This upload landed in your <strong>${escapeHtml(niche.artistName)}</strong> niche — currently ${STATUS_LABEL[score.status]} at <strong>${score.opportunity}/100</strong> (saturation ${score.saturation}/100).`;
+  const score = nicheScoreByLaneId.get(scoredNiche.laneId!)!;
+  const status = getNicheReportStatus(score);
+  return `This upload landed in your ${names} ${nicheWord} — ${escapeHtml(scoredNiche.artistName)} is currently ${status.narrative} at <strong>${score.opportunity}/100</strong> (saturation ${score.saturation}/100).`;
 }
 
 function buildSection1(
   analysis: ChannelAnalysis,
   uploads: RecentUpload[],
-  nicheByVideoId: Map<string, DetectedNiche>,
+  nicheByVideoId: Map<string, DetectedNiche[]>,
   nicheScoreByLaneId: Map<string, NicheScore>,
   monthYear: string,
   sectionNumber: number
@@ -257,8 +311,10 @@ function buildSection1(
   const hasDistinctWorst = uploads.length >= 2;
   const bestMultiplier = avgViewsPerDay > 0 ? best.viewsPerDay / avgViewsPerDay : null;
 
-  const bestNicheForBest = nicheByVideoId.get(best.videoId);
-  const bestDeltaLabel = bestNicheForBest ? `${escapeHtml(bestNicheForBest.artistName)} niche` : "Best upload";
+  const bestNichesForBest = nicheByVideoId.get(best.videoId) ?? [];
+  const bestDeltaLabel = bestNichesForBest.length
+    ? `${escapeHtml(bestNichesForBest.map((n) => n.artistName).join(" / "))} niche${bestNichesForBest.length > 1 ? "s" : ""}`
+    : "Best upload";
 
   const bwGrid = hasDistinctWorst
     ? `
@@ -437,7 +493,7 @@ function buildSection2(analysis: ChannelAnalysis, sectionNumber: number): string
         </tr>`;
       }
 
-      const badge = STATUS_BADGE[score.status];
+      const status = getNicheReportStatus(score);
       let movement: string;
       let arrowColor: string;
       let arrow: string;
@@ -471,8 +527,7 @@ function buildSection2(analysis: ChannelAnalysis, sectionNumber: number): string
         saturationNote = `Saturation is ${direction} (${score.saturation} vs ${score.priorSaturation}).`;
       }
 
-      const label = STATUS_LABEL[score.status];
-      const sentenceCased = label.charAt(0).toUpperCase() + label.slice(1);
+      const sentenceCased = status.narrative.charAt(0).toUpperCase() + status.narrative.slice(1);
       const analysisText = `${sentenceCased} at ${score.opportunity}/100. ${saturationNote}`;
 
       return `
@@ -485,7 +540,7 @@ function buildSection2(analysis: ChannelAnalysis, sectionNumber: number): string
             </div>
           </td>
           <td style="color:${arrowColor};font-weight:500">${movement}</td>
-          <td><span class="status-badge" style="background:${badge.bg};color:${badge.color}">● ${badge.label}</span></td>
+          <td><span class="status-badge" style="background:${status.bg};color:${status.color}">● ${status.label}</span></td>
           <td>${analysisText}</td>
         </tr>`;
     })
@@ -620,7 +675,7 @@ function planCardForScore(label: string, score: NicheScore): NichePlanCard {
     niche: score.artistName,
     titleFormat,
     tags,
-    note: `⚡ Opportunity score ${score.opportunity}/100 — ${STATUS_LABEL[score.status]}.`,
+    note: `⚡ Opportunity score ${score.opportunity}/100 — ${getNicheReportStatus(score).narrative}.`,
     receipt: buildReceiptLine(score),
   };
 }
@@ -674,38 +729,45 @@ function renderPlanCards(cards: NichePlanCard[]): string {
     .join("");
 }
 
-// Fix 2 — mono-niche or saturated: lead the plan with expansion picks
-// instead of re-recommending the crowded/narrow niche the channel is
-// already stuck in. The current niche becomes a hold (test-one-upload),
-// never the lead.
+// Fix 2 — mono-niche, saturated, or all-weak: lead the plan with expansion
+// picks instead of re-recommending the crowded/narrow/ceiling-capped lineup
+// the channel is already stuck in. The current niche becomes a hold
+// (test-one-upload), never the lead — and never at all if that niche is
+// itself EXIT-flagged (a confirmed decline, not just "current top niche").
 function buildExpansionActionPlan(analysis: ChannelAnalysis, numLabel: string): string {
   const topNiche = analysis.detectedNiches[0] ?? null;
   const topScore = topNiche?.laneId
     ? analysis.nicheScores.find((s) => s.laneId === topNiche.laneId)
     : undefined;
+  const topIsExit = topScore ? getNicheReportStatus(topScore).key === "exit" : false;
 
   const cards: NichePlanCard[] = analysis.expansionRecommendations.map((pick, i) =>
     planCardForExpansion(`Priority ${i + 1}`, pick)
   );
 
-  const holdLabel = `Priority ${cards.length + 1} · Hold`;
-  const holdBase: NichePlanCard = topScore
-    ? planCardForScore(holdLabel, topScore)
-    : topNiche
-    ? planCardForNiche(holdLabel, topNiche)
-    : { label: holdLabel, niche: "Current niche", titleFormat: "", tags: "", note: "" };
-  const nicheName = escapeHtml(topNiche?.artistName ?? "current");
-  cards.push({
-    ...holdBase,
-    note: `⚡ Test one upload in your existing ${nicheName} niche using the winning title format — hold, not lead.`,
-  });
+  // Fix 2 — never hold an EXIT-flagged niche, even as a "test one upload"
+  // slot. Untracked niches (no score at all) have no EXIT concept and stay
+  // holdable, same as a "Tough" niche (low score, no confirmed decline).
+  if (!topIsExit) {
+    const holdLabel = `Priority ${cards.length + 1} · Hold`;
+    const holdBase: NichePlanCard = topScore
+      ? planCardForScore(holdLabel, topScore)
+      : topNiche
+      ? planCardForNiche(holdLabel, topNiche)
+      : { label: holdLabel, niche: "Current niche", titleFormat: "", tags: "", note: "" };
+    const nicheName = escapeHtml(topNiche?.artistName ?? "current");
+    cards.push({
+      ...holdBase,
+      note: `⚡ Test one upload in your existing ${nicheName} niche using the winning title format — hold, not lead.`,
+    });
+  }
 
-  // Item 5 — the opening line names the concentration problem. When the
-  // headline diagnosis (Step 8) already identified concentration as the
+  // Item 5 — the opening line names the concentration/expansion problem.
+  // When the headline diagnosis (Step 8) already identified one as the
   // report's root cause, reuse its exact framing instead of telling the
   // same story twice in slightly different words.
   const framing =
-    analysis.diagnosis.type === "concentration"
+    analysis.diagnosis.type === "expansion" || analysis.diagnosis.type === "concentration"
       ? `${analysis.diagnosis.detail} The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`
       : topScore && topScore.saturation >= SATURATED_THRESHOLD
       ? `Your uploads are concentrated in a saturated niche (${topScore.saturation}/100). The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`
@@ -727,7 +789,21 @@ function buildSection4(analysis: ChannelAnalysis, sectionNumber: number): string
     return buildExpansionActionPlan(analysis, numLabel);
   }
 
-  const rankedScores = [...analysis.nicheScores].sort((a, b) => b.opportunity - a.opportunity);
+  // Fix 2 — the plan may only ever recommend niches the report hasn't
+  // flagged EXIT. Applies even outside the expansion-led path above: a
+  // channel with, say, 4 niches where 2 are EXIT and 2 are healthy still
+  // must not fill Section 4 with an EXIT-flagged one just because it ranks
+  // by raw opportunity.
+  const scoreByLaneId = new Map(analysis.nicheScores.map((s) => [s.laneId, s]));
+  const isExitNiche = (n: DetectedNiche): boolean => {
+    if (!n.laneId) return false; // untracked — no score, no EXIT concept
+    const score = scoreByLaneId.get(n.laneId);
+    return score ? getNicheReportStatus(score).key === "exit" : false;
+  };
+
+  const rankedScores = [...analysis.nicheScores]
+    .filter((s) => getNicheReportStatus(s).key !== "exit")
+    .sort((a, b) => b.opportunity - a.opportunity);
   const usedLaneIds = new Set<string>();
   const cards: NichePlanCard[] = [];
 
@@ -741,6 +817,7 @@ function buildSection4(analysis: ChannelAnalysis, sectionNumber: number): string
     for (const n of analysis.detectedNiches) {
       if (cards.length >= 2) break;
       if (n.laneId && usedLaneIds.has(n.laneId)) continue;
+      if (isExitNiche(n)) continue; // never fall back to an EXIT-flagged niche either
       cards.push(planCardForNiche(`Priority ${cards.length + 1}`, n));
     }
   }

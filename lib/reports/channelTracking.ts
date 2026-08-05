@@ -11,11 +11,11 @@
 // Reuses the same channels.list -> playlistItems.list -> videos.list
 // sequence as lib/reports/channelAnalyzer.ts (never search.list — 100
 // units/call vs ~1 for the playlist read) and the same lanes-table niche
-// matcher (lib/lanes/nicheMatch.ts) so a video's detected_niche here never
+// matcher (lib/lanes/nicheMatch.ts) so a video's detected_niches here never
 // disagrees with how the report builder would classify the same title.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { viewsPerDay } from "@/lib/lanes/scoring";
-import { fetchLaneMatchers, matchKnownLane } from "@/lib/lanes/nicheMatch";
+import { fetchLaneMatchers, matchAllKnownLanes } from "@/lib/lanes/nicheMatch";
 import { reserveQuota } from "@/lib/lanes/db";
 
 const YT = "https://www.googleapis.com/youtube/v3";
@@ -165,7 +165,7 @@ export interface TrackChannelResult {
 }
 
 /** Refreshes tracked_channels' name/sub count, then snapshots every video
- * published in the last 90 days: view count, views/day, and detected niche.
+ * published in the last 90 days: view count, views/day, and every matched niche.
  * Safe to call multiple times per day — the (tracked_channel_id, video_id,
  * snapshot_date) unique constraint makes a same-day re-run a no-op upsert
  * rather than a duplicate row. */
@@ -188,8 +188,13 @@ export async function trackChannel(supabase: SupabaseClient, channelId: string):
   const matchers = await fetchLaneMatchers(supabase);
   const snapshotDate = new Date().toISOString().slice(0, 10);
 
+  // Fix 1 — a title can co-mention several known artists ("Boldy James x
+  // Larry June x Roc Marciano Type Beat"), so the full matched set is stored
+  // (detected_niches), not just one. Title order from matchAllKnownLanes is
+  // preserved, so element 0 is a reasonable "primary" for anything that only
+  // wants one, without losing the rest.
   const rows = videos.map((v) => {
-    const match = matchKnownLane(v.title, matchers);
+    const matches = matchAllKnownLanes(v.title, matchers);
     return {
       tracked_channel_id: trackedChannelId,
       video_id: v.videoId,
@@ -197,7 +202,7 @@ export async function trackChannel(supabase: SupabaseClient, channelId: string):
       published_at: v.publishedAt,
       view_count: v.viewCount,
       views_per_day: v.viewsPerDay,
-      detected_niche: match?.displayName ?? null,
+      detected_niches: matches.length ? matches.map((m) => m.displayName) : null,
       snapshot_date: snapshotDate,
     };
   });

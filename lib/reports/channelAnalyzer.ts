@@ -17,7 +17,7 @@ import { getLatestAnalysis, getPriorAnalysis, normalizeLaneSlug } from "@/lib/la
 import { viewsPerDay, computeStatus, type LaneStatus } from "@/lib/lanes/scoring";
 import { cleanArtistName } from "@/lib/lanes/insights";
 import { getGenreCoMentionCounts } from "@/lib/lanes/trending";
-import { fetchLaneMatchers, matchKnownLane, normalizeForMatch, type LaneMatcher } from "@/lib/lanes/nicheMatch";
+import { fetchLaneMatchers, matchAllKnownLanes, normalizeForMatch, type LaneMatcher } from "@/lib/lanes/nicheMatch";
 import { extractCoMention } from "@/lib/lanes/patterns";
 import { detectRisingWindows } from "@/lib/momentum/rising";
 
@@ -321,48 +321,89 @@ function titleCase(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Fix 1 — a title mentioning several known artists ("Boldy James x Larry June
+// x Roc Marciano Type Beat") counts toward every one of them, not just
+// whichever matches first. Each video can land in multiple groups below —
+// videos[] on two different niches can (and should) contain the same
+// videoId when a title co-mentions both. This is also what feeds Fix 1's
+// downstream effects for free: buildStylisticNeighborhood already iterates
+// detectedNiches and excludes the channel's OWN niches from expansion
+// candidates, and scoreNiches already scores every niche with a laneId — so
+// once every co-mentioned artist actually lands in detectedNiches, the
+// neighborhood and exclusion set are automatically correct without any
+// further change there.
 function detectNiches(uploads: RecentUpload[], matchers: LaneMatcher[]): DetectedNiche[] {
   const groups = new Map<string, DetectedNiche>();
 
   for (const video of uploads) {
-    const known = matchKnownLane(video.title, matchers);
-    const fallbackArtist = known ? null : extractFallbackArtist(video.title);
-    if (!known && !fallbackArtist) continue; // nothing recognizable in this title
+    const known = matchAllKnownLanes(video.title, matchers);
+    const fallbackArtist = known.length ? null : extractFallbackArtist(video.title);
+    if (!known.length && !fallbackArtist) continue; // nothing recognizable in this title
 
-    const key = known ? `lane:${known.laneId}` : `untracked:${fallbackArtist}`;
-    let group = groups.get(key);
-    if (!group) {
-      group = known
-        ? {
-            artistName: known.displayName,
-            laneId: known.laneId,
-            slug: known.slug,
-            genreHint: known.genreHint,
-            uploadCount: 0,
-            totalViewsPerDay: 0,
-            avgViewsPerDay: 0,
-            videos: [],
-          }
-        : {
-            artistName: titleCase(fallbackArtist!),
-            laneId: null,
-            slug: null,
-            genreHint: null,
-            uploadCount: 0,
-            totalViewsPerDay: 0,
-            avgViewsPerDay: 0,
-            videos: [],
-          };
-      groups.set(key, group);
+    const matches: { key: string; matcher: LaneMatcher | null }[] = known.length
+      ? known.map((m) => ({ key: `lane:${m.laneId}`, matcher: m }))
+      : [{ key: `untracked:${fallbackArtist}`, matcher: null }];
+
+    for (const { key, matcher } of matches) {
+      let group = groups.get(key);
+      if (!group) {
+        group = matcher
+          ? {
+              artistName: matcher.displayName,
+              laneId: matcher.laneId,
+              slug: matcher.slug,
+              genreHint: matcher.genreHint,
+              uploadCount: 0,
+              totalViewsPerDay: 0,
+              avgViewsPerDay: 0,
+              videos: [],
+            }
+          : {
+              artistName: titleCase(fallbackArtist!),
+              laneId: null,
+              slug: null,
+              genreHint: null,
+              uploadCount: 0,
+              totalViewsPerDay: 0,
+              avgViewsPerDay: 0,
+              videos: [],
+            };
+        groups.set(key, group);
+      }
+      group.uploadCount += 1;
+      group.totalViewsPerDay += video.viewsPerDay;
+      group.videos.push({ videoId: video.videoId, title: video.title, viewsPerDay: video.viewsPerDay });
     }
-    group.uploadCount += 1;
-    group.totalViewsPerDay += video.viewsPerDay;
-    group.videos.push({ videoId: video.videoId, title: video.title, viewsPerDay: video.viewsPerDay });
   }
 
   return [...groups.values()]
     .map((g) => ({ ...g, avgViewsPerDay: Math.round(g.totalViewsPerDay / g.uploadCount) }))
     .sort((a, b) => b.totalViewsPerDay - a.totalViewsPerDay);
+}
+
+// Fix 1 (re-check) — now that a co-mention title counts toward every artist
+// it names, a channel that only ever posts "X x Y x Z Type Beat" ends up
+// with 3 DetectedNiche entries, not 1 — MONO_NICHE_MAX_COUNT's raw niche
+// count alone would call that "not mono-niche" and skip expansion, even
+// though X/Y/Z aren't 3 independent strategies, they're one bundle wearing
+// 3 labels. avgNichesPerUpload catches that: >= 2 means uploads routinely
+// land in more than one niche at once, i.e. a tight cluster whose fate rises
+// and falls together regardless of how many distinct niches it counts as.
+const TIGHT_CLUSTER_MIN_AVG_NICHES_PER_UPLOAD = 2;
+
+function isTightCluster(detectedNiches: DetectedNiche[], uploads: RecentUpload[]): boolean {
+  if (!uploads.length || detectedNiches.length < 2) return false;
+  const totalNicheHits = detectedNiches.reduce((sum, n) => sum + n.uploadCount, 0);
+  return totalNicheHits / uploads.length >= TIGHT_CLUSTER_MIN_AVG_NICHES_PER_UPLOAD;
+}
+
+/** Shared by expansionRecommended (analyzeChannel) and the diagnosis engine's
+ * concentration rule (Step 8) — both need the identical definition of
+ * "mono-niche" so they always agree on when the channel is concentrated,
+ * rather than silently drifting into two different thresholds. */
+function computeIsMonoNiche(detectedNiches: DetectedNiche[], uploads: RecentUpload[]): boolean {
+  const countBased = detectedNiches.length > 0 && detectedNiches.length <= MONO_NICHE_MAX_COUNT;
+  return countBased || isTightCluster(detectedNiches, uploads);
 }
 
 // ── Step 5 — score tracked niches off already-persisted lane_analyses ────
@@ -796,7 +837,7 @@ function computeTitleRewriteNeeded(bestNiche: DetectedNiche, bestScore: NicheSco
 // the same FREE_PREFIX_RE/QUOTED_NAME_RE Step 7 uses) rather than
 // recomputing any of it.
 
-export type DiagnosisType = "concentration" | "discoverability" | "positioning" | "consistency" | "scale";
+export type DiagnosisType = "expansion" | "concentration" | "discoverability" | "positioning" | "consistency" | "scale";
 
 export interface Diagnosis {
   type: DiagnosisType;
@@ -824,6 +865,7 @@ function titleHasWinnerPattern(title: string): boolean {
 function buildDiagnosis(
   uploads: RecentUpload[],
   detectedNiches: DetectedNiche[],
+  nicheScores: NicheScore[],
   bestNiche: DetectedNiche | null,
   bestScore: NicheScore | undefined
 ): Diagnosis {
@@ -831,8 +873,24 @@ function buildDiagnosis(
   const isConsistent = uploadCount >= MIN_CONSISTENT_UPLOADS;
   const benchmark = bestScore?.benchmark;
 
-  // Rule 1 — concentration: mono-niche AND the top niche is saturated.
-  const isMonoNiche = detectedNiches.length > 0 && detectedNiches.length <= MONO_NICHE_MAX_COUNT;
+  // Rule 0 — expansion: every tracked niche the channel currently makes is
+  // itself low-opportunity (status "red", < 40/100) — not just one crowded
+  // lane (rule 1 below), all of them. More uploads across the board can't
+  // fix a ceiling every one of them shares, so this outranks the narrower
+  // mono-niche/saturation rule when it applies. Requires at least one scored
+  // niche — "no data" isn't the same claim as "confirmed all-weak."
+  const allNichesWeak = nicheScores.length > 0 && nicheScores.every((s) => s.status === "red");
+  if (allNichesWeak) {
+    return {
+      type: "expansion",
+      headline: "All your current niches are saturated or low-opportunity — your growth path is expansion, not more of the same.",
+      detail: `Every niche you posted in this month — ${nicheScores.length === 1 ? nicheScores[0].artistName : `all ${nicheScores.length} of them`} — is scoring under 40/100 opportunity. More volume in these lanes won't raise a shared ceiling; the plan below leads with fresh niches your own co-mentions already point to.`,
+    };
+  }
+
+  // Rule 1 — concentration: mono-niche (or a tight X-x-Y-x-Z cluster wearing
+  // several niche labels — see computeIsMonoNiche) AND the top niche is saturated.
+  const isMonoNiche = computeIsMonoNiche(detectedNiches, uploads);
   const topSaturation = bestScore?.saturation ?? null;
   if (isMonoNiche && topSaturation !== null && topSaturation >= SATURATED_THRESHOLD && bestNiche) {
     return {
@@ -923,17 +981,22 @@ export async function analyzeChannel(
   const bestScore = bestNiche?.laneId ? nicheScores.find((s) => s.laneId === bestNiche.laneId) : undefined;
 
   // Step 8 — the report headline: one root cause, first rule in the ladder to match.
-  const diagnosis = buildDiagnosis(recentUploads, detectedNiches, bestNiche, bestScore);
+  const diagnosis = buildDiagnosis(recentUploads, detectedNiches, nicheScores, bestNiche, bestScore);
 
   // Fix 4 — skip the rewrite suggestion when the channel's titles already win.
   const titleRewriteNeeded = bestNiche ? computeTitleRewriteNeeded(bestNiche, bestScore) : true;
   const titleRewrite = titleRewriteNeeded ? buildTitleRewrite(recentUploads, detectedNiches, nicheScores) : null;
 
-  // Fix 2 — mono-niche or saturated best niche: surface expansion picks
-  // instead of doubling down on a crowded/narrow lineup.
-  const isMonoNiche = detectedNiches.length > 0 && detectedNiches.length <= MONO_NICHE_MAX_COUNT;
+  // Fix 2 — mono-niche (or a tight co-mention cluster), a saturated best
+  // niche, or every tracked niche reading low-opportunity all independently
+  // warrant the same move: surface expansion picks instead of doubling down
+  // on a crowded/narrow/ceiling-capped lineup. Mirrors buildDiagnosis's rule
+  // 0/1 exactly (computeIsMonoNiche, allNichesWeak) so the diagnosis headline
+  // and this flag never disagree about when expansion is warranted.
+  const isMonoNiche = computeIsMonoNiche(detectedNiches, recentUploads);
   const isSaturated = (bestScore?.saturation ?? 0) >= SATURATED_THRESHOLD;
-  const expansionRecommended = isMonoNiche || isSaturated;
+  const allNichesWeak = nicheScores.length > 0 && nicheScores.every((s) => s.status === "red");
+  const expansionRecommended = isMonoNiche || isSaturated || allNichesWeak;
 
   let expansionRecommendations: ExpansionPick[] = [];
   if (expansionRecommended) {
