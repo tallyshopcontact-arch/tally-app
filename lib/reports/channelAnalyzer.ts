@@ -576,6 +576,34 @@ function allowedExpansionGenres(channelGenre: string | null): Set<string> | null
   return new Set(GENRE_ADJACENCY[key] ?? [key]);
 }
 
+/** Fix 1 — the expansion/genre-open sources need a genre to anchor on, but
+ * anchoring on detectedNiches[0] ("bestNiche," ranked by total upload
+ * velocity — see analyzeChannel) picks whichever niche got the most views
+ * this month, not whichever niche actually carries a genre_hint. A channel
+ * whose top-velocity niche happens to be an untracked/unclassified lane
+ * (genreHint null) still has other niches with a real, shared genre — e.g.
+ * Ray Mickey's Earl Sweatshirt lane has no genre_hint, but 4 of the
+ * channel's other 5 niches are all "boom bap." Picking bestNiche's genre
+ * alone silenced expansion/genre-open entirely for that channel even though
+ * a perfectly good anchor genre was sitting right there. This instead takes
+ * the most common non-null genre_hint across every detected niche — the
+ * channel's actual stylistic majority, not just its single fastest niche. */
+function resolveAnchorGenre(detectedNiches: DetectedNiche[]): string | null {
+  const counts = new Map<string, { raw: string; count: number }>();
+  for (const n of detectedNiches) {
+    const key = genreKey(n.genreHint);
+    if (!key) continue;
+    const entry = counts.get(key);
+    if (entry) entry.count += 1;
+    else counts.set(key, { raw: n.genreHint as string, count: 1 });
+  }
+  let best: { raw: string; count: number } | null = null;
+  for (const entry of counts.values()) {
+    if (!best || entry.count > best.count) best = entry;
+  }
+  return best?.raw ?? null;
+}
+
 async function getLaneGenre(supabase: SupabaseClient, laneId: string): Promise<string | null> {
   const { data } = await supabase.from("lanes").select("genre_hint").eq("id", laneId).maybeSingle();
   return genreKey((data as { genre_hint?: string | null } | null)?.genre_hint);
@@ -724,7 +752,13 @@ async function getExpansionRecommendations(
   nicheScores: NicheScore[],
   genre: string | null,
   excludeLaneIds: string[],
-  channelSubs: number
+  channelSubs: number,
+  // Step 10 (picker) needs a deeper pool than Section 4's Action Plan does —
+  // callers that only want the report's display list pass
+  // MAX_EXPANSION_RECOMMENDATIONS; the picker passes NICHE_CANDIDATE_LIMIT so
+  // a saturated mono-cluster channel (few/no viable "own" candidates) still
+  // has enough expansion picks to fill up to 5 slots.
+  maxPicks: number = MAX_EXPANSION_RECOMMENDATIONS
 ): Promise<ExpansionPick[]> {
   const allowedGenres = allowedExpansionGenres(genre);
   if (!allowedGenres) return []; // channel's own genre is unknown — nothing to safely expand into
@@ -736,7 +770,7 @@ async function getExpansionRecommendations(
   const neighborhood = await buildStylisticNeighborhood(supabase, detectedNiches, nicheScores);
   const ranked = await rankNeighborhoodCandidates(supabase, neighborhood, excluded, channelSubs);
   for (const r of ranked) {
-    if (picks.length >= MAX_EXPANSION_RECOMMENDATIONS) break;
+    if (picks.length >= maxPicks) break;
     const candidateGenre = await getLaneGenre(supabase, r.score.laneId); // whitelist safety net
     if (!candidateGenre || !allowedGenres.has(candidateGenre)) continue;
     excluded.add(r.score.laneId);
@@ -744,14 +778,8 @@ async function getExpansionRecommendations(
   }
 
   // Step 3(a) — fill remaining slots from same-genre lanes only.
-  if (picks.length < MAX_EXPANSION_RECOMMENDATIONS) {
-    const fillers = await fillFromSameGenre(
-      supabase,
-      genre,
-      excluded,
-      channelSubs,
-      MAX_EXPANSION_RECOMMENDATIONS - picks.length
-    );
+  if (picks.length < maxPicks) {
+    const fillers = await fillFromSameGenre(supabase, genre, excluded, channelSubs, maxPicks - picks.length);
     for (const score of fillers) {
       const candidateGenre = await getLaneGenre(supabase, score.laneId); // whitelist safety net
       if (!candidateGenre || !allowedGenres.has(candidateGenre)) continue;
@@ -768,10 +796,19 @@ async function getExpansionRecommendations(
 // ── Step 10 — niche picker candidates ────────────────────────────────────
 // Curator model: instead of auto-computing the action plan, the admin picks
 // 2 priority niches from a ranked shortlist, each with real supporting data.
-// Sources, ranked by opportunity, deduplicated by laneId, capped at 5:
-//   (a) the channel's own detected niches that aren't saturated (opportunity >= 40)
-//   (b) co-mention proximity expansion picks (Fix 2's getExpansionRecommendations, above)
-//   (c) top open niches in the channel's genre from lane_analyses
+// Blended from three sources, ranked by opportunity, deduplicated by laneId,
+// capped at 5:
+//   (a) ALL of the channel's own detected niches, saturated ones included —
+//       hard-culling a saturated niche here would leave nothing to blend for
+//       a saturated mono-cluster channel, exactly the case expansion (b)/(c)
+//       exist for. Saturation only affects rank (opportunity-sorted) and the
+//       client-side "Saturated" label, never inclusion.
+//   (b) co-mention proximity expansion picks (Fix 2's getExpansionRecommendations,
+//       above) — called with maxPicks = NICHE_CANDIDATE_LIMIT here (deeper
+//       than Section 4's MAX_EXPANSION_RECOMMENDATIONS-capped display list),
+//       so expansion can fill most/all of the shortlist when (a) is thin or
+//       entirely saturated.
+//   (c) top open niches (opportunity >= 40) in the channel's genre from lane_analyses
 // The channel's own highest-opportunity niche (the default Priority 3/hold)
 // is excluded from the shortlist — it's already covered by the hold slot,
 // so offering it again as a "new pick" would be redundant.
@@ -779,7 +816,9 @@ async function getExpansionRecommendations(
 const NICHE_CANDIDATE_LIMIT = 5;
 // Matches computeStatus's "yellow" floor — the same "not weak" bar used
 // everywhere else in this file, so "not saturated" means the same thing
-// here that it means in the diagnosis engine and the badge logic.
+// here that it means in the diagnosis engine and the badge logic. Only
+// gates source (c) (genre-open picks, "open" by definition) — source (a)
+// is never filtered by this (see comment above).
 const NICHE_CANDIDATE_MIN_OPPORTUNITY = 40;
 const CO_MENTION_DISPLAY_LIMIT = 3;
 
@@ -833,9 +872,14 @@ async function buildNicheCandidates(
     byLaneId.set(score.laneId, toCandidate(score, source));
   };
 
-  // (a) the channel's own detected niches that aren't saturated/weak
+  // (a) the channel's own detected niches — never hard-culled by opportunity.
+  // A saturated current niche is still a real, pickable option (the producer
+  // may deliberately choose to hold it); saturation should inform its rank
+  // and its "Saturated" label (score.saturation, rendered client-side), not
+  // whether it shows up at all. Excluding it here is exactly what left the
+  // picker with a single candidate for a saturated mono-cluster channel.
   for (const s of nicheScores) {
-    if (s.opportunity >= NICHE_CANDIDATE_MIN_OPPORTUNITY) consider(s, "own");
+    consider(s, "own");
   }
 
   // (b) co-mention proximity expansion picks — already computed above
@@ -1201,15 +1245,25 @@ export async function analyzeChannel(
   // — Step 10's niche picker wants co-mention proximity candidates regardless
   // of whether the channel structurally "needs" expansion, and Step 9's
   // experiment generator already consumed this every time too.
+  //
+  // Fetched at picker depth (NICHE_CANDIDATE_LIMIT), not the report's display
+  // depth (MAX_EXPANSION_RECOMMENDATIONS) — a saturated mono-cluster channel
+  // is exactly the case where the picker needs to lean hardest on expansion
+  // to fill its 5 slots, and 2 picks isn't enough pool for that. Section 4's
+  // Action Plan still only ever shows MAX_EXPANSION_RECOMMENDATIONS of them
+  // (sliced below); the deeper pool is picker-only.
   const excludeLaneIds = detectedNiches.map((n) => n.laneId).filter((id): id is string => !!id);
-  const expansionRecommendations = await getExpansionRecommendations(
+  const anchorGenre = resolveAnchorGenre(detectedNiches);
+  const expansionCandidatePool = await getExpansionRecommendations(
     supabase,
     detectedNiches,
     nicheScores,
-    bestNiche?.genreHint ?? null,
+    anchorGenre,
     excludeLaneIds,
-    channel.subscriberCount
+    channel.subscriberCount,
+    NICHE_CANDIDATE_LIMIT
   );
+  const expansionRecommendations = expansionCandidatePool.slice(0, MAX_EXPANSION_RECOMMENDATIONS);
 
   // Step 9 — the experiment is the diagnosis expressed as a testable bet.
   // Computed after expansionRecommendations so a concentration/positioning
@@ -1233,8 +1287,8 @@ export async function analyzeChannel(
   const nicheCandidates = await buildNicheCandidates(
     supabase,
     nicheScores,
-    expansionRecommendations,
-    bestNiche?.genreHint ?? null,
+    expansionCandidatePool,
+    anchorGenre,
     channel.subscriberCount,
     holdScore?.laneId ?? null
   );
