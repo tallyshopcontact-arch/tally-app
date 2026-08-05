@@ -14,6 +14,7 @@ import type {
 } from "@/lib/reports/channelAnalyzer";
 import { monthLabel, SATURATED_THRESHOLD } from "@/lib/reports/channelAnalyzer";
 import { SCORE_CALIBRATION } from "@/lib/lanes/scoring";
+import { createServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,35 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const html = buildReportHtml(body.analysis, experiment, month, year);
-    return NextResponse.json({ html });
+    const { html, plan } = buildReportHtml(body.analysis, experiment, month, year);
+
+    // Growth-report tracking — the input side of next month's (not-yet-built)
+    // grading loop. Best-effort: a DB hiccup here must not cost the admin
+    // the HTML report they're waiting on, but it's surfaced back to the
+    // client (recommendationsSaved) rather than silently swallowed, since a
+    // silent miss here is a permanent gap next month's grading can't recover.
+    const recommendations = buildRecommendationsPayload(body.analysis, experiment, plan);
+    let recommendationsSaved = true;
+    try {
+      const supabase = createServerClient();
+      const { error: insertErr } = await supabase.from("growth_reports").upsert(
+        {
+          channel_id: body.analysis.channel.channelId,
+          channel_name: body.analysis.channel.channelName,
+          report_month: month,
+          report_year: year,
+          diagnosis_type: recommendations.diagnosisType,
+          recommendations,
+        },
+        { onConflict: "channel_id,report_month,report_year" }
+      );
+      if (insertErr) throw new Error(insertErr.message);
+    } catch (persistErr) {
+      console.error("[report-builder/report] failed to persist recommendations:", persistErr);
+      recommendationsSaved = false;
+    }
+
+    return NextResponse.json({ html, recommendationsSaved });
   } catch (err) {
     console.error("[report-builder/report] failed:", err);
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -123,7 +151,12 @@ function getNicheReportStatus(score: NicheScore): ReportStatus {
 
 // ── Report builder ───────────────────────────────────────────────────────
 
-function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: number, year: number): string {
+interface ReportBuild {
+  html: string;
+  plan: ActionPlan;
+}
+
+function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: number, year: number): ReportBuild {
   const monthYear = monthLabel(month, year);
 
   const uploads = analysis.recentUploads;
@@ -155,10 +188,11 @@ function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: n
   if (analysis.risingWindowsAvailable && analysis.risingWindows.length) {
     sections.push(buildSection3(analysis, sectionNumber++));
   }
-  sections.push(buildSection4(analysis, sectionNumber++));
+  const plan = buildActionPlanCards(analysis);
+  sections.push(buildSection4(analysis, sectionNumber++, plan));
   sections.push(buildSection5(experiment, monthYear, sectionNumber++));
 
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -187,6 +221,8 @@ ${REPORT_CSS}
 </body>
 </html>
 `;
+
+  return { html, plan };
 }
 
 function buildCoverHeader(analysis: ChannelAnalysis, monthYear: string, genreLabel: string): string {
@@ -729,12 +765,17 @@ function renderPlanCards(cards: NichePlanCard[]): string {
     .join("");
 }
 
+interface ActionPlan {
+  cards: NichePlanCard[];
+  framing: string;
+}
+
 // Fix 2 — mono-niche, saturated, or all-weak: lead the plan with expansion
 // picks instead of re-recommending the crowded/narrow/ceiling-capped lineup
 // the channel is already stuck in. The current niche becomes a hold
 // (test-one-upload), never the lead — and never at all if that niche is
 // itself EXIT-flagged (a confirmed decline, not just "current top niche").
-function buildExpansionActionPlan(analysis: ChannelAnalysis, numLabel: string): string {
+function buildExpansionPlanCards(analysis: ChannelAnalysis): ActionPlan {
   const topNiche = analysis.detectedNiches[0] ?? null;
   const topScore = topNiche?.laneId
     ? analysis.nicheScores.find((s) => s.laneId === topNiche.laneId)
@@ -773,22 +814,10 @@ function buildExpansionActionPlan(analysis: ChannelAnalysis, numLabel: string): 
       ? `Your uploads are concentrated in a saturated niche (${topScore.saturation}/100). The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`
       : `Your uploads are concentrated in a single niche. The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`;
 
-  return `
-  <div class="section">
-    <div class="section-eyebrow">${numLabel} · Action Plan</div>
-    <div class="section-title">Your Next 30 Days</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:18px;font-weight:300">${framing}</p>
-    <div class="week-grid">${renderPlanCards(cards)}</div>
-  </div>`;
+  return { cards, framing };
 }
 
-function buildSection4(analysis: ChannelAnalysis, sectionNumber: number): string {
-  const numLabel = String(sectionNumber).padStart(2, "0");
-
-  if (analysis.expansionRecommended && analysis.expansionRecommendations.length) {
-    return buildExpansionActionPlan(analysis, numLabel);
-  }
-
+function buildDefaultPlanCards(analysis: ChannelAnalysis): ActionPlan {
   // Fix 2 — the plan may only ever recommend niches the report hasn't
   // flagged EXIT. Applies even outside the expansion-led path above: a
   // channel with, say, 4 niches where 2 are EXIT and 2 are healthy still
@@ -839,14 +868,94 @@ function buildSection4(analysis: ChannelAnalysis, sectionNumber: number): string
   }
 
   const captionSuffix = hasRisingWindow ? ", plus one rising-window test." : ".";
+  const framing = `Top ${top2.length || cards.length} niche${cards.length === 1 ? "" : "s"} by opportunity${captionSuffix}`;
+  return { cards, framing };
+}
+
+/** The single source of truth for "what the 30-day plan recommends" — used
+ * both to render Section 4 and (see the POST handler) to persist the exact
+ * same cards into growth_reports.recommendations, so what the channel owner
+ * reads and what next month's grading loop checks against can never drift
+ * apart from each other. */
+function buildActionPlanCards(analysis: ChannelAnalysis): ActionPlan {
+  return analysis.expansionRecommended && analysis.expansionRecommendations.length
+    ? buildExpansionPlanCards(analysis)
+    : buildDefaultPlanCards(analysis);
+}
+
+// ── growth_reports persistence ───────────────────────────────────────────
+// Not read by anything yet — this is the input side of next month's
+// grading loop (not built this pass). Written from report #1 onward so the
+// history exists by the time the reader does.
+
+interface RecommendationsPayload {
+  diagnosisType: string;
+  experiment: {
+    text: string;
+    type: string;
+    predictedMetric: string;
+    predictedTarget: number;
+  };
+  recommendedNiches: { niche: string; priority: number; predictedAction: string }[];
+  benchmarkSnapshot: {
+    niche: string | null;
+    channelVelocity: number | null;
+    peerMedian: number | null;
+  };
+}
+
+function parsePlanPriority(label: string): number {
+  const m = label.match(/Priority (\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+/** Reuses buildActionPlanCards' output (the caller already computed it for
+ * Section 4's HTML) rather than re-deriving "what's recommended" a second
+ * way — recommendedNiches is exactly what the channel owner sees, in the
+ * same priority order, with the same predictedAction copy. */
+function buildRecommendationsPayload(
+  analysis: ChannelAnalysis,
+  experimentText: string,
+  plan: ActionPlan
+): RecommendationsPayload {
+  const bestNiche = analysis.detectedNiches[0] ?? null;
+  const bestScore = bestNiche?.laneId
+    ? analysis.nicheScores.find((s) => s.laneId === bestNiche.laneId)
+    : undefined;
+
+  return {
+    diagnosisType: analysis.diagnosis.type,
+    experiment: {
+      // The final text sent (possibly hand-edited from the auto-generated
+      // draft) — the predicted metric/target below still reflect what
+      // TALLY calculated for the auto-generated bet at generation time,
+      // since free text can't be reliably re-parsed into a grading target.
+      text: experimentText,
+      type: analysis.generatedExperiment.type,
+      predictedMetric: analysis.generatedExperiment.predictedMetric,
+      predictedTarget: analysis.generatedExperiment.predictedTarget,
+    },
+    recommendedNiches: plan.cards.map((c) => ({
+      niche: c.niche,
+      priority: parsePlanPriority(c.label),
+      predictedAction: c.note,
+    })),
+    benchmarkSnapshot: {
+      niche: bestNiche?.artistName ?? null,
+      channelVelocity: bestNiche?.avgViewsPerDay ?? null,
+      peerMedian: bestScore?.benchmark?.medianViewsPerDay ?? null,
+    },
+  };
+}
+
+function buildSection4(analysis: ChannelAnalysis, sectionNumber: number, plan: ActionPlan): string {
+  const numLabel = String(sectionNumber).padStart(2, "0");
   return `
   <div class="section">
     <div class="section-eyebrow">${numLabel} · Action Plan</div>
     <div class="section-title">Your Next 30 Days</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:18px;font-weight:300">
-      Top ${top2.length || cards.length} niche${cards.length === 1 ? "" : "s"} by opportunity${captionSuffix}
-    </p>
-    <div class="week-grid">${renderPlanCards(cards)}</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:18px;font-weight:300">${plan.framing}</p>
+    <div class="week-grid">${renderPlanCards(plan.cards)}</div>
   </div>`;
 }
 

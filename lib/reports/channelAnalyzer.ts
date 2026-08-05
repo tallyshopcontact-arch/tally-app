@@ -170,6 +170,9 @@ export interface ChannelAnalysis {
   limitedData: boolean;
   /** Step 8 — the report's headline root cause, rendered above Section 1. */
   diagnosis: Diagnosis;
+  /** Step 9 — the diagnosis expressed as a testable bet, pre-filled into the
+   * experiment textarea. Editable client-side; this is only the starting text. */
+  generatedExperiment: GeneratedExperiment;
 }
 
 // ── Step 1 — resolve channel ID from any URL format ─────────────────────
@@ -781,6 +784,19 @@ function extractBeatName(title: string): string {
   return stripped || "Untitled";
 }
 
+/** Shared by buildTitleRewrite and Step 9's generateExperiment — both need
+ * "who does this niche's own winner data pair best with," and both should
+ * fall back the same way (the channel's own second niche) when there's no
+ * stored co-mention data to point to, rather than each picking differently. */
+function pickCoMentionPartner(
+  best: DetectedNiche,
+  bestScore: NicheScore | undefined,
+  niches: DetectedNiche[]
+): string | null {
+  const topCoMention = (bestScore?.patterns?.topCoMentions as { artist: string }[] | undefined)?.[0];
+  return topCoMention ? titleCase(cleanArtistName(topCoMention.artist)) : niches[1]?.artistName ?? null;
+}
+
 function buildTitleRewrite(
   uploads: RecentUpload[],
   niches: DetectedNiche[],
@@ -792,10 +808,7 @@ function buildTitleRewrite(
   const best = niches[0]; // already sorted by totalViewsPerDay desc
 
   const bestScore = best.laneId ? nicheScores.find((s) => s.laneId === best.laneId) : undefined;
-  const topCoMention = (bestScore?.patterns?.topCoMentions as { artist: string }[] | undefined)?.[0];
-  const coMention = topCoMention
-    ? titleCase(cleanArtistName(topCoMention.artist))
-    : niches[1]?.artistName ?? null;
+  const coMention = pickCoMentionPartner(best, bestScore, niches);
 
   const beatName = extractBeatName(worst.title);
   const rewrittenTitle = coMention
@@ -953,6 +966,112 @@ function buildDiagnosis(
   };
 }
 
+// ── Step 9 — experiment generation ────────────────────────────────────────
+// The experiment isn't a separate idea from the diagnosis — it's the
+// diagnosis expressed as a testable bet, filled with this channel's real
+// numbers so the client only ever edits, never starts from a blank box.
+// Every template ends in the same grading commitment, and every prediction
+// carries a machine-readable metric/target pair alongside the prose so next
+// month's (not-yet-built) grading loop has something structured to check
+// against, not just a sentence to re-parse.
+
+export interface GeneratedExperiment {
+  text: string;
+  type: DiagnosisType;
+  predictedMetric: "views_per_day" | "views_per_day_pct_lift" | "upload_count";
+  predictedTarget: number;
+}
+
+const GRADE_LINE = "We'll grade this next month.";
+// Diagnosis rule 4's own threshold — reused here so the consistency bet asks
+// for exactly the volume the diagnosis said was missing, not a different
+// number invented separately.
+const CONSISTENCY_TARGET_UPLOADS = MIN_CONSISTENT_UPLOADS;
+const DISCOVERABILITY_LIFT_PCT = 40; // midpoint of the 30-50% range the copy quotes
+
+function scaleTargetUploads(currentUploads: number): number {
+  return Math.max(currentUploads + 2, Math.ceil(currentUploads * 1.5));
+}
+
+/** Concentration and expansion (Step 8 rules 0/1) share a bet: test the
+ * strongest available pick — a real expansion recommendation if one exists,
+ * else the channel's own second niche — against the current top niche's
+ * average. */
+function pickExpansionOrAdjacent(
+  expansionRecommendations: ExpansionPick[],
+  detectedNiches: DetectedNiche[]
+): string | null {
+  return expansionRecommendations[0]?.score.artistName ?? detectedNiches[1]?.artistName ?? null;
+}
+
+function assertNeverDiagnosisType(type: never): never {
+  throw new Error(`generateExperiment: unhandled diagnosis type "${type}"`);
+}
+
+function generateExperiment(
+  diagnosis: Diagnosis,
+  uploads: RecentUpload[],
+  detectedNiches: DetectedNiche[],
+  bestNiche: DetectedNiche | null,
+  bestScore: NicheScore | undefined,
+  expansionRecommendations: ExpansionPick[]
+): GeneratedExperiment {
+  const uploadCount = uploads.length;
+
+  switch (diagnosis.type) {
+    case "expansion":
+    case "concentration": {
+      const pick = pickExpansionOrAdjacent(expansionRecommendations, detectedNiches);
+      const currentAvg = bestNiche?.avgViewsPerDay ?? 0;
+      const text =
+        pick && bestNiche
+          ? `Test one upload in ${pick} this month, same title format. Prediction: it outperforms your ${bestNiche.artistName} average of ${currentAvg.toLocaleString()} views/day. ${GRADE_LINE}`
+          : `Test one upload in a new adjacent niche this month. Prediction: it outperforms your current average of ${currentAvg.toLocaleString()} views/day. ${GRADE_LINE}`;
+      return { text, type: diagnosis.type, predictedMetric: "views_per_day", predictedTarget: currentAvg };
+    }
+
+    case "discoverability": {
+      const partner = bestNiche ? pickCoMentionPartner(bestNiche, bestScore, detectedNiches) : null;
+      const text =
+        bestNiche && partner
+          ? `On your next upload, add a co-mention: ${bestNiche.artistName} x ${partner}. Prediction: 30–50% more views than your recent average. ${GRADE_LINE}`
+          : `On your next upload, add a co-mention and a [FREE] tag${bestNiche ? ` to your ${bestNiche.artistName} titles` : ""}. Prediction: 30–50% more views than your recent average. ${GRADE_LINE}`;
+      return {
+        text,
+        type: diagnosis.type,
+        predictedMetric: "views_per_day_pct_lift",
+        predictedTarget: DISCOVERABILITY_LIFT_PCT,
+      };
+    }
+
+    case "positioning": {
+      const pick = pickExpansionOrAdjacent(expansionRecommendations, detectedNiches);
+      const currentAvg = bestNiche?.avgViewsPerDay ?? 0;
+      const text = pick
+        ? `Test ${pick} once this month. Prediction: it beats your current per-upload average of ${currentAvg.toLocaleString()}/day. ${GRADE_LINE}`
+        : `Test one upload with a different title pattern this month. Prediction: it beats your current per-upload average of ${currentAvg.toLocaleString()}/day. ${GRADE_LINE}`;
+      return { text, type: diagnosis.type, predictedMetric: "views_per_day", predictedTarget: currentAvg };
+    }
+
+    case "consistency": {
+      const target = CONSISTENCY_TARGET_UPLOADS;
+      const nicheName = bestNiche?.artistName ?? "your best niche";
+      const text = `Post ${target} uploads this month vs your ${uploadCount} last month, all in ${nicheName}. Prediction: total monthly views up proportionally. ${GRADE_LINE}`;
+      return { text, type: diagnosis.type, predictedMetric: "upload_count", predictedTarget: target };
+    }
+
+    case "scale": {
+      const target = scaleTargetUploads(uploadCount);
+      const nicheName = bestNiche?.artistName ?? "your best niche";
+      const text = `Increase to ${target} uploads in ${nicheName} this month. Prediction: views scale with volume since your per-upload performance is already strong. ${GRADE_LINE}`;
+      return { text, type: diagnosis.type, predictedMetric: "upload_count", predictedTarget: target };
+    }
+
+    default:
+      return assertNeverDiagnosisType(diagnosis.type);
+  }
+}
+
 // ── Entry point ────────────────────────────────────────────────────────
 
 export async function analyzeChannel(
@@ -1011,6 +1130,18 @@ export async function analyzeChannel(
     );
   }
 
+  // Step 9 — the experiment is the diagnosis expressed as a testable bet.
+  // Computed after expansionRecommendations so a concentration/positioning
+  // bet can point at a real pick rather than a generic one.
+  const generatedExperiment = generateExperiment(
+    diagnosis,
+    recentUploads,
+    detectedNiches,
+    bestNiche,
+    bestScore,
+    expansionRecommendations
+  );
+
   return {
     channel,
     reportMonth: month,
@@ -1026,5 +1157,6 @@ export async function analyzeChannel(
     expansionRecommendations,
     limitedData: recentUploads.length < MIN_UPLOADS_FOR_FULL_ANALYSIS,
     diagnosis,
+    generatedExperiment,
   };
 }
