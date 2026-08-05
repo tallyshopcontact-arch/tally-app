@@ -4,7 +4,7 @@
 // tally_report_dark.html design (Nunito + Outfit, dark panel layout) as one
 // self-contained HTML string the client can preview in an iframe and download.
 import { NextRequest, NextResponse } from "next/server";
-import type { ChannelAnalysis, Diagnosis, DetectedNiche, NicheScore, RecentUpload } from "@/lib/reports/channelAnalyzer";
+import type { ChannelAnalysis, Diagnosis, DetectedNiche, NicheCandidate, NicheScore, RecentUpload } from "@/lib/reports/channelAnalyzer";
 import { monthLabel } from "@/lib/reports/channelAnalyzer";
 import { findSmallChannelExample } from "@/lib/lanes/nicheMatch";
 import { createServerClient } from "@/lib/supabase";
@@ -27,6 +27,15 @@ export async function POST(req: NextRequest) {
         month?: number;
         year?: number;
         selectedPlan?: SelectedPlan;
+        // Manual Curation mode — the client's already-scored candidates from
+        // /score-artists. Not part of ChannelAnalysis (they're scored in a
+        // later, separate request), so the client resends whichever ones it
+        // wants resolvable here — see resolveCandidateScore.
+        manualCandidates?: NicheCandidate[];
+        // "Recommend staying in current niches" — present (with non-blank
+        // notes) only when the admin explicitly chose consolidation over
+        // picking new priorities. Supersedes selectedPlan entirely when set.
+        stayInCurrentNiches?: { notes?: string };
       }
     | null;
   if (!body?.analysis) {
@@ -46,26 +55,52 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing experiment — add one before generating." }, { status: 400 });
   }
 
+  // Blank-guard, same pattern as the experiment check above: a consolidation
+  // recommendation without real reasoning isn't sending-quality either.
+  const stayNotesRaw = (body.stayInCurrentNiches?.notes ?? "").trim();
+  const stayInCurrentNiches: StayInCurrentNiches | null = body.stayInCurrentNiches
+    ? stayNotesRaw
+      ? { notes: stayNotesRaw }
+      : null
+    : null;
+  if (body.stayInCurrentNiches && !stayInCurrentNiches) {
+    return NextResponse.json(
+      { error: "Add your reasoning before generating a \"stay in current niches\" report." },
+      { status: 400 }
+    );
+  }
+
   // Curator model — same defense-in-depth as the experiment check above:
   // the picker UI already requires both before enabling Generate, but a
-  // direct API call could skip it.
+  // direct API call could skip it. Doesn't apply in consolidation mode —
+  // there's no new priority to pick there, that's the whole point.
   const selectedPlan = body.selectedPlan ?? {};
-  if (!selectedPlan.priority1?.laneId || !selectedPlan.priority2?.laneId) {
+  if (!stayInCurrentNiches && (!selectedPlan.priority1?.laneId || !selectedPlan.priority2?.laneId)) {
     return NextResponse.json(
       { error: "Missing niche selections — assign Priority 1 and Priority 2 before generating." },
       { status: 400 }
     );
   }
 
+  const manualCandidates = body.manualCandidates ?? [];
+
   try {
-    const { html, plan } = buildReportHtml(body.analysis, experiment, month, year, selectedPlan);
+    const { html, plan } = buildReportHtml(
+      body.analysis,
+      experiment,
+      month,
+      year,
+      selectedPlan,
+      manualCandidates,
+      stayInCurrentNiches
+    );
 
     // Growth-report tracking — the input side of next month's (not-yet-built)
     // grading loop. Best-effort: a DB hiccup here must not cost the admin
     // the HTML report they're waiting on, but it's surfaced back to the
     // client (recommendationsSaved) rather than silently swallowed, since a
     // silent miss here is a permanent gap next month's grading can't recover.
-    const recommendations = buildRecommendationsPayload(body.analysis, experiment, plan);
+    const recommendations = buildRecommendationsPayload(body.analysis, experiment, plan, selectedPlan, stayInCurrentNiches);
     let recommendationsSaved = true;
     try {
       const supabase = createServerClient();
@@ -171,7 +206,9 @@ function buildReportHtml(
   experiment: string,
   month: number,
   year: number,
-  selectedPlan: SelectedPlan
+  selectedPlan: SelectedPlan,
+  manualCandidates: NicheCandidate[],
+  stayInCurrentNiches: StayInCurrentNiches | null
 ): ReportBuild {
   const monthYear = monthLabel(month, year);
 
@@ -200,11 +237,21 @@ function buildReportHtml(
   const sections: string[] = [
     buildSection1(analysis, uploads, nicheByVideoId, nicheScoreByLaneId, monthYear, sectionNumber++),
     buildSection2(analysis, sectionNumber++),
+    // "Section 3" — the recommendation itself (who, why, or "stay put and
+    // why"), directly downstream of Market Intel and directly upstream of
+    // the execution plan below. Validation guarantees this always has real
+    // content by the time buildReportHtml runs (either priority1/2 or
+    // stayInCurrentNiches.notes), so unlike Rising Windows this is never
+    // conditionally omitted.
+    buildNicheRecommendationSection(analysis, manualCandidates, selectedPlan, stayInCurrentNiches, sectionNumber++),
   ];
   if (analysis.risingWindowsAvailable && analysis.risingWindows.length) {
     sections.push(buildSection3(analysis, sectionNumber++));
   }
-  const plan = buildSelectedPlanCards(analysis, selectedPlan);
+  // "Section 4" — the plan, auto-assembled downstream of Section 3's picks
+  // (or, in consolidation mode, downstream of the channel's own current
+  // niches) — no hand-writing either way.
+  const plan = buildSelectedPlanCards(analysis, selectedPlan, manualCandidates, stayInCurrentNiches);
   sections.push(buildSection4(analysis, sectionNumber++, plan));
   sections.push(buildSection5(experiment, monthYear, sectionNumber++));
 
@@ -715,6 +762,12 @@ interface ActionPlan {
 export interface SelectedPlanSlot {
   laneId: string;
   titleFormat: string;
+  /** Manual Curation mode's "why this pick" — the analyst's own reasoning
+   * for this specific priority. Optional in auto-picker mode too (nothing
+   * stops an admin from jotting one down there either); renders in Section
+   * 3 only (see buildNicheRecommendationSection), never in Section 4's
+   * execution-plan cards. */
+  notes?: string;
 }
 
 export interface SelectedPlan {
@@ -723,15 +776,40 @@ export interface SelectedPlan {
   priority3?: SelectedPlanSlot;
 }
 
-/** A selected laneId can come from any of three places the client saw it:
- * the picker shortlist, the default hold candidate (guaranteed a slot in
- * that same shortlist as of Fix 3, so this is now mostly a defensive
- * fallback), or the channel's own scored niches. */
-function resolveCandidateScore(analysis: ChannelAnalysis, laneId: string): NicheScore | null {
+/** "Recommend staying in current niches" — present only when the admin
+ * explicitly chose consolidation over picking new priorities; supersedes
+ * SelectedPlan entirely when set (see buildSelectedPlanCards and
+ * buildNicheRecommendationSection). */
+export interface StayInCurrentNiches {
+  notes: string;
+}
+
+/** A selected laneId can come from any of four places the client saw it:
+ * the auto-picker shortlist, Manual Curation mode's own scored candidates
+ * (resent by the client alongside selectedPlan — see score-artists route;
+ * these were never part of ChannelAnalysis, so there's nowhere else to find
+ * them), the default hold candidate (guaranteed a slot in the auto-picker
+ * shortlist as of Fix 3, so this is now mostly a defensive fallback), or the
+ * channel's own scored niches. */
+function resolveCandidateScore(
+  analysis: ChannelAnalysis,
+  manualCandidates: NicheCandidate[],
+  laneId: string
+): NicheScore | null {
   const fromCandidates = analysis.nicheCandidates.find((c) => c.score.laneId === laneId);
   if (fromCandidates) return fromCandidates.score;
+  const fromManual = manualCandidates.find((c) => c.score.laneId === laneId);
+  if (fromManual) return fromManual.score;
   if (analysis.defaultHoldCandidate?.score.laneId === laneId) return analysis.defaultHoldCandidate.score;
   return analysis.nicheScores.find((s) => s.laneId === laneId) ?? null;
+}
+
+/** Consolidation mode's own "picks": the channel's top 2-3 current niches
+ * by opportunity, standing in for admin-assigned priorities everywhere a
+ * priority normally would be (Section 3's cards, Section 4's plan cards).
+ * Shared by both so they can never name a different niche than each other. */
+function topOwnNichesForConsolidation(analysis: ChannelAnalysis): NicheScore[] {
+  return [...analysis.nicheScores].sort((a, b) => b.opportunity - a.opportunity).slice(0, 3);
 }
 
 /** Section 4's single source of truth now that the admin picks the plan
@@ -740,8 +818,28 @@ function resolveCandidateScore(analysis: ChannelAnalysis, laneId: string): Niche
  * what next month's grading loop checks against can't drift apart. Reuses
  * planCardForScore for the note/receipt (still real, score-derived data);
  * only titleFormat is overridden with whatever the admin edited it to in
- * the picker, falling back to the auto-computed format if left blank. */
-function buildSelectedPlanCards(analysis: ChannelAnalysis, selectedPlan: SelectedPlan): ActionPlan {
+ * the picker, falling back to the auto-computed format if left blank.
+ *
+ * Consolidation mode ("stay in current niches") bypasses selectedPlan
+ * entirely and builds cards from the channel's own top niches instead —
+ * still auto-assembled, still no hand-writing, just sourced from a
+ * different pick set. */
+function buildSelectedPlanCards(
+  analysis: ChannelAnalysis,
+  selectedPlan: SelectedPlan,
+  manualCandidates: NicheCandidate[],
+  stayInCurrentNiches: StayInCurrentNiches | null
+): ActionPlan {
+  if (stayInCurrentNiches) {
+    const cards = topOwnNichesForConsolidation(analysis).map((score, i) =>
+      planCardForScore(`Priority ${i + 1}`, score)
+    );
+    return {
+      cards,
+      framing: "Consolidating around your current niches this month instead of expanding — see the recommendation above for the reasoning.",
+    };
+  }
+
   const slots: { sel: SelectedPlanSlot | undefined; label: string }[] = [
     { sel: selectedPlan.priority1, label: "Priority 1" },
     { sel: selectedPlan.priority2, label: "Priority 2" },
@@ -751,7 +849,7 @@ function buildSelectedPlanCards(analysis: ChannelAnalysis, selectedPlan: Selecte
   const cards: NichePlanCard[] = [];
   for (const { sel, label } of slots) {
     if (!sel?.laneId) continue;
-    const score = resolveCandidateScore(analysis, sel.laneId);
+    const score = resolveCandidateScore(analysis, manualCandidates, sel.laneId);
     if (!score) continue;
     const base = planCardForScore(label, score);
     cards.push({ ...base, titleFormat: sel.titleFormat?.trim() || base.titleFormat });
@@ -761,6 +859,83 @@ function buildSelectedPlanCards(analysis: ChannelAnalysis, selectedPlan: Selecte
   // story to avoid duplicating anymore; the plan below is just the admin's
   // response to the same root cause named above it.
   return { cards, framing: analysis.diagnosis.detail };
+}
+
+// ── Section 3 — the recommendation itself ────────────────────────────────
+// New section: shows which niches got recommended (real scores, straight
+// from the same NicheScore each priority was assigned from) and why (the
+// analyst's own notes) — or, in consolidation mode, the "stay put" stance
+// and its reasoning. Section 4 (buildSelectedPlanCards/buildSection4, below)
+// is the execution plan that follows downstream from whatever this section
+// recommends — both read the exact same selectedPlan/stayInCurrentNiches
+// input, so they can never name a different niche for the same priority.
+
+function buildNicheRecommendationSection(
+  analysis: ChannelAnalysis,
+  manualCandidates: NicheCandidate[],
+  selectedPlan: SelectedPlan,
+  stayInCurrentNiches: StayInCurrentNiches | null,
+  sectionNumber: number
+): string {
+  const numLabel = String(sectionNumber).padStart(2, "0");
+
+  if (stayInCurrentNiches) {
+    const topOwn = topOwnNichesForConsolidation(analysis);
+    const nichesList = topOwn.length
+      ? topOwn.map((s) => `<strong>${escapeHtml(s.artistName)}</strong>`).join(", ")
+      : "your current niches";
+    return `
+  <div class="section">
+    <div class="section-eyebrow">${numLabel} · Recommendation</div>
+    <div class="section-title">Stay Focused, Not Spread Thin</div>
+    <div class="narrative-box" style="margin:0 0 16px;">
+      <div class="narrative-eyebrow">TALLY's Producer Recommendation</div>
+      <div class="narrative-text">Rather than expanding into something new this month, TALLY recommends staying focused in your current niches — ${nichesList}.</div>
+    </div>
+    <p class="pick-note">&quot;${escapeHtml(stayInCurrentNiches.notes)}&quot;</p>
+  </div>`;
+  }
+
+  const picks: { label: string; sel: SelectedPlanSlot | undefined }[] = [
+    { label: "Priority 1", sel: selectedPlan.priority1 },
+    { label: "Priority 2", sel: selectedPlan.priority2 },
+    { label: "Priority 3", sel: selectedPlan.priority3 },
+  ];
+
+  const cardsHtml = picks
+    .map(({ label, sel }) => {
+      if (!sel?.laneId) return "";
+      const score = resolveCandidateScore(analysis, manualCandidates, sel.laneId);
+      if (!score) return "";
+      const note = sel.notes?.trim();
+      return `
+      <div class="rec-card">
+        <div class="rec-label">${escapeHtml(label)}</div>
+        <div class="rec-artist">${escapeHtml(score.artistName)}</div>
+        <div class="rec-stats">Opportunity ${score.opportunity}/100 · Saturation ${score.saturation}/100 · Demand ${score.demand}/100 · Winnability ${score.winnability}/100</div>
+        ${note ? `<p class="pick-note">&quot;${escapeHtml(note)}&quot;</p>` : ""}
+      </div>`;
+    })
+    .join("");
+
+  // Defensive only — the POST handler already requires priority1/2 (or
+  // stayInCurrentNiches) before buildReportHtml ever runs, so this should be
+  // unreachable in practice.
+  if (!cardsHtml.trim()) {
+    return `
+  <div class="section">
+    <div class="section-eyebrow">${numLabel} · Recommendation</div>
+    <div class="section-title">Your Next Move</div>
+    <p style="font-size:13px;color:var(--sub);">No niches were selected for this report.</p>
+  </div>`;
+  }
+
+  return `
+  <div class="section">
+    <div class="section-eyebrow">${numLabel} · Recommendation</div>
+    <div class="section-title">Your Next Move</div>
+    <div class="rec-grid">${cardsHtml}</div>
+  </div>`;
 }
 
 // ── growth_reports persistence ───────────────────────────────────────────
@@ -776,12 +951,17 @@ interface RecommendationsPayload {
     predictedMetric: string;
     predictedTarget: number;
   };
-  recommendedNiches: { niche: string; priority: number; predictedAction: string }[];
+  recommendedNiches: { niche: string; priority: number; predictedAction: string; notes: string | null }[];
   benchmarkSnapshot: {
     niche: string | null;
     channelVelocity: number | null;
     peerMedian: number | null;
   };
+  /** null unless the admin chose "stay in current niches" for this report —
+   * keeps that stance (and its reasoning) in the same historical record the
+   * expansion path already gets, instead of only ever recording expansion
+   * plans. */
+  consolidation: { notes: string } | null;
 }
 
 function parsePlanPriority(label: string): number {
@@ -796,12 +976,20 @@ function parsePlanPriority(label: string): number {
 function buildRecommendationsPayload(
   analysis: ChannelAnalysis,
   experimentText: string,
-  plan: ActionPlan
+  plan: ActionPlan,
+  selectedPlan: SelectedPlan,
+  stayInCurrentNiches: StayInCurrentNiches | null
 ): RecommendationsPayload {
   const bestNiche = analysis.detectedNiches[0] ?? null;
   const bestScore = bestNiche?.laneId
     ? analysis.nicheScores.find((s) => s.laneId === bestNiche.laneId)
     : undefined;
+
+  const notesByPriority: Record<number, string | null> = {
+    1: selectedPlan.priority1?.notes?.trim() || null,
+    2: selectedPlan.priority2?.notes?.trim() || null,
+    3: selectedPlan.priority3?.notes?.trim() || null,
+  };
 
   return {
     diagnosisType: analysis.diagnosis.type,
@@ -815,16 +1003,21 @@ function buildRecommendationsPayload(
       predictedMetric: analysis.generatedExperiment.predictedMetric,
       predictedTarget: analysis.generatedExperiment.predictedTarget,
     },
-    recommendedNiches: plan.cards.map((c) => ({
-      niche: c.niche,
-      priority: parsePlanPriority(c.label),
-      predictedAction: c.note,
-    })),
+    recommendedNiches: plan.cards.map((c) => {
+      const priority = parsePlanPriority(c.label);
+      return {
+        niche: c.niche,
+        priority,
+        predictedAction: c.note,
+        notes: stayInCurrentNiches ? null : (notesByPriority[priority] ?? null),
+      };
+    }),
     benchmarkSnapshot: {
       niche: bestNiche?.artistName ?? null,
       channelVelocity: bestNiche?.avgViewsPerDay ?? null,
       peerMedian: bestScore?.benchmark?.medianViewsPerDay ?? null,
     },
+    consolidation: stayInCurrentNiches ? { notes: stayInCurrentNiches.notes } : null,
   };
 }
 
@@ -901,7 +1094,7 @@ function buildMethodologySection(analysis: ChannelAnalysis): string {
 
       <div class="method-item">
         <div class="method-label">30-Day Plan</div>
-        <div class="method-text">Priority 1, 2 & 3 are chosen by TALLY's producer from a shortlist ranked by opportunity score and co-mention proximity to your own catalog — not fully automated. Title formats are pre-filled from real top-performing videos in each niche, then reviewed and adjusted before sending.</div>
+        <div class="method-text">Priority 1, 2 & 3 are chosen by TALLY's producer from a shortlist ranked by opportunity score and co-mention proximity to your own catalog — sometimes TALLY's own suggestions, sometimes artists the producer researched directly and had TALLY score for real before recommending. Either way, every number above is a live measurement, not a guess. Title formats are pre-filled from real top-performing videos in each niche, then reviewed and adjusted before sending.</div>
       </div>
 
     </div>
@@ -1296,6 +1489,33 @@ body {
   border-radius: 6px;
   margin-top: 6px;
   line-height: 1.5;
+}
+
+.rec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.rec-card {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.rec-label {
+  font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--accent); font-weight: 500; margin-bottom: 6px;
+}
+.rec-artist {
+  font-family: 'Nunito', sans-serif;
+  font-size: 15px; font-weight: 600; color: var(--text);
+  margin-bottom: 8px;
+}
+.rec-stats { font-size: 11px; color: var(--sub); line-height: 1.5; }
+.pick-note {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--sub);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  line-height: 1.6;
 }
 
 .experiment-box {

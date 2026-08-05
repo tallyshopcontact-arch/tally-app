@@ -120,6 +120,12 @@ export interface NicheScore {
   opportunity: number;
   saturation: number;
   demand: number;
+  /** How often small (sub-threshold) channels break into this niche's top
+   * performers — lib/lanes/scoring.ts's computeWinnability, already stored
+   * on every lane_analyses row but not previously surfaced through
+   * NicheScore. Manual-mode scoring (score-artists route) is what first
+   * needed this exposed — the auto-picker never showed it directly. */
+  winnability: number;
   status: LaneStatus;
   topVideos: unknown[];
   patterns: Record<string, unknown>;
@@ -156,7 +162,10 @@ export interface RisingWindow {
  * ends up picked. */
 export interface NicheCandidate {
   score: NicheScore;
-  source: "own" | "expansion" | "genre";
+  /** "manual" — Manual Curation mode (score-artists route): a producer-
+   * researched artist name, scored with the same real pipeline as every
+   * other source, not picked by the algorithm. */
+  source: "own" | "expansion" | "genre" | "manual";
   /** Top 2-3 co-mentions performing well right now, cleaned and self-match-
    * filtered (see lib/lanes/nicheMatch.ts's pickTitleFormatCoMention). */
   topCoMentions: { artist: string; pct: number }[];
@@ -194,6 +203,13 @@ export interface ChannelAnalysis {
    * among nicheCandidates (buildNicheCandidates guarantees it a slot) so the
    * client can pre-select this laneId into Priority 3 on load. */
   defaultHoldCandidate: NicheCandidate | null;
+  /** Fix 1's most-common-genre resolution (resolveAnchorGenre) over every
+   * detected niche — persisted here rather than only living as a local in
+   * analyzeChannel so Manual Curation mode's score-artists route (called in
+   * a LATER, separate request, with only this ChannelAnalysis in hand) can
+   * anchor its own genre-adjacency/new-lane-genre logic identically instead
+   * of re-deriving it a second way. */
+  anchorGenre: string | null;
   /** Fewer than MIN_UPLOADS_FOR_FULL_ANALYSIS recent uploads were found —
    * callers should show a "limited data" note rather than a thin, overconfident report. */
   limitedData: boolean;
@@ -518,6 +534,7 @@ async function scoreLane(
     opportunity: analysis.opportunity,
     saturation: analysis.saturation,
     demand: analysis.demand,
+    winnability: analysis.winnability,
     status: computeStatus(analysis.opportunity),
     topVideos,
     patterns: (analysis.patterns as Record<string, unknown>) ?? {},
@@ -906,17 +923,28 @@ const CO_MENTION_DISPLAY_LIMIT = 3;
 /** Top co-mentions "performing well right now," cleaned and self-match-
  * filtered the same way buildWinningTitleFormat is (see
  * lib/lanes/nicheMatch.ts) — a display list can't show "Joey Bada$$" as its
- * own co-mention any more than a title format can be built from it. */
+ * own co-mention any more than a title format can be built from it.
+ *
+ * Uses cleanCoMention (the full reject filter — genre/style words, banned
+ * phrases like "sample"/"type beat"/"ft", the primary artist itself), not
+ * the bare cleanArtistName normalizer this used to call: this doc comment
+ * already claimed reject-filtered parity with buildWinningTitleFormat, but
+ * the implementation only normalized, never rejected — a stored
+ * topCoMentions entry that predates the reject-filter fix (see
+ * scripts/reclean-lanes.ts) could show a genre word as a "clean co-mention"
+ * on a candidate card even though the title-format builder correctly
+ * excluded it. Manual Curation mode's score-artists route is what surfaced
+ * this — its whole premise is "clean co-mentions," so the gap couldn't
+ * stand. */
 function buildCoMentionDisplay(score: NicheScore): { artist: string; pct: number }[] {
   const raw = (score.patterns?.topCoMentions as { artist: string; pct: number }[] | undefined) ?? [];
-  const primaryNormalized = normalizeForMatch(cleanArtistName(score.artistName));
   const seen = new Set<string>();
   const out: { artist: string; pct: number }[] = [];
   for (const c of raw) {
-    const cleaned = cleanArtistName(c.artist);
+    const cleaned = cleanCoMention(c.artist, score.artistName);
     if (!cleaned) continue;
     const norm = normalizeForMatch(cleaned);
-    if (norm === primaryNormalized || seen.has(norm)) continue;
+    if (seen.has(norm)) continue;
     seen.add(norm);
     out.push({ artist: titleCase(cleaned), pct: c.pct });
     if (out.length >= CO_MENTION_DISPLAY_LIMIT) break;
@@ -935,6 +963,92 @@ function toCandidate(score: NicheScore, source: NicheCandidate["source"]): Niche
     titleFormatExample,
     realExampleTitle: example?.title ?? null,
   };
+}
+
+// ── Manual Curation mode — score-artists route's scoring primitive ──────
+// Lets a producer supply their own researched artist names instead of
+// relying on the auto-picker; each one is scored through the exact same
+// real pipeline (scoreLane -> getNicheData -> getOrCreateLane/analyzeLane)
+// as every other candidate source, so the picks the admin chooses from are
+// real numbers, not guesses. Shares Fix 1's new-artist budget/genre-on-
+// creation mechanics — a manual name with no existing lane is exactly as
+// "new" as a co-mention-discovered one, and must be bounded by the same
+// per-request cap for the same quota reason.
+
+export const MAX_MANUAL_ARTISTS = 5;
+
+export interface ManualArtistScoreResult {
+  /** The name as the admin typed it — echoed back so the client can
+   * correlate a result (or an error) to the input row that produced it. */
+  artistName: string;
+  /** null only when scoring failed — see error. */
+  candidate: NicheCandidate | null;
+  /** True when this name had no existing lane and therefore spent one slot
+   * of this request's new-artist budget (see MAX_NEW_ARTIST_ANALYSES_PER_REPORT). */
+  isNewArtist: boolean;
+  error: string | null;
+}
+
+/** Scores up to MAX_MANUAL_ARTISTS producer-supplied names. Processes them
+ * in the order given — that order IS the admin's own priority signal here
+ * (unlike the auto-picker's frequency-ranked neighborhood), so an
+ * already-cached name never "steals" another cached name's slot, and the
+ * budget is spent on new names strictly in the order the admin listed
+ * them. */
+export async function scoreManualArtists(
+  supabase: SupabaseClient,
+  artistNames: string[],
+  anchorGenre: string | null,
+  channelSubs: number
+): Promise<ManualArtistScoreResult[]> {
+  const names = artistNames
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0)
+    .slice(0, MAX_MANUAL_ARTISTS);
+
+  const budget = newArtistBudget();
+  const results: ManualArtistScoreResult[] = [];
+
+  for (const artistName of names) {
+    // Matches exactly what getOrCreateLane (inside scoreLane -> getNicheData)
+    // will itself compute the slug as — anything else risks this pre-check
+    // disagreeing with what actually gets created/found, miscounting the
+    // budget.
+    const slug = normalizeLaneSlug(artistName);
+    const { data: existingLane } = slug
+      ? await supabase.from("lanes").select("id").eq("slug", slug).maybeSingle()
+      : { data: null };
+    const isNewArtist = !existingLane;
+
+    if (isNewArtist && budget.remaining <= 0) {
+      results.push({
+        artistName,
+        candidate: null,
+        isNewArtist: true,
+        error: `New-artist analysis cap reached for this request (max ${MAX_NEW_ARTIST_ANALYSES_PER_REPORT}) — already-tracked artists still scored fine above; try this one in a separate request.`,
+      });
+      continue;
+    }
+    if (isNewArtist) budget.remaining -= 1;
+
+    // Same rule as rankNeighborhoodCandidates: only a brand-new lane gets
+    // the anchor genre as its starting classification — an existing lane
+    // keeps whatever it was actually classified with.
+    const score = await scoreLane(supabase, artistName, isNewArtist ? anchorGenre : null, channelSubs);
+    if (!score) {
+      results.push({
+        artistName,
+        candidate: null,
+        isNewArtist,
+        error: "Could not analyze this artist — YouTube quota exhausted and no cached data on file.",
+      });
+      continue;
+    }
+
+    results.push({ artistName, candidate: toCandidate(score, "manual"), isNewArtist, error: null });
+  }
+
+  return results;
 }
 
 async function buildNicheCandidates(
@@ -1506,6 +1620,7 @@ export async function analyzeChannel(
     expansionRecommendations,
     nicheCandidates,
     defaultHoldCandidate,
+    anchorGenre,
     limitedData: recentUploads.length < MIN_UPLOADS_FOR_FULL_ANALYSIS,
     diagnosis,
     generatedExperiment,
