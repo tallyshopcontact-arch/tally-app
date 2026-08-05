@@ -40,10 +40,161 @@ export function extractCoMention(title: string): string | null {
   return m[1].trim().toLowerCase() || null;
 }
 
+// ── cleanArtistName — moved here from lib/lanes/insights.ts ─────────────
+// It's a thin wrapper over normalizeArtistName (above), so it belongs next
+// to it rather than in insights.ts, which imports normalizeArtistName FROM
+// here — insights.ts defining cleanArtistName meant nicheMatch.ts (which
+// needs both cleanArtistName and, as of this file's co-mention filter below,
+// patterns-level helpers) would have had to import from both insights.ts
+// AND patterns.ts, with insights.ts itself importing from patterns.ts —
+// one step from a real cycle. Callers: lib/lanes/insights.ts,
+// lib/lanes/nicheMatch.ts, lib/reports/channelAnalyzer.ts, scripts/seed-watchlist.ts.
+
+/** patterns.ts's own CO_MENTION_RE can chain through multiple "x"s on a
+ * title ("MF DOOM x Joey Bada$$ x 90s Boom Bap Type Beat") and capture
+ * "joey bada$$ x 90s boom bap" as one blob instead of just the real artist.
+ * Collapses that down to the first, real segment. */
+function primaryCoMentionName(raw: string): string {
+  return raw.split(/\s+x\s+/i)[0].trim();
+}
+
+/** Normalizes AND collapses any "x"-chaining artifact in one step — every
+ * co-mention artist identity anywhere in this codebase (extracted from a
+ * title, or read back from already-stored patterns.topCoMentions data)
+ * should go through this so a chained name can never slip into a sentence
+ * or silently fail to match against a cleaned name on the other side. Unlike
+ * cleanCoMention below, this never rejects — it's the general-purpose
+ * "make this string into a plausible display name" utility, used well
+ * beyond just co-mention candidates (e.g. cleaning a lane's own display
+ * name before a slug lookup). */
+export function cleanArtistName(raw: string): string {
+  return normalizeArtistName(primaryCoMentionName(raw));
+}
+
+// ── Co-mention hard-reject filter ────────────────────────────────────────
+// A raw CO_MENTION_RE capture is frequently not a real artist at all: a
+// genre/style word used as if it were one ("x West Coast Type Beat"), a
+// leaked descriptor ("x Kendrick Lamar Sample Type Beat" capturing "kendrick
+// lamar sample"), or — after cleanArtistName's chain-collapse — the lane's
+// own name re-surfacing from a chained capture. Applied inside
+// analyzePatterns below so a freshly-analyzed lane can never store a dirty
+// co-mention again, and reused by lib/lanes/nicheMatch.ts's title-format
+// builder as a second, point-of-use check for any already-stored data that
+// predates this fix (see scripts/reclean-lanes.ts for retroactively
+// cleaning existing rows in place).
+
+// Not exhaustive by construction — genres multiply — but covers the common
+// ones actually seen in real "type beat" titles across the genres this app
+// tracks. Multi-word phrases are matched as whole phrases (see
+// containsPhrase), not simple substrings, so this only needs the canonical
+// form of each.
+const GENRE_STYLE_WORDS = [
+  "west coast", "east coast", "south", "southern", "dirty south", "midwest",
+  "boom bap", "boombap", "boom-bap", "trap", "drill", "uk drill", "ny drill",
+  "chicago drill", "brooklyn drill", "lo-fi", "lofi", "lo fi", "jazz rap",
+  "jazz", "rnb", "r&b", "afrobeats", "afrobeat", "afropop", "amapiano", "melodic", "emo rap",
+  "sad rap", "underground", "old school", "new school", "phonk", "hyperpop",
+  "cloud rap", "conscious rap", "gospel rap", "christian rap", "grime",
+  "uk rap", "hip hop", "hiphop", "rap", "gospel", "country rap", "pop rap",
+  "alternative", "indie", "90s", "80s", "2000s", "y2k", "g funk", "gfunk", "g-funk",
+];
+
+const CO_MENTION_BANNED_PHRASES = ["sample", "type beat", "instrumental", "prod", "free", "bpm", "ft", "feat", "featuring"];
+
+const GENERIC_SINGLE_WORDS = new Set([
+  "type", "beat", "beats", "music", "vibes", "instru", "loop", "flip", "remix", "cover", "storytelling",
+]);
+
+function escapeRegExpForCoMention(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Whole-phrase containment, not raw substring — "west coast" matches
+ * inside "90s west coast" but "soul" does NOT match inside "soulja boy" (a
+ * real artist name), since the boundary requires a non-letter/digit on both
+ * sides of the match. Same lookaround approach as lib/lanes/nicheMatch.ts's
+ * title matcher, for the same reason: \b itself breaks around punctuation
+ * like the "$$" in "Joey Bada$$." */
+function containsPhrase(haystack: string, phrase: string): boolean {
+  const re = new RegExp(`(?<![a-z0-9])${escapeRegExpForCoMention(phrase)}(?![a-z0-9])`, "i");
+  return re.test(haystack);
+}
+
+function isPlausibleCoMentionToken(candidate: string): boolean {
+  if (!candidate) return false;
+  if (/^\d+$/.test(candidate)) return false; // pure numbers
+  if (candidate.length < 2) return false; // single character
+  const words = candidate.split(" ").filter(Boolean);
+  if (words.length === 1 && GENERIC_SINGLE_WORDS.has(words[0])) return false;
+  return true;
+}
+
+function isRejectedCoMention(candidate: string, primaryNormalized: string): boolean {
+  if (!isPlausibleCoMentionToken(candidate)) return true;
+  for (const genreWord of GENRE_STYLE_WORDS) {
+    if (containsPhrase(candidate, genreWord)) return true;
+  }
+  for (const banned of CO_MENTION_BANNED_PHRASES) {
+    if (containsPhrase(candidate, banned)) return true;
+  }
+  if (primaryNormalized && containsPhrase(candidate, primaryNormalized)) return true;
+  return false;
+}
+
+/** The full pipeline a raw CO_MENTION_RE capture goes through before it's
+ * trusted as a real co-mentioned artist: reject-filter on the raw form,
+ * chain-collapse + normalize (cleanArtistName), then reject-filter again —
+ * the cleaned form can newly match a genre word or the primary artist even
+ * when the raw chained blob didn't (e.g. "joey bada$$ x 90s boom bap"
+ * collapses to "joey bada$$", which only THEN equals the primary artist on
+ * that lane). Returns null when the candidate should be discarded entirely,
+ * never a fabricated fallback. Exported so lib/lanes/nicheMatch.ts's
+ * title-format builder and scripts/reclean-lanes.ts clean a stored
+ * candidate exactly the same way this does at analysis time. */
+export function cleanCoMention(raw: string, primaryArtistName: string): string | null {
+  const primaryNormalized = normalizeArtistName(primaryArtistName);
+  const rawNormalized = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (isRejectedCoMention(rawNormalized, primaryNormalized)) return null;
+
+  const cleaned = cleanArtistName(raw);
+  if (isRejectedCoMention(cleaned, primaryNormalized)) return null;
+
+  return cleaned;
+}
+
 export interface CoMentionStat {
   artist: string;
   count: number;
   pct: number;
+}
+
+/** Shared by analyzePatterns (live pipeline) and scripts/reclean-lanes.ts
+ * (retroactive cleanup of already-stored rows) — both just need "co-mention
+ * stats from a set of winner titles," and both must compute them exactly
+ * the same way so a recleaned row and a freshly-analyzed one can't disagree.
+ * Takes titles only (not full VideoDetails) since that's all either caller
+ * actually has: reclean-lanes.ts's stored winner_videos data doesn't carry
+ * every VideoDetails field (no durationSeconds, in particular). */
+export function recomputeCoMentions(
+  winnerTitles: string[],
+  laneArtistName: string
+): { topCoMentions: CoMentionStat[]; coMentionPct: number } {
+  const n = winnerTitles.length;
+  if (n === 0) return { topCoMentions: [], coMentionPct: 0 };
+
+  const coMentions = winnerTitles
+    .map(extractCoMention)
+    .filter((x): x is string => !!x)
+    .map((raw) => cleanCoMention(raw, laneArtistName))
+    .filter((name): name is string => !!name);
+
+  const coMentionCounts = new Map<string, number>();
+  for (const artist of coMentions) coMentionCounts.set(artist, (coMentionCounts.get(artist) ?? 0) + 1);
+  const topCoMentions: CoMentionStat[] = [...coMentionCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([artist, count]) => ({ artist, count, pct: Math.round((count / n) * 100) }));
+
+  return { topCoMentions, coMentionPct: Math.round((coMentions.length / n) * 100) };
 }
 
 export interface TagStat {
@@ -84,17 +235,10 @@ export function analyzePatterns(winnerVideos: VideoDetails[], laneArtistName: st
   const freeCount = winnerVideos.filter((v) => FREE_PREFIX_RE.test(v.title)).length;
   const quotedCount = winnerVideos.filter((v) => QUOTED_NAME_RE.test(v.title)).length;
 
-  const laneNameNormalized = normalizeArtistName(laneArtistName);
-  const coMentions = winnerVideos
-    .map((v) => extractCoMention(v.title))
-    .filter((x): x is string => !!x)
-    .map(normalizeArtistName)
-    .filter((name) => name && name !== laneNameNormalized);
-  const coMentionCounts = new Map<string, number>();
-  for (const artist of coMentions) coMentionCounts.set(artist, (coMentionCounts.get(artist) ?? 0) + 1);
-  const topCoMentions: CoMentionStat[] = [...coMentionCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([artist, count]) => ({ artist, count, pct: Math.round((count / n) * 100) }));
+  const { topCoMentions, coMentionPct } = recomputeCoMentions(
+    winnerVideos.map((v) => v.title),
+    laneArtistName
+  );
 
   const tagCounts = new Map<string, number>();
   for (const v of winnerVideos) {
@@ -131,7 +275,7 @@ export function analyzePatterns(winnerVideos: VideoDetails[], laneArtistName: st
     winnerCount: n,
     freePrefixPct: Math.round((freeCount / n) * 100),
     quotedNamePct: Math.round((quotedCount / n) * 100),
-    coMentionPct: Math.round((coMentions.length / n) * 100),
+    coMentionPct,
     topCoMentions,
     medianTitleLength: Math.round(median(winnerVideos.map((v) => v.title.length))),
     medianDurationSeconds: Math.round(median(winnerVideos.map((v) => v.durationSeconds))),

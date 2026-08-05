@@ -21,7 +21,7 @@
 //   (or: npm run seed-watchlist)
 
 import { createClient } from "@supabase/supabase-js";
-import { cleanArtistName } from "../lib/lanes/insights.ts";
+import { cleanArtistName } from "../lib/lanes/patterns.ts";
 import { getTrendingCoMentionedArtists } from "../lib/lanes/trending.ts";
 import { searchArtist } from "../lib/momentum/spotify.ts";
 

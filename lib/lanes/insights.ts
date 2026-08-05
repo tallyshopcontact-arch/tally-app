@@ -37,7 +37,7 @@ import type { LaneAnalysis } from "./types";
 // through the Next.js bundler — see scripts/seed-watchlist.ts.
 import { getLatestAnalysis, getPriorAnalysis } from "./db.ts";
 import { computeStatus, daysSincePublish, viewsPerDay } from "./scoring.ts";
-import { extractCoMention, normalizeArtistName, type PatternStats } from "./patterns.ts";
+import { extractCoMention, normalizeArtistName, cleanArtistName, type PatternStats } from "./patterns.ts";
 import { getTrendingCoMentionedArtists, type TrendingArtist } from "./trending.ts";
 
 export type InsightType =
@@ -154,27 +154,6 @@ function formatViews(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
   return String(n);
-}
-
-/** patterns.ts's CO_MENTION_RE can chain through multiple "x"s on a title
- * like "MF DOOM x Joey Bada$$ x 90s Boom Bap Type Beat" and capture
- * "joey bada$$ x 90s boom bap" as one blob instead of just the real artist.
- * Collapses that down to the first, real segment — same fix the old
- * title-generator engine used to apply (since removed along with the rest
- * of that engine), needed again here since this reads the same raw titles. */
-function primaryCoMentionName(raw: string): string {
-  return raw.split(/\s+x\s+/i)[0].trim();
-}
-
-/** Normalizes AND collapses any "x"-chaining artifact in one step — every
- * co-mention artist identity in this file (extracted locally or read back
- * from trending.ts, which sources the same patterns.topCoMentions data)
- * should go through this so a chained name can never slip into a sentence
- * or silently fail to match against a cleaned name on the other side.
- * Exported for lib/reports/channelAnalyzer.ts, which reads the same
- * patterns.topCoMentions data when picking a title-rewrite co-mention. */
-export function cleanArtistName(raw: string): string {
-  return normalizeArtistName(primaryCoMentionName(raw));
 }
 
 /** Distance from the 50% midpoint — a 50/50 split is the least notable

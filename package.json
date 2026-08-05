@@ -10,7 +10,8 @@
     "seed-lanes": "node --env-file=.env.local scripts/seed-lanes.ts",
     "seed-watchlist": "node --env-file=.env.local scripts/seed-watchlist.ts",
     "prewarm-lanes": "node --env-file=.env.local scripts/prewarm-lanes.ts",
-    "calibrate-lanes": "node --env-file=.env.local scripts/calibrate-lanes.ts"
+    "calibrate-lanes": "node --env-file=.env.local scripts/calibrate-lanes.ts",
+    "reclean-lanes": "node --env-file=.env.local scripts/reclean-lanes.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

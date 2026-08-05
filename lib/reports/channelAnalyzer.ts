@@ -13,10 +13,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractChannelId } from "@/lib/youtube";
-import { getLatestAnalysis, getPriorAnalysis, normalizeLaneSlug } from "@/lib/lanes/db";
+import { getPriorAnalysis, normalizeLaneSlug } from "@/lib/lanes/db";
 import { viewsPerDay, computeStatus, type LaneStatus } from "@/lib/lanes/scoring";
-import { cleanArtistName } from "@/lib/lanes/insights";
+import { cleanArtistName } from "@/lib/lanes/patterns";
 import { getGenreCoMentionCounts } from "@/lib/lanes/trending";
+import { getNicheData } from "@/lib/reports/nicheCache";
 import {
   fetchLaneMatchers,
   matchAllKnownLanes,
@@ -127,6 +128,10 @@ export interface NicheScore {
   priorSaturation: number | null;
   analyzedAt: string;
   benchmark: BenchmarkComparison | null;
+  /** True when this came from the shared niche cache (lib/reports/nicheCache.ts)
+   * past its freshness window because a re-analysis couldn't get quota —
+   * real data, just not current. */
+  stale: boolean;
 }
 
 /** An expansion recommendation plus the receipts that justify it (Step 4).
@@ -430,9 +435,12 @@ function computeIsMonoNiche(detectedNiches: DetectedNiche[], uploads: RecentUplo
   return countBased || isTightCluster(detectedNiches, uploads);
 }
 
-// ── Step 5 — score tracked niches off already-persisted lane_analyses ────
-// Zero new YouTube calls — getLatestAnalysis/getPriorAnalysis are Postgres
-// reads over data the lane pipeline already computed.
+// ── Step 5 — score tracked niches off the shared niche cache ────────────
+// Usually zero new YouTube calls — scoreLane reads through
+// lib/reports/nicheCache.ts's getNicheData, a Postgres read for any niche
+// whose cached lane_analyses row is still fresh (<7 days by default). Only
+// a stale or never-analyzed niche spends real quota, via the existing
+// lib/lanes/pipeline.ts analysis pipeline getNicheData calls internally.
 
 interface TopVideoLike {
   subscriberCount?: number;
@@ -476,25 +484,34 @@ function computeBenchmark(topVideos: unknown[], channelSubs: number): BenchmarkC
   };
 }
 
-/** Shared by scoreNiches (the channel's own detected niches) and Fix 2's
- * expansion picks (lanes recommendLane surfaces outside those niches) —
- * both just need "the latest stored score for this lane_id", so both go
- * through one lookup+shape instead of duplicating it. */
+/** Shared by scoreNiches (the channel's own detected niches), Fix 2's
+ * expansion picks, and Step 10's niche-picker candidates — all just need
+ * "the current cached score for this niche," so all go through one
+ * lookup+shape instead of duplicating it. Reads through
+ * lib/reports/nicheCache.ts's getNicheData rather than a direct
+ * getLatestAnalysis call — this IS the accuracy-build wiring: a report's
+ * niche data comes from the shared, freshness-checked cache (re-analyzing
+ * on demand when stale/missing), never a plain unconditional read of
+ * whatever's sitting in lane_analyses no matter how old. Takes an artist
+ * name + genre rather than a pre-resolved laneId/slug — getOrCreateLane
+ * (inside getNicheData) resolves those the same way for an existing lane or
+ * a brand-new one, so every caller gets identical behavior whether the
+ * niche has been seen before or not. */
 async function scoreLane(
   supabase: SupabaseClient,
-  laneId: string,
   artistName: string,
-  slug: string,
+  genreHint: string | null,
   channelSubs: number
 ): Promise<NicheScore | null> {
-  const analysis = await getLatestAnalysis(supabase, laneId);
-  if (!analysis) return null;
-  const prior = await getPriorAnalysis(supabase, laneId);
+  const result = await getNicheData(supabase, artistName, genreHint, {});
+  if (!result) return null;
+  const { lane, analysis, stale } = result;
+  const prior = await getPriorAnalysis(supabase, lane.id);
   const topVideos = analysis.top_videos ?? [];
   return {
-    laneId,
+    laneId: lane.id,
     artistName,
-    slug,
+    slug: lane.slug,
     opportunity: analysis.opportunity,
     saturation: analysis.saturation,
     demand: analysis.demand,
@@ -506,6 +523,7 @@ async function scoreLane(
     priorSaturation: prior?.saturation ?? null,
     analyzedAt: analysis.created_at,
     benchmark: computeBenchmark(topVideos, channelSubs),
+    stale,
   };
 }
 
@@ -516,7 +534,7 @@ async function scoreNiches(
 ): Promise<NicheScore[]> {
   const withLane = niches.filter((n): n is DetectedNiche & { laneId: string; slug: string } => !!n.laneId);
   const scores = await Promise.all(
-    withLane.map((n) => scoreLane(supabase, n.laneId, n.artistName, n.slug, channelSubs))
+    withLane.map((n) => scoreLane(supabase, n.artistName, n.genreHint, channelSubs))
   );
   return scores.filter((s): s is NicheScore => s !== null);
 }
@@ -655,7 +673,11 @@ async function rankNeighborhoodCandidates(
     const lane = laneBySlug.get(normalizeLaneSlug(candidate.displayName));
     if (!lane || excludeLaneIds.has(lane.id)) continue;
 
-    const score = await scoreLane(supabase, lane.id, lane.display_name, lane.slug, channelSubs);
+    // No reliable genre for a co-mention candidate (it isn't necessarily in
+    // the channel's own genre) — null rather than guessing; getOrCreateLane
+    // only ever uses a genre hint to fill one in that's missing, never to
+    // overwrite an existing lane's, so this can't corrupt real data.
+    const score = await scoreLane(supabase, lane.display_name, null, channelSubs);
     if (!score) continue; // "with a current analysis" — no lane_analyses row means no rank
 
     const normFreq = maxFrequency > 0 ? candidate.frequencyScore / maxFrequency : 0;
@@ -688,7 +710,7 @@ async function fillFromSameGenre(
   if (!candidates.length) return [];
 
   const scored = (
-    await Promise.all(candidates.map((l) => scoreLane(supabase, l.id, l.display_name, l.slug, channelSubs)))
+    await Promise.all(candidates.map((l) => scoreLane(supabase, l.display_name, genre, channelSubs)))
   )
     .filter((s): s is NicheScore => s !== null)
     .sort((a, b) => b.opportunity - a.opportunity);
@@ -829,7 +851,7 @@ async function buildNicheCandidates(
       (l) => !byLaneId.has(l.id) && l.id !== excludeLaneId
     );
     const scored = (
-      await Promise.all(candidates.map((l) => scoreLane(supabase, l.id, l.display_name, l.slug, channelSubs)))
+      await Promise.all(candidates.map((l) => scoreLane(supabase, l.display_name, genre, channelSubs)))
     ).filter((s): s is NicheScore => s !== null);
     for (const s of scored) {
       if (s.opportunity >= NICHE_CANDIDATE_MIN_OPPORTUNITY) consider(s, "genre");

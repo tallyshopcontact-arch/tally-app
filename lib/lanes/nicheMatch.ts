@@ -11,7 +11,7 @@
 // built from real winner data exactly once, not twice.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { cleanArtistName } from "./insights";
+import { cleanCoMention } from "./patterns";
 import { SCORE_CALIBRATION } from "./scoring";
 
 interface LaneRow {
@@ -117,29 +117,28 @@ function titleCase(s: string): string {
 
 // ── Winning title format builder ─────────────────────────────────────────
 // Turns a niche's stored winner-pattern data into a "{Artist} x {CoMention}
-// Type Beat "{Name}"" template. Fixes a real bug found while building the
-// niche picker: patterns.ts's co-mention regex can chain through multiple
-// "x"s on a title ("MF DOOM x Joey Bada$$ x 90s Boom Bap Type Beat") and
-// capture "joey bada$$ x 90s boom bap" as one blob instead of just the real
-// artist. Naively title-casing that raw blob as "the co-mention" for a niche
-// that IS Joey Bada$$ produces "Joey Bada$$ x Joey Bada$$ X 90s Boom Bap" —
-// cleanArtistName's chain-collapse fixes the blob itself, and the explicit
-// self-comparison below catches the case where, even cleaned, the
-// "co-mention" turns out to just be the primary artist again.
+// Type Beat "{Name}"" template. Reuses lib/lanes/patterns.ts's cleanCoMention
+// — the same reject-filter-then-clean pipeline analyzePatterns applies at
+// analysis time — as a second, point-of-use check: a stored topCoMentions
+// candidate may predate that fix (see scripts/reclean-lanes.ts), so this
+// can't just trust whatever's in the jsonb. Originally found via the exact
+// bug this guards against: patterns.ts's co-mention regex can chain through
+// multiple "x"s on a title ("MF DOOM x Joey Bada$$ x 90s Boom Bap Type
+// Beat") and capture "joey bada$$ x 90s boom bap" as one blob instead of
+// just the real artist — for a niche that IS Joey Bada$$, an uncleaned
+// candidate produces "Joey Bada$$ x Joey Bada$$ X 90s Boom Bap."
 
-/** First co-mention candidate that (after cleaning) is a genuinely different
- * artist than the primary niche — or null if every candidate turns out to
- * be the primary artist itself (or there's no co-mention data at all). */
+/** First co-mention candidate that survives cleanCoMention's reject-filter
+ * (genre/style words, "sample"/"prod"/etc., the primary artist itself,
+ * implausible tokens) — or null if every candidate gets rejected, or there's
+ * no co-mention data at all. */
 export function pickTitleFormatCoMention(
   primaryArtistName: string,
   topCoMentions: { artist: string }[] | undefined
 ): string | null {
-  const primaryNormalized = normalizeForMatch(cleanArtistName(primaryArtistName));
   for (const candidate of topCoMentions ?? []) {
-    const cleaned = cleanArtistName(candidate.artist);
-    if (!cleaned) continue;
-    if (normalizeForMatch(cleaned) === primaryNormalized) continue; // same artist — not a real co-mention
-    return titleCase(cleaned);
+    const cleaned = cleanCoMention(candidate.artist, primaryArtistName);
+    if (cleaned) return titleCase(cleaned);
   }
   return null;
 }
