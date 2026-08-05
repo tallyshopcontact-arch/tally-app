@@ -701,13 +701,16 @@ interface ActionPlan {
   framing: string;
 }
 
-// Curator model — the admin picks Priority 1 & 2 from channelAnalyzer.ts's
-// Step 10 niche-picker shortlist (analysis.nicheCandidates) plus Priority 3
-// from the auto-filled hold (analysis.defaultHoldCandidate), editing each
-// title format in the picker UI before generating. This replaced the old
-// auto-computed plan (mono-niche/saturated/EXIT-aware ranking) entirely —
-// that logic now lives one step earlier, in what the picker offers as
-// candidates in the first place, not in what Section 4 renders.
+// Curator model — the admin picks all three priorities from channelAnalyzer.ts's
+// Step 10 niche-picker shortlist (analysis.nicheCandidates), editing each
+// title format in the picker UI before generating. Fix 3 — Priority 3 is
+// just a third slot into that same pool now (pre-selected client-side to
+// analysis.defaultHoldCandidate, the channel's highest-opportunity current
+// niche, but freely reassignable to any candidate); there is no longer a
+// separately auto-filled "hold" slot outside the shortlist. This entirely
+// replaced the old auto-computed plan (mono-niche/saturated/EXIT-aware
+// ranking) — that logic now lives one step earlier, in what the picker
+// offers as candidates in the first place, not in what Section 4 renders.
 
 export interface SelectedPlanSlot {
   laneId: string;
@@ -721,9 +724,9 @@ export interface SelectedPlan {
 }
 
 /** A selected laneId can come from any of three places the client saw it:
- * the picker shortlist, the auto-filled hold candidate, or (defensively)
- * the channel's own scored niches — covers a hold slot the admin left
- * untouched as well as one they reassigned to a picker candidate. */
+ * the picker shortlist, the default hold candidate (guaranteed a slot in
+ * that same shortlist as of Fix 3, so this is now mostly a defensive
+ * fallback), or the channel's own scored niches. */
 function resolveCandidateScore(analysis: ChannelAnalysis, laneId: string): NicheScore | null {
   const fromCandidates = analysis.nicheCandidates.find((c) => c.score.laneId === laneId);
   if (fromCandidates) return fromCandidates.score;
@@ -742,7 +745,7 @@ function buildSelectedPlanCards(analysis: ChannelAnalysis, selectedPlan: Selecte
   const slots: { sel: SelectedPlanSlot | undefined; label: string }[] = [
     { sel: selectedPlan.priority1, label: "Priority 1" },
     { sel: selectedPlan.priority2, label: "Priority 2" },
-    { sel: selectedPlan.priority3, label: "Priority 3 · Hold" },
+    { sel: selectedPlan.priority3, label: "Priority 3" },
   ];
 
   const cards: NichePlanCard[] = [];
@@ -898,7 +901,7 @@ function buildMethodologySection(analysis: ChannelAnalysis): string {
 
       <div class="method-item">
         <div class="method-label">30-Day Plan</div>
-        <div class="method-text">Priority 1 & 2 are chosen by TALLY's producer from a shortlist ranked by opportunity score and co-mention proximity to your own catalog — not fully automated. Title formats are pre-filled from real top-performing videos in each niche, then reviewed and adjusted before sending.</div>
+        <div class="method-text">Priority 1, 2 & 3 are chosen by TALLY's producer from a shortlist ranked by opportunity score and co-mention proximity to your own catalog — not fully automated. Title formats are pre-filled from real top-performing videos in each niche, then reviewed and adjusted before sending.</div>
       </div>
 
     </div>

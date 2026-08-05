@@ -15,7 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractChannelId } from "@/lib/youtube";
 import { getPriorAnalysis, normalizeLaneSlug } from "@/lib/lanes/db";
 import { viewsPerDay, computeStatus, type LaneStatus } from "@/lib/lanes/scoring";
-import { cleanArtistName } from "@/lib/lanes/patterns";
+import { cleanArtistName, cleanCoMention } from "@/lib/lanes/patterns";
 import { getGenreCoMentionCounts } from "@/lib/lanes/trending";
 import { getNicheData } from "@/lib/reports/nicheCache";
 import {
@@ -184,12 +184,15 @@ export interface ChannelAnalysis {
   expansionRecommended: boolean;
   expansionRecommendations: ExpansionPick[];
   /** Step 10 — curator model: up to 5 ranked, deduplicated niche candidates
-   * for the admin to choose Priority 1 & 2 from (see buildNicheCandidates). */
+   * for the admin to choose Priority 1, 2 & 3 from (see buildNicheCandidates).
+   * Fix 3 — all three priorities are assigned from this one pool now; there
+   * is no separate "Priority 3 only" candidate outside it. */
   nicheCandidates: NicheCandidate[];
-  /** Step 10 — Priority 3's auto-filled starting point: the channel's own
-   * highest-OPPORTUNITY (not highest-velocity) current niche, still editable
-   * client-side same as the two picked candidates. Excluded from
-   * nicheCandidates so it's never offered as a "new" pick too. */
+  /** Step 10 — Priority 3's SENSIBLE DEFAULT (Fix 3 — a pre-selection the
+   * admin can change, not a separate auto-filled slot): the channel's own
+   * highest-OPPORTUNITY (not highest-velocity) current niche. Always present
+   * among nicheCandidates (buildNicheCandidates guarantees it a slot) so the
+   * client can pre-select this laneId into Priority 3 on load. */
   defaultHoldCandidate: NicheCandidate | null;
   /** Fewer than MIN_UPLOADS_FOR_FULL_ANALYSIS recent uploads were found —
    * callers should show a "limited data" note rather than a thin, overconfident report. */
@@ -627,6 +630,14 @@ interface NeighborhoodCandidate {
 // already makes. Both sources can introduce a candidate name; Source A
 // (direct, per-niche) is the only one that can also attach a real
 // percentage for Step 4's receipt line.
+//
+// Fix 1 — this is the actual artist-name discovery mechanism (co-mentions
+// pulled from real winning titles, via each niche's own stored patterns.
+// topCoMentions plus trending.ts's genre-wide aggregation over every lane
+// checked in this genre) — candidates introduced here are NOT required to
+// already have a lanes row; rankNeighborhoodCandidates (below) is what turns
+// a name into a scored candidate, creating+analyzing a brand-new lane on
+// demand when one doesn't exist yet, capped per report.
 async function buildStylisticNeighborhood(
   supabase: SupabaseClient,
   detectedNiches: DetectedNiche[],
@@ -635,8 +646,25 @@ async function buildStylisticNeighborhood(
   const ownNicheKeys = new Set(detectedNiches.map((n) => normalizeForMatch(cleanArtistName(n.artistName))));
   const neighborhood = new Map<string, NeighborhoodCandidate>();
 
-  const upsert = (rawName: string, weight: number, receipt: { pct: number; nicheName: string } | null) => {
-    const cleaned = cleanArtistName(rawName);
+  // Fix 1 — cleanCoMention, not the bare cleanArtistName normalizer: a raw
+  // co-mention capture (or an already-stored one predating the reject-filter
+  // fix — see nicheMatch.ts's buildWinningTitleFormat doc comment) can be a
+  // genre/style word, a banned phrase like "sample"/"type beat"/"ft", or a
+  // garbled multi-"x" chain-capture. cleanArtistName only normalizes/
+  // collapses those — it never rejects — so a dirty candidate would have
+  // sailed straight into the neighborhood and, after this fix removes the
+  // lanes-table boundary below, become a real analyzed "candidate artist."
+  // primaryArtistName is empty for Source B (genre-wide, no single owning
+  // niche) — cleanCoMention's self-match check is a no-op on an empty
+  // string, so only the genre-word/banned-phrase/plausibility checks apply
+  // there, same as they always did for Source A.
+  const upsert = (
+    rawName: string,
+    weight: number,
+    receipt: { pct: number; nicheName: string } | null,
+    primaryArtistName: string
+  ) => {
+    const cleaned = cleanCoMention(rawName, primaryArtistName);
     if (!cleaned) return;
     const key = normalizeForMatch(cleaned);
     if (!key || ownNicheKeys.has(key)) return; // exclude the channel's own niches
@@ -657,7 +685,7 @@ async function buildStylisticNeighborhood(
     const topCoMentions =
       (score.patterns?.topCoMentions as { artist: string; count: number; pct: number }[] | undefined) ?? [];
     for (const c of topCoMentions) {
-      upsert(c.artist, c.count, { pct: c.pct, nicheName: niche.artistName });
+      upsert(c.artist, c.count, { pct: c.pct, nicheName: niche.artistName }, niche.artistName);
     }
   }
 
@@ -665,27 +693,59 @@ async function buildStylisticNeighborhood(
   // aggregation, NOT its already-laned-artist-excluding export, since laned
   // artists are exactly who we want here). No per-niche pct, so candidates
   // introduced (or reinforced) here get a null receipt unless Source A also
-  // grounded them in a real percentage.
+  // grounded them in a real percentage. No single owning niche either, so
+  // "" for the self-match check (see upsert's doc comment above).
   const genres = [...new Set(detectedNiches.map((n) => n.genreHint).filter((g): g is string => !!g))];
   for (const genre of genres) {
     const counts = await getGenreCoMentionCounts(supabase, genre);
-    for (const c of counts) upsert(c.artist, c.count, null);
+    for (const c of counts) upsert(c.artist, c.count, null, "");
   }
 
   return neighborhood;
 }
 
-// Step 2 — intersect the neighborhood with tracked lanes (a current analysis
-// is required to have an opportunity score to rank by at all) and rank by
-// co_mention_frequency × opportunity_score, each normalized to 0-1 first so
-// neither term dominates purely from scale.
+/** Fix 1 — one report's budget for analyzing brand-new (never-seeded)
+ * artists discovered via co-mentions. Each one costs a real niche analysis
+ * (~200 units, see ESTIMATED_UNITS_PER_ANALYSIS) that a request-time report
+ * can't spend unbounded — 3 new artists per report keeps a single report's
+ * worst case bounded while still being enough to meaningfully widen the
+ * picker beyond the seeded lane set. Shared across one getExpansionRecommendations
+ * call (which itself runs once per report — see analyzeChannel) via a single
+ * mutable object; already-existing (cache-warm) candidates never touch it. */
+const MAX_NEW_ARTIST_ANALYSES_PER_REPORT = 3;
+
+interface NewArtistBudget {
+  remaining: number;
+}
+
+function newArtistBudget(): NewArtistBudget {
+  return { remaining: MAX_NEW_ARTIST_ANALYSES_PER_REPORT };
+}
+
+// Step 2 — score every neighborhood candidate and rank by co_mention_frequency
+// × opportunity_score, each normalized to 0-1 first so neither term dominates
+// purely from scale.
+//
+// Fix 1 — no longer intersected against the lanes table first: a candidate
+// name discovered via co-mentions is scored via scoreLane regardless of
+// whether it already has a lane row. scoreLane -> getNicheData ->
+// getOrCreateLane creates one on demand and analyzeLane fills it in — this
+// IS the mechanism that lets the picker surface an artist nobody seeded.
+// Candidates are processed highest-frequency-first so the limited new-artist
+// budget (above) is spent on the highest-signal discoveries; an
+// already-existing lane is always scored regardless of budget (scoring it is
+// just a normal cache read/refresh, not a "new artist" spend), which is what
+// makes an already-cached candidate implicitly preferred whenever the budget
+// would otherwise force a tie — it's simply never gated by it.
 async function rankNeighborhoodCandidates(
   supabase: SupabaseClient,
   neighborhood: Map<string, NeighborhoodCandidate>,
   excludeLaneIds: Set<string>,
-  channelSubs: number
+  channelSubs: number,
+  anchorGenre: string | null,
+  budget: NewArtistBudget
 ): Promise<{ score: NicheScore; receipt: { pct: number; nicheName: string } | null }[]> {
-  const candidates = [...neighborhood.values()];
+  const candidates = [...neighborhood.values()].sort((a, b) => b.frequencyScore - a.frequencyScore);
   if (!candidates.length) return [];
 
   const slugs = candidates.map((c) => normalizeLaneSlug(c.displayName)).filter(Boolean);
@@ -698,15 +758,31 @@ async function rankNeighborhoodCandidates(
 
   const ranked: { score: NicheScore; receipt: { pct: number; nicheName: string } | null; rank: number }[] = [];
   for (const candidate of candidates) {
-    const lane = laneBySlug.get(normalizeLaneSlug(candidate.displayName));
-    if (!lane || excludeLaneIds.has(lane.id)) continue;
+    const slug = normalizeLaneSlug(candidate.displayName);
+    if (!slug) continue;
+    const existingLane = laneBySlug.get(slug);
+    if (existingLane && excludeLaneIds.has(existingLane.id)) continue;
 
-    // No reliable genre for a co-mention candidate (it isn't necessarily in
-    // the channel's own genre) — null rather than guessing; getOrCreateLane
-    // only ever uses a genre hint to fill one in that's missing, never to
-    // overwrite an existing lane's, so this can't corrupt real data.
-    const score = await scoreLane(supabase, lane.display_name, null, channelSubs);
-    if (!score) continue; // "with a current analysis" — no lane_analyses row means no rank
+    if (!existingLane) {
+      if (budget.remaining <= 0) continue; // new-artist cap reached this report — skip, don't spend quota
+      budget.remaining -= 1;
+    }
+
+    // A brand-new lane only ever gets the channel's own anchor genre as its
+    // starting classification — an already-existing lane keeps whatever
+    // genre it was actually classified with (null here means "don't touch
+    // it"; getOrCreateLane only overwrites when a caller passes a truthy
+    // hint). Also what lets getExpansionRecommendations's genre-whitelist
+    // safety net (getLaneGenre) recognize a freshly-created lane at all —
+    // an ungenred new lane would otherwise fail that check every time.
+    const score = await scoreLane(
+      supabase,
+      candidate.displayName,
+      existingLane ? null : anchorGenre,
+      channelSubs
+    );
+    if (!score) continue; // quota exhausted and never analyzed before — no rank to give it
+    if (excludeLaneIds.has(score.laneId)) continue; // defensive: a slug collision resolved to an excluded lane
 
     const normFreq = maxFrequency > 0 ? candidate.frequencyScore / maxFrequency : 0;
     const normOpportunity = score.opportunity / 100;
@@ -766,9 +842,11 @@ async function getExpansionRecommendations(
   const excluded = new Set(excludeLaneIds);
   const picks: ExpansionPick[] = [];
 
-  // Step 1 + 2
+  // Step 1 + 2 — Fix 1's new-artist analysis budget lives here, scoped to
+  // this one call (getExpansionRecommendations runs exactly once per report
+  // — see analyzeChannel), so it needs no cross-call plumbing.
   const neighborhood = await buildStylisticNeighborhood(supabase, detectedNiches, nicheScores);
-  const ranked = await rankNeighborhoodCandidates(supabase, neighborhood, excluded, channelSubs);
+  const ranked = await rankNeighborhoodCandidates(supabase, neighborhood, excluded, channelSubs, genre, newArtistBudget());
   for (const r of ranked) {
     if (picks.length >= maxPicks) break;
     const candidateGenre = await getLaneGenre(supabase, r.score.laneId); // whitelist safety net
@@ -809,9 +887,12 @@ async function getExpansionRecommendations(
 //       so expansion can fill most/all of the shortlist when (a) is thin or
 //       entirely saturated.
 //   (c) top open niches (opportunity >= 40) in the channel's genre from lane_analyses
-// The channel's own highest-opportunity niche (the default Priority 3/hold)
-// is excluded from the shortlist — it's already covered by the hold slot,
-// so offering it again as a "new pick" would be redundant.
+// Fix 3 — Priority 3 is now assigned from this SAME 5-candidate pool (no
+// separate auto-filled slot outside it), so the channel's own
+// highest-opportunity niche (the sensible default for Priority 3) is no
+// longer excluded from the shortlist — it's guaranteed a spot in it instead
+// (see the guaranteeLaneId handling at the end of buildNicheCandidates), so
+// there's always something valid to pre-select into Priority 3 on the client.
 
 const NICHE_CANDIDATE_LIMIT = 5;
 // Matches computeStatus's "yellow" floor — the same "not weak" bar used
@@ -862,12 +943,14 @@ async function buildNicheCandidates(
   expansionRecommendations: ExpansionPick[],
   genre: string | null,
   channelSubs: number,
-  excludeLaneId: string | null
+  // Fix 3 — no longer an exclusion: guaranteed a slot in the final list
+  // instead (see the end of this function), so it's always present for the
+  // client to pre-select into Priority 3.
+  guaranteeLaneId: string | null
 ): Promise<NicheCandidate[]> {
   const byLaneId = new Map<string, NicheCandidate>();
 
   const consider = (score: NicheScore, source: NicheCandidate["source"]) => {
-    if (score.laneId === excludeLaneId) return;
     if (byLaneId.has(score.laneId)) return; // first source to introduce a lane keeps its label
     byLaneId.set(score.laneId, toCandidate(score, source));
   };
@@ -892,7 +975,7 @@ async function buildNicheCandidates(
       .select("id, slug, display_name")
       .ilike("genre_hint", genre.trim());
     const candidates = ((genreLanes ?? []) as { id: string; slug: string; display_name: string }[]).filter(
-      (l) => !byLaneId.has(l.id) && l.id !== excludeLaneId
+      (l) => !byLaneId.has(l.id)
     );
     const scored = (
       await Promise.all(candidates.map((l) => scoreLane(supabase, l.display_name, genre, channelSubs)))
@@ -902,9 +985,24 @@ async function buildNicheCandidates(
     }
   }
 
-  return [...byLaneId.values()]
-    .sort((a, b) => b.score.opportunity - a.score.opportunity)
-    .slice(0, NICHE_CANDIDATE_LIMIT);
+  const ranked = [...byLaneId.values()].sort((a, b) => b.score.opportunity - a.score.opportunity);
+  if (!guaranteeLaneId) return ranked.slice(0, NICHE_CANDIDATE_LIMIT);
+
+  const guaranteedIndex = ranked.findIndex((c) => c.score.laneId === guaranteeLaneId);
+  if (guaranteedIndex === -1 || guaranteedIndex < NICHE_CANDIDATE_LIMIT) {
+    // Either it isn't a candidate at all (shouldn't happen — it's one of
+    // nicheScores, always considered under source (a)), or it already
+    // naturally makes the cut — nothing special to do.
+    return ranked.slice(0, NICHE_CANDIDATE_LIMIT);
+  }
+
+  // Fix 3 — outranked by enough expansion/genre picks to fall outside the
+  // top N: keep it anyway, in place of the lowest-ranked entry, so the
+  // Priority 3 default is always among the candidates the client can
+  // actually select it from.
+  const top = ranked.slice(0, NICHE_CANDIDATE_LIMIT - 1);
+  top.push(ranked[guaranteedIndex]);
+  return top;
 }
 
 // ── Step 6 — rising windows ────────────────────────────────────────────
@@ -956,19 +1054,21 @@ async function getRisingWindows(
 const QUOTED_NAME_RE = /["'“”‘’](.+?)["'“”‘’]/;
 const FREE_PREFIX_RE = /\[\s*free\s*\]/i;
 
-/** Used by Step 9's generateExperiment for the discoverability bet's
+/** Used by Step 9's experiment text builder for the discoverability bet's
  * co-mention suggestion. Delegates the actual "find a valid, non-self
  * co-mention" lookup to lib/lanes/nicheMatch.ts's pickTitleFormatCoMention
  * (shared with Step 10's title-format builder, and where the self-match bug
  * fix lives) and adds its own fallback on top: the channel's own second
- * niche, when there's no stored co-mention data to point to at all. */
+ * niche, when there's no stored co-mention data to point to at all. Takes
+ * just the baseline niche's artist name (Fix 2 — the baseline is no longer
+ * necessarily bestNiche, so this no longer requires a full DetectedNiche). */
 function pickCoMentionPartner(
-  best: DetectedNiche,
-  bestScore: NicheScore | undefined,
+  baselineArtistName: string,
+  baselineScore: NicheScore | undefined,
   niches: DetectedNiche[]
 ): string | null {
-  const patterns = bestScore?.patterns as { topCoMentions?: { artist: string }[] } | undefined;
-  const coMention = pickTitleFormatCoMention(best.artistName, patterns?.topCoMentions);
+  const patterns = baselineScore?.patterns as { topCoMentions?: { artist: string }[] } | undefined;
+  const coMention = pickTitleFormatCoMention(baselineArtistName, patterns?.topCoMentions);
   return coMention ?? niches[1]?.artistName ?? null;
 }
 
@@ -1136,6 +1236,91 @@ function assertNeverDiagnosisType(type: never): never {
   throw new Error(`generateExperiment: unhandled diagnosis type "${type}"`);
 }
 
+/** Fix 2 — everything the text templates below need, already resolved by
+ * the caller: what to test (pick) and what to test it against (baseline).
+ * Both entry points below (the analysis-time draft and the post-selection
+ * regenerate) build one of these differently, then share this one switch —
+ * so the copy can never drift between "what the draft says at analysis
+ * time" and "what it says once the admin has actually built a plan." */
+interface ExperimentContext {
+  /** The niche to test — algorithmically guessed at analysis time,
+   * Priority 1's real artist name once the admin has assigned it. */
+  pick: string | null;
+  /** What `pick` is being tested against — bestNiche at analysis time,
+   * Priority 3/hold's niche once assigned (falling back to bestNiche when
+   * Priority 3 is an expansion/genre pick the channel has no upload history
+   * in yet — see regenerateExperiment). */
+  baseline: { artistName: string; avgViewsPerDay: number } | null;
+  /** baseline's NicheScore, for the discoverability bet's stored co-mention
+   * data — undefined when baseline has no scored analysis on file. */
+  baselineScore: NicheScore | undefined;
+  detectedNiches: DetectedNiche[];
+}
+
+function buildExperimentText(
+  diagnosisType: DiagnosisType,
+  uploadCount: number,
+  ctx: ExperimentContext
+): GeneratedExperiment {
+  const { pick, baseline, baselineScore, detectedNiches } = ctx;
+
+  switch (diagnosisType) {
+    case "expansion":
+    case "concentration": {
+      const currentAvg = baseline?.avgViewsPerDay ?? 0;
+      const text =
+        pick && baseline
+          ? `Test one upload in ${pick} this month, same title format. Prediction: it outperforms your ${baseline.artistName} average of ${currentAvg.toLocaleString()} views/day. ${GRADE_LINE}`
+          : `Test one upload in a new adjacent niche this month. Prediction: it outperforms your current average of ${currentAvg.toLocaleString()} views/day. ${GRADE_LINE}`;
+      return { text, type: diagnosisType, predictedMetric: "views_per_day", predictedTarget: currentAvg };
+    }
+
+    case "discoverability": {
+      const partner = baseline ? pickCoMentionPartner(baseline.artistName, baselineScore, detectedNiches) : null;
+      const text =
+        baseline && partner
+          ? `On your next upload, add a co-mention: ${baseline.artistName} x ${partner}. Prediction: 30–50% more views than your recent average. ${GRADE_LINE}`
+          : `On your next upload, add a co-mention and a [FREE] tag${baseline ? ` to your ${baseline.artistName} titles` : ""}. Prediction: 30–50% more views than your recent average. ${GRADE_LINE}`;
+      return {
+        text,
+        type: diagnosisType,
+        predictedMetric: "views_per_day_pct_lift",
+        predictedTarget: DISCOVERABILITY_LIFT_PCT,
+      };
+    }
+
+    case "positioning": {
+      const currentAvg = baseline?.avgViewsPerDay ?? 0;
+      const text = pick
+        ? `Test ${pick} once this month. Prediction: it beats your current per-upload average of ${currentAvg.toLocaleString()}/day. ${GRADE_LINE}`
+        : `Test one upload with a different title pattern this month. Prediction: it beats your current per-upload average of ${currentAvg.toLocaleString()}/day. ${GRADE_LINE}`;
+      return { text, type: diagnosisType, predictedMetric: "views_per_day", predictedTarget: currentAvg };
+    }
+
+    case "consistency": {
+      const target = CONSISTENCY_TARGET_UPLOADS;
+      const nicheName = pick ?? baseline?.artistName ?? "your best niche";
+      const text = `Post ${target} uploads this month vs your ${uploadCount} last month, all in ${nicheName}. Prediction: total monthly views up proportionally. ${GRADE_LINE}`;
+      return { text, type: diagnosisType, predictedMetric: "upload_count", predictedTarget: target };
+    }
+
+    case "scale": {
+      const target = scaleTargetUploads(uploadCount);
+      const nicheName = pick ?? baseline?.artistName ?? "your best niche";
+      const text = `Increase to ${target} uploads in ${nicheName} this month. Prediction: views scale with volume since your per-upload performance is already strong. ${GRADE_LINE}`;
+      return { text, type: diagnosisType, predictedMetric: "upload_count", predictedTarget: target };
+    }
+
+    default:
+      return assertNeverDiagnosisType(diagnosisType);
+  }
+}
+
+/** Step 9's analysis-time draft — the diagnosis expressed as a testable bet
+ * before any priorities are picked, using the same algorithmic guesses the
+ * plan itself falls back on (pickExpansionOrAdjacent, bestNiche). Pre-fills
+ * the picker's experiment field the moment analysis loads; regenerateExperiment
+ * (below) is what refreshes it once the admin actually builds a plan. */
 function generateExperiment(
   diagnosis: Diagnosis,
   uploads: RecentUpload[],
@@ -1144,60 +1329,73 @@ function generateExperiment(
   bestScore: NicheScore | undefined,
   expansionRecommendations: ExpansionPick[]
 ): GeneratedExperiment {
-  const uploadCount = uploads.length;
+  const pick = pickExpansionOrAdjacent(expansionRecommendations, detectedNiches);
+  const baseline = bestNiche ? { artistName: bestNiche.artistName, avgViewsPerDay: bestNiche.avgViewsPerDay } : null;
+  return buildExperimentText(diagnosis.type, uploads.length, {
+    pick,
+    baseline,
+    baselineScore: bestScore,
+    detectedNiches,
+  });
+}
 
-  switch (diagnosis.type) {
-    case "expansion":
-    case "concentration": {
-      const pick = pickExpansionOrAdjacent(expansionRecommendations, detectedNiches);
-      const currentAvg = bestNiche?.avgViewsPerDay ?? 0;
-      const text =
-        pick && bestNiche
-          ? `Test one upload in ${pick} this month, same title format. Prediction: it outperforms your ${bestNiche.artistName} average of ${currentAvg.toLocaleString()} views/day. ${GRADE_LINE}`
-          : `Test one upload in a new adjacent niche this month. Prediction: it outperforms your current average of ${currentAvg.toLocaleString()} views/day. ${GRADE_LINE}`;
-      return { text, type: diagnosis.type, predictedMetric: "views_per_day", predictedTarget: currentAvg };
-    }
+/** Fix 2 — a niche/laneId pair from whatever the client currently has
+ * assigned to a priority slot; artistName travels with laneId rather than
+ * being re-looked-up here since the caller (the picker UI) already has it
+ * on hand from the candidate it assigned. */
+export interface ExperimentPrioritySelection {
+  laneId: string;
+  artistName: string;
+}
 
-    case "discoverability": {
-      const partner = bestNiche ? pickCoMentionPartner(bestNiche, bestScore, detectedNiches) : null;
-      const text =
-        bestNiche && partner
-          ? `On your next upload, add a co-mention: ${bestNiche.artistName} x ${partner}. Prediction: 30–50% more views than your recent average. ${GRADE_LINE}`
-          : `On your next upload, add a co-mention and a [FREE] tag${bestNiche ? ` to your ${bestNiche.artistName} titles` : ""}. Prediction: 30–50% more views than your recent average. ${GRADE_LINE}`;
-      return {
-        text,
-        type: diagnosis.type,
-        predictedMetric: "views_per_day_pct_lift",
-        predictedTarget: DISCOVERABILITY_LIFT_PCT,
-      };
-    }
+export interface ExperimentSelectionInput {
+  priority1?: ExperimentPrioritySelection | null;
+  priority3?: ExperimentPrioritySelection | null;
+}
 
-    case "positioning": {
-      const pick = pickExpansionOrAdjacent(expansionRecommendations, detectedNiches);
-      const currentAvg = bestNiche?.avgViewsPerDay ?? 0;
-      const text = pick
-        ? `Test ${pick} once this month. Prediction: it beats your current per-upload average of ${currentAvg.toLocaleString()}/day. ${GRADE_LINE}`
-        : `Test one upload with a different title pattern this month. Prediction: it beats your current per-upload average of ${currentAvg.toLocaleString()}/day. ${GRADE_LINE}`;
-      return { text, type: diagnosis.type, predictedMetric: "views_per_day", predictedTarget: currentAvg };
-    }
+/** Step 9 (Fix 2) — regenerates the draft experiment from the admin's actual
+ * Priority 1/3 picks instead of the analysis-time algorithmic guess, so the
+ * bet tests the real plan the admin just built rather than a niche they may
+ * not have selected at all. Pure function of the already-computed analysis
+ * plus the current selection — no I/O, safe to call on every picker change.
+ * Priority 2 doesn't factor in: like the original draft, the copy only ever
+ * names one niche to test (pick) against one baseline, and Priority 2 has no
+ * role in either slot. */
+export function regenerateExperiment(
+  analysis: ChannelAnalysis,
+  selection: ExperimentSelectionInput
+): GeneratedExperiment {
+  const detectedNiches = analysis.detectedNiches;
+  const bestNiche = detectedNiches[0] ?? null;
 
-    case "consistency": {
-      const target = CONSISTENCY_TARGET_UPLOADS;
-      const nicheName = bestNiche?.artistName ?? "your best niche";
-      const text = `Post ${target} uploads this month vs your ${uploadCount} last month, all in ${nicheName}. Prediction: total monthly views up proportionally. ${GRADE_LINE}`;
-      return { text, type: diagnosis.type, predictedMetric: "upload_count", predictedTarget: target };
-    }
+  // Fix 3 — Priority 3 can now be an expansion/genre pick, not just one of
+  // the channel's own niches, so it may have no avgViewsPerDay of its own to
+  // baseline against (the channel has no upload history in it yet). Falls
+  // back to the channel's overall top niche in that case — the same
+  // baseline the analysis-time draft always used.
+  const p3Detected = selection.priority3
+    ? detectedNiches.find((n) => n.laneId === selection.priority3!.laneId)
+    : undefined;
+  const baseline = p3Detected
+    ? { artistName: p3Detected.artistName, avgViewsPerDay: p3Detected.avgViewsPerDay }
+    : bestNiche
+      ? { artistName: bestNiche.artistName, avgViewsPerDay: bestNiche.avgViewsPerDay }
+      : null;
+  const baselineLaneId = p3Detected?.laneId ?? bestNiche?.laneId ?? null;
+  const baselineScore = baselineLaneId ? analysis.nicheScores.find((s) => s.laneId === baselineLaneId) : undefined;
 
-    case "scale": {
-      const target = scaleTargetUploads(uploadCount);
-      const nicheName = bestNiche?.artistName ?? "your best niche";
-      const text = `Increase to ${target} uploads in ${nicheName} this month. Prediction: views scale with volume since your per-upload performance is already strong. ${GRADE_LINE}`;
-      return { text, type: diagnosis.type, predictedMetric: "upload_count", predictedTarget: target };
-    }
+  // The real plan's top bet once assigned; falls back to the same
+  // algorithmic guess the initial draft used so the field still reads
+  // sensibly for whichever priority slots aren't assigned yet.
+  const pick =
+    selection.priority1?.artistName ?? pickExpansionOrAdjacent(analysis.expansionRecommendations, detectedNiches);
 
-    default:
-      return assertNeverDiagnosisType(diagnosis.type);
-  }
+  return buildExperimentText(analysis.diagnosis.type, analysis.recentUploads.length, {
+    pick,
+    baseline,
+    baselineScore,
+    detectedNiches,
+  });
 }
 
 // ── Entry point ────────────────────────────────────────────────────────
@@ -1277,11 +1475,13 @@ export async function analyzeChannel(
     expansionRecommendations
   );
 
-  // Step 10 — the niche picker's shortlist. Priority 3/hold defaults to the
-  // channel's highest-OPPORTUNITY niche (not bestNiche, which is ranked by
-  // total velocity) — a different, deliberate ranking from everything else
-  // in this file, since "what to keep doing" should follow the opportunity
-  // score, not raw upload volume.
+  // Step 10 — the niche picker's shortlist. Priority 3/hold's DEFAULT
+  // (Fix 3 — no longer a separate auto-filled slot; the client pre-selects
+  // this laneId into Priority 3 from the same nicheCandidates pool, and the
+  // admin can change it) is the channel's highest-OPPORTUNITY niche (not
+  // bestNiche, which is ranked by total velocity) — a different, deliberate
+  // ranking from everything else in this file, since "what to keep doing"
+  // should follow the opportunity score, not raw upload volume.
   const holdScore = [...nicheScores].sort((a, b) => b.opportunity - a.opportunity)[0] ?? null;
   const defaultHoldCandidate = holdScore ? toCandidate(holdScore, "own") : null;
   const nicheCandidates = await buildNicheCandidates(
@@ -1290,7 +1490,7 @@ export async function analyzeChannel(
     expansionCandidatePool,
     anchorGenre,
     channel.subscriberCount,
-    holdScore?.laneId ?? null
+    holdScore?.laneId ?? null // guaranteed a slot in nicheCandidates — see buildNicheCandidates
   );
 
   return {
