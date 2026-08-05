@@ -6,11 +6,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import type {
   ChannelAnalysis,
+  Diagnosis,
   DetectedNiche,
+  ExpansionPick,
   NicheScore,
   RecentUpload,
 } from "@/lib/reports/channelAnalyzer";
-import { monthLabel } from "@/lib/reports/channelAnalyzer";
+import { monthLabel, SATURATED_THRESHOLD } from "@/lib/reports/channelAnalyzer";
+import { SCORE_CALIBRATION } from "@/lib/lanes/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +38,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing month/year" }, { status: 400 });
   }
 
+  // Server-side enforcement of the same rule the client already disables its
+  // button for — a report without an experiment isn't sending-quality, and
+  // the client check alone doesn't stop a direct API call.
+  const experiment = (body.experiment ?? "").trim();
+  if (!experiment) {
+    return NextResponse.json({ error: "Missing experiment — add one before generating." }, { status: 400 });
+  }
+
   try {
-    const html = buildReportHtml(body.analysis, (body.experiment ?? "").trim(), month, year);
+    const html = buildReportHtml(body.analysis, experiment, month, year);
     return NextResponse.json({ html });
   } catch (err) {
     console.error("[report-builder/report] failed:", err);
@@ -92,6 +103,21 @@ function buildReportHtml(analysis: ChannelAnalysis, experiment: string, month: n
   const bestNiche = analysis.detectedNiches[0] ?? null;
   const genreLabel = bestNiche?.genreHint ?? "Uncategorized";
 
+  // Fix 3 — sections are numbered by what actually renders, not by a fixed
+  // 01-05 scheme. Rising Windows (previously always "03") is only included
+  // when there's real data, so everything after it shifts up rather than
+  // leaving a gap or renumbering nothing.
+  let sectionNumber = 1;
+  const sections: string[] = [
+    buildSection1(analysis, uploads, nicheByVideoId, nicheScoreByLaneId, monthYear, sectionNumber++),
+    buildSection2(analysis, sectionNumber++),
+  ];
+  if (analysis.risingWindowsAvailable && analysis.risingWindows.length) {
+    sections.push(buildSection3(analysis, sectionNumber++));
+  }
+  sections.push(buildSection4(analysis, sectionNumber++));
+  sections.push(buildSection5(experiment, monthYear, sectionNumber++));
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -107,11 +133,8 @@ ${REPORT_CSS}
 <div class="page">
 
   ${buildCoverHeader(analysis, monthYear, genreLabel)}
-  ${buildSection1(analysis, uploads, nicheByVideoId, nicheScoreByLaneId, monthYear)}
-  ${buildSection2(analysis)}
-  ${buildSection3(analysis)}
-  ${buildSection4(analysis)}
-  ${buildSection5(experiment, monthYear)}
+  ${buildDiagnosisHeadline(analysis.diagnosis)}
+  ${sections.join("\n  ")}
   ${buildMethodologySection(analysis)}
 
   <div class="report-footer">
@@ -168,6 +191,28 @@ function buildCoverHeader(analysis: ChannelAnalysis, monthYear: string, genreLab
   </div>`;
 }
 
+// Step 8 (channelAnalyzer.ts) — the report headline, rendered above Section 1
+// as one root cause rather than a stats wall. headline/detail are plain text
+// from the analyzer (see Diagnosis's doc comment) — this is the one place
+// that turns them into markup, escaping both since they can embed a
+// channel-sourced niche/artist name.
+const DIAGNOSIS_EYEBROW: Record<Diagnosis["type"], string> = {
+  concentration: "The Diagnosis · Concentration",
+  discoverability: "The Diagnosis · Discoverability",
+  positioning: "The Diagnosis · Positioning",
+  consistency: "The Diagnosis · Consistency",
+  scale: "The Diagnosis · Scale",
+};
+
+function buildDiagnosisHeadline(diagnosis: Diagnosis): string {
+  return `
+  <div class="diagnosis-block">
+    <div class="diagnosis-eyebrow">${DIAGNOSIS_EYEBROW[diagnosis.type]}</div>
+    <div class="diagnosis-headline">${escapeHtml(diagnosis.headline)}</div>
+    <div class="diagnosis-detail">${escapeHtml(diagnosis.detail)}</div>
+  </div>`;
+}
+
 function videoNicheCommentary(
   video: RecentUpload | null,
   nicheByVideoId: Map<string, DetectedNiche>,
@@ -189,12 +234,15 @@ function buildSection1(
   uploads: RecentUpload[],
   nicheByVideoId: Map<string, DetectedNiche>,
   nicheScoreByLaneId: Map<string, NicheScore>,
-  monthYear: string
+  monthYear: string,
+  sectionNumber: number
 ): string {
+  const numLabel = String(sectionNumber).padStart(2, "0");
+
   if (!uploads.length) {
     return `
   <div class="kpi-section">
-    <div class="section-eyebrow">01 · Performance</div>
+    <div class="section-eyebrow">${numLabel} · Performance</div>
     <div class="section-title">Your Month at a Glance</div>
     <p style="font-size:13px;color:var(--sub);">No public uploads were found on this channel&#39;s uploads playlist yet.</p>
   </div>`;
@@ -240,7 +288,7 @@ function buildSection1(
 
   return `
   <div class="kpi-section">
-    <div class="section-eyebrow">01 · Performance</div>
+    <div class="section-eyebrow">${numLabel} · Performance</div>
     <div class="section-title">Your Month at a Glance</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:22px;font-weight:300;">Based on uploads from ${escapeHtml(monthYear)}</p>
     <div class="kpi-grid">
@@ -280,6 +328,24 @@ function buildSection1(
   ${titleRewriteHtml}`;
 }
 
+// Fix 1 — describes the actual title pattern behind a niche's winners
+// (co-mention + [FREE] usage from stored patterns data) instead of a bare
+// percentage, so the benchmark line points at something actionable.
+function describeWinningPattern(score: NicheScore | undefined): string {
+  if (!score) return "not enough winner data yet to identify one";
+  const patterns = score.patterns as { topCoMentions?: { artist: string }[]; freePrefixPct?: number };
+  const topCoMention = patterns.topCoMentions?.[0];
+  const usesFree = (patterns.freePrefixPct ?? 0) >= 50;
+
+  if (topCoMention) {
+    const coName = titleCase(topCoMention.artist);
+    return usesFree
+      ? `a [FREE]-prefixed title with a co-mention of ${coName}`
+      : `a co-mention of ${coName} in the title`;
+  }
+  return usesFree ? "a [FREE]-prefixed title" : "not enough winner data yet to identify one";
+}
+
 function buildBenchmarkNarrative(
   analysis: ChannelAnalysis,
   nicheScoreByLaneId: Map<string, NicheScore>
@@ -288,17 +354,47 @@ function buildBenchmarkNarrative(
   if (!bestNiche) return "Not enough upload data yet to establish a niche benchmark.";
 
   const score = bestNiche.laneId ? nicheScoreByLaneId.get(bestNiche.laneId) : undefined;
-  const median = score?.rawMetrics?.demandMedianViewsPerDay;
+  const benchmark = score?.benchmark;
 
-  if (typeof median === "number" && median > 0) {
-    const pct = Math.round((bestNiche.avgViewsPerDay / median) * 100);
-    return `Your <strong>${escapeHtml(bestNiche.artistName)}</strong> uploads average <strong>${bestNiche.avgViewsPerDay.toLocaleString()} views/day</strong>. The stored winner median for this niche is <strong>${Math.round(median).toLocaleString()} views/day</strong> — you&#39;re running at <strong>${pct}%</strong> of that benchmark.`;
+  if (!benchmark || benchmark.medianViewsPerDay <= 0) {
+    return `Your best niche right now is <strong>${escapeHtml(bestNiche.artistName)}</strong>, averaging ${bestNiche.avgViewsPerDay.toLocaleString()} views/day. No stored winner benchmark is available for this niche yet.`;
   }
 
-  return `Your best niche right now is <strong>${escapeHtml(bestNiche.artistName)}</strong>, averaging ${bestNiche.avgViewsPerDay.toLocaleString()} views/day. No stored winner benchmark is available for this niche yet.`;
+  const poolLabel = benchmark.isComparableSet ? "Comparable small channels" : "Top performers";
+  const median = benchmark.medianViewsPerDay.toLocaleString();
+  const avg = bestNiche.avgViewsPerDay.toLocaleString();
+  const niche = escapeHtml(bestNiche.artistName);
+
+  if (bestNiche.avgViewsPerDay < benchmark.medianViewsPerDay) {
+    const pattern = describeWinningPattern(score);
+    return `Your <strong>${niche}</strong> uploads average <strong>${avg} views/day</strong>. ${poolLabel} in this niche average <strong>${median} views/day</strong>. The pattern separating top performers: ${pattern}.`;
+  }
+
+  // Item 1 — "performing above median for channels your size" when this really
+  // is a same-tier comparison; the fallback pool (too few same-tier channels)
+  // keeps saying "top performers in this niche," never "comparable channels,"
+  // since it isn't one.
+  const sizeLabel = benchmark.isComparableSet ? "channels your size" : "top performers in this niche";
+  return `Your <strong>${niche}</strong> uploads are performing above median for ${sizeLabel} — <strong>${avg} views/day</strong> vs <strong>${median} views/day</strong> median.`;
 }
 
 function buildTitleRewriteHighlight(analysis: ChannelAnalysis): string {
+  // Fix 4 — titles already winning: a rewrite suggestion would be cosmetic,
+  // so say what the real gap is instead of manufacturing a tweak.
+  if (!analysis.titleRewriteNeeded) {
+    const bestNiche = analysis.detectedNiches[0];
+    if (!bestNiche) return "";
+    return `
+  <div class="section" style="padding-top:0;border-top:none;">
+    <div class="narrative-box" style="border-left-color:var(--accent);">
+      <div class="narrative-eyebrow" style="color:var(--accent);">Title Rewrite</div>
+      <div class="narrative-text">
+        Your title structure already matches the winning format for this niche — [FREE] prefix ✓, artist name ✓, co-mention ✓. Your gap is niche selection, not titles.
+      </div>
+    </div>
+  </div>`;
+  }
+
   const rewrite = analysis.titleRewrite;
   if (!rewrite) return "";
   return `
@@ -313,12 +409,13 @@ function buildTitleRewriteHighlight(analysis: ChannelAnalysis): string {
   </div>`;
 }
 
-function buildSection2(analysis: ChannelAnalysis): string {
+function buildSection2(analysis: ChannelAnalysis, sectionNumber: number): string {
+  const numLabel = String(sectionNumber).padStart(2, "0");
   const rows = analysis.detectedNiches.slice(0, 8);
   if (!rows.length) {
     return `
   <div class="section">
-    <div class="section-eyebrow">02 · Market Intel</div>
+    <div class="section-eyebrow">${numLabel} · Market Intel</div>
     <div class="section-title">What Moved in Your Niches</div>
     <p style="font-size:13px;color:var(--sub);">No niches could be detected from this channel&#39;s recent uploads yet.</p>
   </div>`;
@@ -396,7 +493,7 @@ function buildSection2(analysis: ChannelAnalysis): string {
 
   return `
   <div class="section">
-    <div class="section-eyebrow">02 · Market Intel</div>
+    <div class="section-eyebrow">${numLabel} · Market Intel</div>
     <div class="section-title">What Moved in Your Niches</div>
     <table class="niche-table">
       <thead>
@@ -413,12 +510,15 @@ function buildSection2(analysis: ChannelAnalysis): string {
   </div>`;
 }
 
-function buildSection3(analysis: ChannelAnalysis): string {
-  const body =
-    analysis.risingWindowsAvailable && analysis.risingWindows.length
-      ? analysis.risingWindows
-          .map(
-            (w, i) => `
+// Fix 3 — only called when risingWindowsAvailable && risingWindows.length;
+// the caller omits this section entirely otherwise (no "coming soon"
+// placeholder for a feature the methodology section already explains isn't
+// live for this channel yet).
+function buildSection3(analysis: ChannelAnalysis, sectionNumber: number): string {
+  const numLabel = String(sectionNumber).padStart(2, "0");
+  const body = analysis.risingWindows
+    .map(
+      (w, i) => `
       <div class="rising-item">
         <div class="rising-rank">${i + 1}</div>
         <div class="rising-body">
@@ -430,18 +530,12 @@ function buildSection3(analysis: ChannelAnalysis): string {
           <div class="rising-badge" style="color:${i === 0 ? "var(--green)" : "var(--cyan)"}">● ${i === 0 ? "Strong Window" : "Rising"}</div>
         </div>
       </div>`
-          )
-          .join("")
-      : `
-      <div class="rising-item" style="justify-content:center;text-align:center;">
-        <div class="rising-body" style="flex:none;">
-          <div class="rising-desc" style="font-size:13px;">Coming soon — momentum data is building.</div>
-        </div>
-      </div>`;
+    )
+    .join("");
 
   return `
   <div class="section">
-    <div class="section-eyebrow">03 · Rising Windows</div>
+    <div class="section-eyebrow">${numLabel} · Rising Windows</div>
     <div class="section-title">Move Here Before It Floods</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:18px;font-weight:300">
       Streaming momentum cross-referenced against niche saturation. Ranked by opportunity size.
@@ -456,6 +550,56 @@ interface NichePlanCard {
   titleFormat: string;
   tags: string;
   note: string;
+  /** Item 4 — a real example pulled from top_videos, not just a score.
+   * Undefined only when no small-channel video exists in the stored pool to
+   * cite (or there's no pool at all, e.g. an untracked niche). */
+  receipt?: string;
+}
+
+interface SmallChannelExample {
+  /** 1-indexed position in score.topVideos, which lib/lanes/pipeline.ts
+   * already stores ranked by views/day desc — so this "#N" is the video's
+   * real rank among this niche's top performers, not a made-up number. */
+  rank: number;
+  subscriberCount: number;
+  title: string;
+}
+
+function findSmallChannelExample(topVideos: unknown[]): SmallChannelExample | null {
+  const videos = topVideos as { subscriberCount?: number; title?: string }[];
+  for (let i = 0; i < videos.length; i++) {
+    const v = videos[i];
+    if (
+      typeof v.subscriberCount === "number" &&
+      v.subscriberCount < SCORE_CALIBRATION.smallChannelSubThreshold &&
+      typeof v.title === "string"
+    ) {
+      return { rank: i + 1, subscriberCount: v.subscriberCount, title: v.title };
+    }
+  }
+  return null;
+}
+
+// Item 4 — "an 812-sub channel took #2 in this niche last month with this
+// title: X." Reuses the same small-channel threshold pipeline.ts already
+// uses to build winner_videos (SCORE_CALIBRATION.smallChannelSubThreshold)
+// rather than inventing a second "small" definition.
+// "an 812-sub channel" only reads right because 812 is spoken "eight
+// twelve" — a vowel sound. Most subscriber counts aren't: "a 133-sub
+// channel," not "an." Approximates by the leading digits actually spoken
+// with a vowel sound (eight-, eleven-, eighteen-) rather than hardcoding
+// the brief's own example's article.
+function articleFor(n: number): "a" | "an" {
+  const s = String(n);
+  if (s.startsWith("8") || s.startsWith("11") || s.startsWith("18")) return "an";
+  return "a";
+}
+
+function buildReceiptLine(score: NicheScore): string | undefined {
+  const example = findSmallChannelExample(score.topVideos);
+  if (!example) return undefined;
+  const article = articleFor(example.subscriberCount);
+  return `${article} ${example.subscriberCount.toLocaleString()}-sub channel took #${example.rank} in this niche last month with this title: "${example.title}"`;
 }
 
 function planCardForScore(label: string, score: NicheScore): NichePlanCard {
@@ -477,7 +621,23 @@ function planCardForScore(label: string, score: NicheScore): NichePlanCard {
     titleFormat,
     tags,
     note: `⚡ Opportunity score ${score.opportunity}/100 — ${STATUS_LABEL[score.status]}.`,
+    receipt: buildReceiptLine(score),
   };
+}
+
+// Step 4 — receipts, not just a score: a pick with a niche-specific
+// co-mention percentage cites it; a pick without one (genre-wide co-mention
+// signal only, or the exact-genre fallback with no co-mention data at all)
+// says so plainly instead of implying a specific pairing that was never
+// actually observed. planCardForScore above already attaches the item-4
+// top_videos receipt (inherited via the spread below), so this only needs
+// to swap the note for the co-mention-specific one.
+function planCardForExpansion(label: string, pick: ExpansionPick): NichePlanCard {
+  const base = planCardForScore(label, pick.score);
+  const note = pick.receipt
+    ? `⚡ ${escapeHtml(pick.score.artistName)} appears in ${pick.receipt.pct}% of winning ${escapeHtml(pick.receipt.nicheName)} titles — proven pairing, currently ${pick.score.opportunity}/100.`
+    : `⚡ No specific co-mention percentage on record for this pairing — recommended on opportunity fit for the niche, currently at ${pick.score.opportunity}/100.`;
+  return { ...base, note };
 }
 
 function planCardForNiche(label: string, niche: DetectedNiche): NichePlanCard {
@@ -487,10 +647,86 @@ function planCardForNiche(label: string, niche: DetectedNiche): NichePlanCard {
     titleFormat: `${niche.artistName} Type Beat "{Name}"`,
     tags: "no tag data yet — untracked niche",
     note: `⚡ Averaging ${niche.avgViewsPerDay.toLocaleString()} views/day across ${niche.uploadCount} upload${niche.uploadCount === 1 ? "" : "s"} — not yet lane-tracked by TALLY.`,
+    // No lane data for an untracked niche, so no top_videos pool to cite a
+    // real example from — leaving receipt undefined here (not a fabricated one).
   };
 }
 
-function buildSection4(analysis: ChannelAnalysis): string {
+function renderPlanCards(cards: NichePlanCard[]): string {
+  return cards
+    .map(
+      (c) => `
+      <div class="week-card">
+        <div class="week-num">${escapeHtml(c.label)}</div>
+        <div class="week-niche">${escapeHtml(c.niche)}</div>
+        ${
+          c.titleFormat
+            ? `<div class="week-field-label">Title Format</div>
+        <div class="week-field-val">${escapeHtml(c.titleFormat)}</div>
+        <div class="week-field-label">Tags</div>
+        <div class="week-field-val">${escapeHtml(c.tags)}</div>`
+            : ""
+        }
+        <div class="week-note">${c.note}</div>
+        ${c.receipt ? `<div class="week-receipt">📎 ${escapeHtml(c.receipt)}</div>` : ""}
+      </div>`
+    )
+    .join("");
+}
+
+// Fix 2 — mono-niche or saturated: lead the plan with expansion picks
+// instead of re-recommending the crowded/narrow niche the channel is
+// already stuck in. The current niche becomes a hold (test-one-upload),
+// never the lead.
+function buildExpansionActionPlan(analysis: ChannelAnalysis, numLabel: string): string {
+  const topNiche = analysis.detectedNiches[0] ?? null;
+  const topScore = topNiche?.laneId
+    ? analysis.nicheScores.find((s) => s.laneId === topNiche.laneId)
+    : undefined;
+
+  const cards: NichePlanCard[] = analysis.expansionRecommendations.map((pick, i) =>
+    planCardForExpansion(`Priority ${i + 1}`, pick)
+  );
+
+  const holdLabel = `Priority ${cards.length + 1} · Hold`;
+  const holdBase: NichePlanCard = topScore
+    ? planCardForScore(holdLabel, topScore)
+    : topNiche
+    ? planCardForNiche(holdLabel, topNiche)
+    : { label: holdLabel, niche: "Current niche", titleFormat: "", tags: "", note: "" };
+  const nicheName = escapeHtml(topNiche?.artistName ?? "current");
+  cards.push({
+    ...holdBase,
+    note: `⚡ Test one upload in your existing ${nicheName} niche using the winning title format — hold, not lead.`,
+  });
+
+  // Item 5 — the opening line names the concentration problem. When the
+  // headline diagnosis (Step 8) already identified concentration as the
+  // report's root cause, reuse its exact framing instead of telling the
+  // same story twice in slightly different words.
+  const framing =
+    analysis.diagnosis.type === "concentration"
+      ? `${analysis.diagnosis.detail} The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`
+      : topScore && topScore.saturation >= SATURATED_THRESHOLD
+      ? `Your uploads are concentrated in a saturated niche (${topScore.saturation}/100). The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`
+      : `Your uploads are concentrated in a single niche. The plan below prioritizes expansion into open adjacent niches while keeping your proven format.`;
+
+  return `
+  <div class="section">
+    <div class="section-eyebrow">${numLabel} · Action Plan</div>
+    <div class="section-title">Your Next 30 Days</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:18px;font-weight:300">${framing}</p>
+    <div class="week-grid">${renderPlanCards(cards)}</div>
+  </div>`;
+}
+
+function buildSection4(analysis: ChannelAnalysis, sectionNumber: number): string {
+  const numLabel = String(sectionNumber).padStart(2, "0");
+
+  if (analysis.expansionRecommended && analysis.expansionRecommendations.length) {
+    return buildExpansionActionPlan(analysis, numLabel);
+  }
+
   const rankedScores = [...analysis.nicheScores].sort((a, b) => b.opportunity - a.opportunity);
   const usedLaneIds = new Set<string>();
   const cards: NichePlanCard[] = [];
@@ -509,66 +745,50 @@ function buildSection4(analysis: ChannelAnalysis): string {
     }
   }
 
-  if (analysis.risingWindowsAvailable && analysis.risingWindows.length) {
+  // Item 7 — no placeholder slot for a feature that isn't live for this
+  // channel yet (same rule Section 3 already follows). A real rising window
+  // adds a real priority card; without one, the plan just has fewer
+  // priorities this month instead of a hollow "data building" card.
+  const hasRisingWindow = analysis.risingWindowsAvailable && analysis.risingWindows.length > 0;
+  if (hasRisingWindow) {
     const w = analysis.risingWindows[0];
     cards.push({
-      label: "Priority 3 · Rising Window Test",
+      label: `Priority ${cards.length + 1} · Rising Window Test`,
       niche: w.artist,
       titleFormat: `[FREE] ${w.artist} Type Beat "{Name}"`,
       tags: "test upload — no tag history yet",
       note: `⚡ Momentum +${Math.round(w.momentumPct)}% — get in before this floods.`,
     });
-  } else {
-    cards.push({
-      label: "Priority 3 · Rising Window Test",
-      niche: "Momentum data building",
-      titleFormat: "",
-      tags: "",
-      note: "⚡ Rising-window data isn&#39;t available yet — hold this slot for whichever niche spikes first once momentum tracking is live.",
-    });
   }
 
-  const cardsHtml = cards
-    .map(
-      (c) => `
-      <div class="week-card">
-        <div class="week-num">${escapeHtml(c.label)}</div>
-        <div class="week-niche">${escapeHtml(c.niche)}</div>
-        ${
-          c.titleFormat
-            ? `<div class="week-field-label">Title Format</div>
-        <div class="week-field-val">${escapeHtml(c.titleFormat)}</div>
-        <div class="week-field-label">Tags</div>
-        <div class="week-field-val">${escapeHtml(c.tags)}</div>`
-            : ""
-        }
-        <div class="week-note">${c.note}</div>
-      </div>`
-    )
-    .join("");
-
+  const captionSuffix = hasRisingWindow ? ", plus one rising-window test." : ".";
   return `
   <div class="section">
-    <div class="section-eyebrow">04 · Action Plan</div>
+    <div class="section-eyebrow">${numLabel} · Action Plan</div>
     <div class="section-title">Your Next 30 Days</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:18px;font-weight:300">
-      Top ${top2.length || cards.length} niche${cards.length === 1 ? "" : "s"} by opportunity, plus one rising-window test.
+      Top ${top2.length || cards.length} niche${cards.length === 1 ? "" : "s"} by opportunity${captionSuffix}
     </p>
-    <div class="week-grid">${cardsHtml}</div>
+    <div class="week-grid">${renderPlanCards(cards)}</div>
   </div>`;
 }
 
-function buildSection5(experiment: string, monthYear: string): string {
+function buildSection5(experiment: string, monthYear: string, sectionNumber: number): string {
+  const numLabel = String(sectionNumber).padStart(2, "0");
   const hasExperiment = experiment.length > 0;
+  // Fix 3 — title is always the heading; only the body varies with whether
+  // an experiment was supplied. Previously both slots said "Experiment: TBD"
+  // when blank, which read as a duplicated placeholder rather than a
+  // heading + a value.
   return `
   <div class="section">
-    <div class="section-eyebrow">05 · This Month&#39;s Experiment</div>
+    <div class="section-eyebrow">${numLabel} · This Month&#39;s Experiment</div>
     <div class="section-title">One Bet to Track</div>
     <div class="experiment-box">
       <div class="exp-icon">🧪</div>
       <div class="exp-body">
         <div class="exp-label">Experiment · ${monthYear}</div>
-        <div class="exp-title">${hasExperiment ? "This Month&#39;s Bet" : "Experiment: TBD"}</div>
+        <div class="exp-title">This Month&#39;s Bet</div>
         <div class="exp-text">${hasExperiment ? escapeHtml(experiment) : "Experiment: TBD — add manually before sending."}</div>
         <div class="exp-footer">Next month&#39;s report opens with your scorecard: did the plan work?</div>
       </div>
@@ -577,9 +797,15 @@ function buildSection5(experiment: string, monthYear: string): string {
 }
 
 function buildMethodologySection(analysis: ChannelAnalysis): string {
-  const risingWindowsText = analysis.risingWindowsAvailable
-    ? "Spotify monthly listener growth over the past 30 days, cross-referenced against current upload competition on YouTube. Streaming momentum precedes YouTube search volume by 2–4 weeks."
-    : "Momentum data is still building for this channel.";
+  // Now that Step 6 (channelAnalyzer.ts) queries the real momentum engine,
+  // risingWindowsAvailable is true whenever the query itself succeeds — it no
+  // longer implies there are any windows to show. What decides which
+  // explainer text renders here is the same "any real results" check
+  // Section 3 and the action plan already gate on, so this never claims the
+  // methodology text describes live data when the section is actually hidden.
+  const risingWindowsText = analysis.risingWindowsAvailable && analysis.risingWindows.length
+    ? "Spotify + Last.fm follower/listener growth over the past ~28 days, cross-referenced against current upload saturation on YouTube. Streaming momentum precedes YouTube search volume by 2–4 weeks."
+    : "Momentum data is still building for this channel — weekly snapshots need a few weeks of history before a real window can be ranked.";
 
   return `
   <div class="section methodology">
@@ -604,7 +830,7 @@ function buildMethodologySection(analysis: ChannelAnalysis): string {
 
       <div class="method-item">
         <div class="method-label">Benchmark Comparison</div>
-        <div class="method-text">Your uploads are measured against the median views-per-day of small channels (under 10K subscribers) in the same niche over the same 30-day window.</div>
+        <div class="method-text">Your uploads are measured against the median views-per-day of channels in your own subscriber tier (under 1K, under 10K, or under 50K) in the same niche — a peer comparison, not the whole winner pool. Fewer than 3 channels in your tier falls back to the niche's top performers instead.</div>
       </div>
 
       <div class="method-item">
@@ -745,6 +971,37 @@ body {
   font-size: 14px;
   font-weight: 400;
   color: var(--text);
+}
+
+.diagnosis-block {
+  margin: 28px 56px 0;
+  padding: 22px 26px;
+  background: linear-gradient(135deg, rgba(124,58,237,0.14), rgba(6,182,212,0.08));
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+}
+.diagnosis-eyebrow {
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--cyan);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.diagnosis-headline {
+  font-family: 'Nunito', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+.diagnosis-detail {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--sub);
+  font-weight: 300;
 }
 
 .kpi-section { padding: 36px 56px 0; }
@@ -970,6 +1227,14 @@ body {
   background: var(--yellow-bg);
   border-radius: 6px;
   margin-top: 8px;
+}
+.week-receipt {
+  font-size: 11px; color: var(--cyan);
+  padding: 6px 10px;
+  background: rgba(6,182,212,0.08);
+  border-radius: 6px;
+  margin-top: 6px;
+  line-height: 1.5;
 }
 
 .experiment-box {

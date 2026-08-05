@@ -136,7 +136,7 @@ function ReportBuilder({ password }: { password: string }) {
   };
 
   const handleGenerate = async () => {
-    if (!analysis) return;
+    if (!analysis || !experiment.trim()) return;
     setGenerating(true);
     setGenerateError("");
     try {
@@ -290,12 +290,14 @@ function ReportBuilder({ password }: { password: string }) {
                 rows={3}
                 className="w-full bg-[#111] border border-[#1e1e1e] px-4 py-3 text-sm text-white placeholder:text-[#475569] focus:outline-none focus:border-[#3a3a3a] transition-colors resize-none"
               />
-              <p className="text-[10px] text-[#475569] mt-1.5">Left blank, the report shows &quot;Experiment: TBD — add manually before sending.&quot;</p>
+              <p className={`text-[10px] mt-1.5 ${experiment.trim() ? "text-[#475569]" : "text-[#f87171]"}`}>
+                {experiment.trim() ? "This becomes Section 5 of the report." : "Add an experiment before generating"}
+              </p>
             </div>
 
             <button
               onClick={handleGenerate}
-              disabled={generating}
+              disabled={generating || !experiment.trim()}
               className="text-sm font-semibold bg-white text-black px-6 py-2.5 hover:bg-[#e8e8e8] disabled:opacity-40 transition-colors"
             >
               {generating ? "Generating..." : "Generate Report"}

@@ -18,6 +18,8 @@ import { viewsPerDay, computeStatus, type LaneStatus } from "@/lib/lanes/scoring
 import { cleanArtistName } from "@/lib/lanes/insights";
 import { getGenreCoMentionCounts } from "@/lib/lanes/trending";
 import { fetchLaneMatchers, matchKnownLane, normalizeForMatch, type LaneMatcher } from "@/lib/lanes/nicheMatch";
+import { extractCoMention } from "@/lib/lanes/patterns";
+import { detectRisingWindows } from "@/lib/momentum/rising";
 
 const YT = "https://www.googleapis.com/youtube/v3";
 const KEY = process.env.YOUTUBE_API_KEY!;
@@ -166,6 +168,8 @@ export interface ChannelAnalysis {
   /** Fewer than MIN_UPLOADS_FOR_FULL_ANALYSIS recent uploads were found —
    * callers should show a "limited data" note rather than a thin, overconfident report. */
   limitedData: boolean;
+  /** Step 8 — the report's headline root cause, rendered above Section 1. */
+  diagnosis: Diagnosis;
 }
 
 // ── Step 1 — resolve channel ID from any URL format ─────────────────────
@@ -675,39 +679,42 @@ async function getExpansionRecommendations(
 }
 
 // ── Step 6 — rising windows ────────────────────────────────────────────
-// No lib/momentum/rising.ts and no artist_momentum_snapshots table exist yet
-// in this codebase (the Spotify/Last.fm momentum engine is explicitly out of
-// scope for this brief) — this queries the table directly and degrades to
-// risingWindowsAvailable:false the moment that query fails, rather than
-// importing a module that doesn't exist (which would break the build).
-
+// Wired to the real Phase 1 momentum engine (lib/momentum/rising.ts's
+// detectRisingWindows over public.watchlist_artists / artist_momentum_snapshots)
+// instead of the old placeholder query, which read a table shape
+// (artist/genre/momentum_pct/description columns) that was never actually
+// built — that version could never return real data even once the momentum
+// tables shipped. detectRisingWindows itself already degrades to an empty
+// array gracefully (single-snapshot or no-snapshot artists are excluded, not
+// errored) while the momentum snapshot cron's weekly history accumulates —
+// this wiring is what lets the section light up automatically once that
+// history exists, with no further code change needed here.
+//
+// A channel with multiple detected genres has no single genre to scope the
+// query to; rather than guess or run N separate queries, this only passes a
+// genre filter when the channel's niches agree on exactly one, and otherwise
+// asks for the top-ranked windows across every tracked genre — still ranked
+// by the same rising-momentum + open-lane logic, just unscoped.
 async function getRisingWindows(
   supabase: SupabaseClient,
   genres: string[]
 ): Promise<{ windows: RisingWindow[]; available: boolean }> {
   const genreList = [...new Set(genres.filter(Boolean))];
-  if (!genreList.length) return { windows: [], available: false };
+  const genre = genreList.length === 1 ? genreList[0] : undefined;
 
   try {
-    const { data, error } = await supabase
-      .from("artist_momentum_snapshots")
-      .select("artist, genre, momentum_pct, description")
-      .in("genre", genreList)
-      .order("momentum_pct", { ascending: false })
-      .limit(MAX_RISING_WINDOWS);
-    if (error) throw error;
-
+    const results = await detectRisingWindows(supabase, { genre, limit: MAX_RISING_WINDOWS });
     return {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      windows: ((data ?? []) as any[]).map((r) => ({
-        artist: r.artist as string,
-        genre: (r.genre as string) ?? null,
-        momentumPct: Number(r.momentum_pct ?? 0),
-        description: (r.description as string) ?? null,
+      windows: results.map((r) => ({
+        artist: r.artist,
+        genre: genre ?? null,
+        momentumPct: r.pctChange,
+        description: r.sentence,
       })),
       available: true,
     };
-  } catch {
+  } catch (err) {
+    console.error("[channelAnalyzer] getRisingWindows failed:", err);
     return { windows: [], available: false };
   }
 }
@@ -782,6 +789,112 @@ function computeTitleRewriteNeeded(bestNiche: DetectedNiche, bestScore: NicheSco
   return matches / bestNiche.videos.length <= 0.5;
 }
 
+// ── Step 8 — diagnosis engine ────────────────────────────────────────────
+// The report headline: a rules ladder, first match wins, rendered above
+// Section 1 as one root cause instead of a wall of stats. Reuses data
+// already computed above (detectedNiches, nicheScores/benchmark from Step 5,
+// the same FREE_PREFIX_RE/QUOTED_NAME_RE Step 7 uses) rather than
+// recomputing any of it.
+
+export type DiagnosisType = "concentration" | "discoverability" | "positioning" | "consistency" | "scale";
+
+export interface Diagnosis {
+  type: DiagnosisType;
+  /** Coach-phrased root cause — the report's headline. Plain text, no HTML;
+   * the renderer owns markup/escaping (see app/api/admin/report-builder/report). */
+  headline: string;
+  /** One supporting sentence citing the real numbers behind the headline. */
+  detail: string;
+}
+
+// Consistency threshold doubles as rule 3/5's "consistent uploads"
+// precondition and rule 4's own trigger — see buildDiagnosis below.
+const MIN_CONSISTENT_UPLOADS = 4;
+
+/** A title "has a winner pattern" if it uses any of the three signals real
+ * winning titles in this genre lean on — [FREE], a co-mention, or a quoted
+ * beat name. Channel-wide (every upload, not just the best niche's), unlike
+ * Fix 4's computeTitleRewriteNeeded, which is deliberately scoped to one
+ * niche's specific top co-mention — this is a coarser, whole-channel signal
+ * for the discoverability rule below. */
+function titleHasWinnerPattern(title: string): boolean {
+  return FREE_PREFIX_RE.test(title) || QUOTED_NAME_RE.test(title) || extractCoMention(title) !== null;
+}
+
+function buildDiagnosis(
+  uploads: RecentUpload[],
+  detectedNiches: DetectedNiche[],
+  bestNiche: DetectedNiche | null,
+  bestScore: NicheScore | undefined
+): Diagnosis {
+  const uploadCount = uploads.length;
+  const isConsistent = uploadCount >= MIN_CONSISTENT_UPLOADS;
+  const benchmark = bestScore?.benchmark;
+
+  // Rule 1 — concentration: mono-niche AND the top niche is saturated.
+  const isMonoNiche = detectedNiches.length > 0 && detectedNiches.length <= MONO_NICHE_MAX_COUNT;
+  const topSaturation = bestScore?.saturation ?? null;
+  if (isMonoNiche && topSaturation !== null && topSaturation >= SATURATED_THRESHOLD && bestNiche) {
+    return {
+      type: "concentration",
+      headline: "You're stuck in one crowded lane.",
+      detail: `${detectedNiches.length} niche${detectedNiches.length === 1 ? "" : "s"} detected this month, and your top niche — ${bestNiche.artistName} — is sitting at ${topSaturation}/100 saturation. Doubling down here means competing against everyone already in it; the fix is opening a second lane, not posting more in this one.`,
+    };
+  }
+
+  // Rule 2 — discoverability: majority of titles skip every winning signal.
+  const withPattern = uploads.filter((u) => titleHasWinnerPattern(u.title)).length;
+  if (uploadCount > 0 && withPattern / uploadCount < 0.5) {
+    const missingPct = Math.round(((uploadCount - withPattern) / uploadCount) * 100);
+    return {
+      type: "discoverability",
+      headline: "Your videos aren't giving YouTube a reason to surface them.",
+      detail: `${missingPct}% of this month's uploads skip every winning signal — no [FREE] tag, no co-mention, no quoted beat name. Those are exactly what small-channel winners in this genre use to get found; fix the titles before anything else.`,
+    };
+  }
+
+  // Rule 3 — positioning: consistent volume, but velocity trails the peer median.
+  if (isConsistent && bestNiche && benchmark && benchmark.medianViewsPerDay > 0 && bestNiche.avgViewsPerDay < benchmark.medianViewsPerDay) {
+    return {
+      type: "positioning",
+      headline: "You're uploading consistently, but losing on the video itself.",
+      detail: `Your ${bestNiche.artistName} uploads are averaging ${bestNiche.avgViewsPerDay.toLocaleString()} views/day against a peer median of ${benchmark.medianViewsPerDay.toLocaleString()}/day. The volume is right — the packaging isn't winning yet.`,
+    };
+  }
+
+  // Rule 4 — consistency: not enough uploads to trust a trend at all.
+  if (!isConsistent) {
+    return {
+      type: "consistency",
+      headline: "The biggest lever right now is just uploading more.",
+      detail: `Only ${uploadCount} upload${uploadCount === 1 ? "" : "s"} logged this month — that's not enough volume for a real trend to show up, in this report or in YouTube's own algorithm. Get to at least ${MIN_CONSISTENT_UPLOADS} uploads a month before anything else will move the needle.`,
+    };
+  }
+
+  // Rule 5 — scale: velocity at/above the peer median, uploads consistent.
+  if (bestNiche && benchmark && benchmark.medianViewsPerDay > 0) {
+    return {
+      type: "scale",
+      headline: "What you're doing is working — the fix is more of it.",
+      detail: `Your ${bestNiche.artistName} uploads are averaging ${bestNiche.avgViewsPerDay.toLocaleString()} views/day, at or above the ${benchmark.medianViewsPerDay.toLocaleString()}/day peer median, across ${uploadCount} uploads this month. This is a volume play now, not a strategy pivot.`,
+    };
+  }
+
+  // Fallback — consistent, clean uploads but no peer benchmark to rank
+  // velocity against yet (untracked niche, or a lane with no analysis on
+  // file). None of rules 1-5 have enough signal to fire; say that plainly
+  // rather than forcing a stat-free rule to match.
+  return {
+    type: "scale",
+    headline: bestNiche
+      ? "Keep the volume up while TALLY builds a benchmark for this niche."
+      : "Keep the volume up while TALLY catches up to what niche you're in.",
+    detail: bestNiche
+      ? `You posted ${uploadCount} uploads this month with clean, winning-format titles. There isn't a peer benchmark for ${bestNiche.artistName} yet to compare velocity against — keep the pace up and next month's report will have a real comparison.`
+      : `You posted ${uploadCount} uploads this month, but TALLY couldn't confidently match them to a tracked niche. Once titles settle into a consistent "{Artist} Type Beat" pattern, niche detection — and a real peer benchmark — will kick in.`,
+  };
+}
+
 // ── Entry point ────────────────────────────────────────────────────────
 
 export async function analyzeChannel(
@@ -808,6 +921,9 @@ export async function analyzeChannel(
 
   const bestNiche = detectedNiches[0] ?? null;
   const bestScore = bestNiche?.laneId ? nicheScores.find((s) => s.laneId === bestNiche.laneId) : undefined;
+
+  // Step 8 — the report headline: one root cause, first rule in the ladder to match.
+  const diagnosis = buildDiagnosis(recentUploads, detectedNiches, bestNiche, bestScore);
 
   // Fix 4 — skip the rewrite suggestion when the channel's titles already win.
   const titleRewriteNeeded = bestNiche ? computeTitleRewriteNeeded(bestNiche, bestScore) : true;
@@ -846,5 +962,6 @@ export async function analyzeChannel(
     expansionRecommended: expansionRecommended && expansionRecommendations.length > 0,
     expansionRecommendations,
     limitedData: recentUploads.length < MIN_UPLOADS_FOR_FULL_ANALYSIS,
+    diagnosis,
   };
 }
