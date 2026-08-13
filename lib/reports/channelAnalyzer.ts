@@ -15,6 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractChannelId } from "@/lib/youtube";
 import { getPriorAnalysis, normalizeLaneSlug } from "@/lib/lanes/db";
 import { viewsPerDay, computeStatus, type LaneStatus } from "@/lib/lanes/scoring";
+import { monthLabel, monthBounds } from "@/lib/lanes/dateRange";
 import { cleanArtistName, cleanCoMention } from "@/lib/lanes/patterns";
 import { getGenreCoMentionCounts } from "@/lib/lanes/trending";
 import { getNicheData } from "@/lib/reports/nicheCache";
@@ -54,21 +55,6 @@ const MIN_COMPARABLE_VIDEOS = 3;
 const PLAYLIST_PAGE_SIZE = 50;
 const MAX_PLAYLIST_PAGES = 10;
 const MAX_UPLOADS_PER_MONTH = 50; // videos.list accepts at most 50 ids per call
-
-export const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-] as const;
-
-export function monthLabel(month: number, year: number): string {
-  return `${MONTH_NAMES[month - 1]} ${year}`;
-}
-
-function monthBounds(month: number, year: number): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)); // day 0 of next month = last day of this month
-  return { start, end };
-}
 
 // ── Types ────────────────────────────────────────────────────────────────
 

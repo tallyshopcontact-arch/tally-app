@@ -1,17 +1,16 @@
-// Admin batch artist scorer — /admin/scores. Replaces /admin/insights for
-// brief production: instead of hand-picking one lane at a time, paste up to
-// 50 artist names and get every one ranked by a SubK Score (see below), all
-// through the exact same shared niche cache (lib/reports/nicheCache.ts) every
-// other report/insight tool reads from. Already-cached lanes cost zero
-// YouTube quota; a brand-new lane costs a real analyzeLane pass.
+// Admin batch artist scorer — /admin/scores. Paste up to 50 artist names,
+// pick a calendar month, and get every one ranked by a SubK Score (how
+// winnable the niche was for a sub-1,000-subscriber producer THAT month),
+// computed through lib/reports/nicheCache.ts's getNicheData in its
+// month-scoped, always-live mode (see that file and lib/lanes/pipeline.ts's
+// analyzeLaneForMonth) — this route is explicitly for fresh, dated research,
+// so every artist gets a live re-analysis on every run, never a cache hit.
 //
-// New-artist budget mirrors lib/reports/channelAnalyzer.ts's
-// scoreManualArtists exactly (same "only a lane with no existing row counts
-// against the cap" rule, same reason: bounding one request's worst-case
-// YouTube spend) rather than importing it, since that cap
-// (MAX_NEW_ARTIST_ANALYSES_PER_REPORT) isn't exported — it's a report-
-// specific constant, and this route's cap is conceptually the same number
-// for the same reason, not a shared dependency.
+// No new-artist cap: every artist in the batch is analyzed on demand,
+// bounded only by the real daily YouTube quota budget (lib/lanes/db.ts's
+// reserveQuota) — a 50-artist batch at ~205 units/artist can legitimately
+// exhaust an 8,000-unit daily budget partway through, which is exactly what
+// the quotaExceeded short-circuit below handles.
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LaneAnalysis } from "@/lib/lanes/types";
@@ -29,10 +28,6 @@ function checkAdmin(req: NextRequest): boolean {
 // ── Request bounds ───────────────────────────────────────────────────────
 
 const MAX_ARTISTS_PER_BATCH = 50;
-// Same value and same justification as channelAnalyzer.ts's
-// MAX_NEW_ARTIST_ANALYSES_PER_REPORT: each brand-new lane costs a real
-// ~200-unit analyzeLane pass that a single request can't spend unbounded on.
-const MAX_NEW_ARTISTS_PER_BATCH = 3;
 const CONCURRENCY_LIMIT = 5;
 
 // Deliberately tighter than lib/lanes/scoring.ts's
@@ -50,32 +45,36 @@ interface TopVideoRow {
   publishedAt?: string;
 }
 
-export interface ArtistScoreResult {
+export interface ScoredArtist {
   artistName: string;
   subKScore: number;
-  smallChannelWinRate: number; // 0-100, 40% weight
-  saturation: number; // raw 0-100 (higher = more uploads = more competition)
-  demand: number; // raw 0-100, 20% weight
-  velocityCeiling: number; // 0-100 normalized, 15% weight
+  smallChannelWinRate: number; // 0-100, 25% weight
+  saturation: number; // raw 0-100 (higher = more uploads = more competition), 25% weight (as 100-saturation)
+  demand: number; // raw 0-100, 30% weight
+  velocityCeiling: number; // 0-100 normalized, 20% weight
   medianViewsPerDay: number; // raw median views/day feeding velocityCeiling
-  uploadsLast30d: number; // raw upload count feeding the saturation label
+  uploadsThisMonth: number; // raw upload count feeding the saturation label
   topCoMention: string | null;
   verdict: string;
-  /** True when this artist already had a lane on file before this request —
-   * i.e. this result cost zero new-artist quota. */
-  cached: boolean;
+  /** True when this artist had no lane on file before this request. */
+  isNewArtist: boolean;
   /** The credibility paragraph for the expanded row. */
   summary: string;
 }
 
+export interface NoDataArtist {
+  artistName: string;
+  subKScore: null;
+  reason: string;
+}
+
+export type ArtistScoreResult = ScoredArtist | NoDataArtist;
+
 interface BatchResponse {
   results: ArtistScoreResult[];
-  /** Names that had no existing lane AND arrived after the request's
-   * MAX_NEW_ARTISTS_PER_BATCH new-lane budget was already spent — never
-   * attempted this request; re-submit them on their own. */
-  pending: string[];
-  /** Names that couldn't be scored because daily YouTube quota ran out
-   * mid-batch (and had no cached data to fall back to) — try again tomorrow. */
+  /** Names that couldn't be analyzed because daily YouTube quota genuinely
+   * ran out mid-batch — try again tomorrow. Never the old artificial cap
+   * (removed) — real exhaustion only. */
   quotaExceeded: string[];
 }
 
@@ -123,7 +122,7 @@ function demandLabel(demand: number): "Low" | "Moderate" | "High" {
   return "High";
 }
 
-function buildScoreResult(artistName: string, analysis: LaneAnalysis, cached: boolean): ArtistScoreResult {
+function buildScoreResult(artistName: string, analysis: LaneAnalysis, isNewArtist: boolean): ScoredArtist {
   const topVideos = (analysis.top_videos ?? []) as TopVideoRow[];
   const smallChannelVideos = topVideos.filter(
     (v) => typeof v.subscriberCount === "number" && v.subscriberCount < SUBK_CHANNEL_THRESHOLD
@@ -142,20 +141,25 @@ function buildScoreResult(artistName: string, analysis: LaneAnalysis, cached: bo
   const demand = analysis.demand;
   const saturationScore = 100 - saturation;
 
+  // Fix 2 rebalance — small-channel win rate down to 25% (was 40%), demand
+  // up to 30% (was 20%), velocity up to 20% (was 15%), saturation unchanged
+  // at 25%. Prevents an empty/dead niche (100% win rate simply because
+  // nothing but small channels ever posted there, near-zero views, zero
+  // search demand) from outranking a genuinely active one.
   const subKScore = Math.round(
-    smallChannelWinRate * 0.4 + saturationScore * 0.25 + demand * 0.2 + velocityCeiling * 0.15
+    smallChannelWinRate * 0.25 + saturationScore * 0.25 + demand * 0.3 + velocityCeiling * 0.2
   );
 
   const patterns = (analysis.patterns ?? {}) as { topCoMentions?: { artist: string }[] };
   const topCoMention = patterns.topCoMentions?.[0]?.artist ? titleCase(patterns.topCoMentions[0].artist) : null;
 
   const rawMetrics = (analysis.raw_metrics ?? {}) as { uploadsLast30d?: number };
-  const uploadsLast30d = rawMetrics.uploadsLast30d ?? 0;
+  const uploadsThisMonth = rawMetrics.uploadsLast30d ?? 0;
 
   const verdict = verdictFor(subKScore);
   const summary =
     `${smallChannelWinRate}% of top performers in this niche came from channels under 1K subs. ` +
-    `Upload competition is ${competitionLabel(saturation).toLowerCase()} at ${uploadsLast30d} videos this month, ` +
+    `Upload competition is ${competitionLabel(saturation).toLowerCase()} at ${uploadsThisMonth} videos this month, ` +
     `and search demand is ${demandLabel(demand).toLowerCase()}. ${verdict}.`;
 
   return {
@@ -166,17 +170,15 @@ function buildScoreResult(artistName: string, analysis: LaneAnalysis, cached: bo
     demand,
     velocityCeiling,
     medianViewsPerDay,
-    uploadsLast30d,
+    uploadsThisMonth,
     topCoMention,
     verdict,
-    cached,
+    isNewArtist,
     summary,
   };
 }
 
 // ── Bounded-concurrency pool ─────────────────────────────────────────────
-// Simple worker-pool Promise.all — no external dependency needed for a
-// concurrency cap of 5.
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -202,14 +204,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await req.json().catch(() => null)) as { artistNames?: string[]; genre?: string | null } | null;
+  const body = (await req.json().catch(() => null)) as
+    | { artistNames?: string[]; genre?: string | null; month?: number; year?: number }
+    | null;
   if (!body?.artistNames) {
     return NextResponse.json({ error: "Missing artistNames" }, { status: 400 });
   }
 
-  // Dedupe case-insensitively, preserving first-seen casing and order — the
-  // order IS the priority signal for the new-artist budget below, same
-  // convention as scoreManualArtists.
+  const month = Number(body.month);
+  const year = Number(body.year);
+  if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year) || year < 2000 || year > 2100) {
+    return NextResponse.json({ error: "Provide a valid month (1-12) and year." }, { status: 400 });
+  }
+
+  // Dedupe case-insensitively, preserving first-seen casing and order.
   const seen = new Set<string>();
   const names: string[] = [];
   for (const raw of body.artistNames) {
@@ -231,109 +239,85 @@ export async function POST(req: NextRequest) {
   try {
     const supabase: SupabaseClient = createServerClient();
 
-    // One batched lookup for every name's slug rather than N sequential
-    // ones — cheap read, and this pre-check is what lets us know which
-    // names are "new" (no lane row at all — spends a new-artist budget
-    // slot) before calling getNicheData at all.
-    const bySlug = new Map<string, string>(); // slug -> artistName
+    // One batched lookup for every name's slug — only used to decide
+    // whether a brand-new lane gets the genre hint as its starting
+    // classification (same rule as scoreManualArtists / Step 10 niche
+    // candidates in channelAnalyzer.ts) and to flag "New" in the UI. No
+    // longer gates how many get analyzed — Fix 1 removed that cap.
+    const bySlug = new Map<string, string>();
     for (const name of artistNames) {
       const slug = normalizeLaneSlug(name);
       if (slug) bySlug.set(slug, name);
     }
     const slugs = [...bySlug.keys()];
     const { data: existingLanes, error: laneLookupErr } = slugs.length
-      ? await supabase.from("lanes").select("id, slug").in("slug", slugs)
-      : { data: [] as { id: string; slug: string }[], error: null };
+      ? await supabase.from("lanes").select("slug").in("slug", slugs)
+      : { data: [] as { slug: string }[], error: null };
     if (laneLookupErr) throw new Error(`lane slug lookup failed: ${laneLookupErr.message}`);
-    const laneIdBySlug = new Map((existingLanes ?? []).map((r) => [r.slug as string, r.id as string]));
+    const existingSlugSet = new Set((existingLanes ?? []).map((r) => r.slug as string));
 
-    // A lane existing isn't the same as a lane being CACHE-FRESH — an
-    // existing-but-stale lane still triggers a real (quota-costing)
-    // analyzeLane pass inside getNicheData, same as a brand-new one. The
-    // "cached" indicator this route reports per-artist needs to reflect
-    // "this call is expected to cost zero quota," so it has to be based on
-    // the same freshness window getNicheData itself uses
-    // (lib/reports/nicheCache.ts's DEFAULT_MAX_AGE_HOURS = 168h / 7 days,
-    // not exported, mirrored here), not just "a lane row exists."
-    const CACHE_FRESHNESS_HOURS = 168;
-    const laneIds = [...laneIdBySlug.values()];
-    const freshBySlug = new Set<string>();
-    if (laneIds.length) {
-      const { data: analyses, error: analysesErr } = await supabase
-        .from("lane_analyses")
-        .select("lane_id, created_at")
-        .in("lane_id", laneIds)
-        .order("created_at", { ascending: false });
-      if (analysesErr) throw new Error(`lane_analyses freshness lookup failed: ${analysesErr.message}`);
-      const latestCreatedAtByLaneId = new Map<string, string>();
-      for (const row of analyses ?? []) {
-        const laneId = row.lane_id as string;
-        if (!latestCreatedAtByLaneId.has(laneId)) latestCreatedAtByLaneId.set(laneId, row.created_at as string);
-      }
-      for (const [slug, laneId] of laneIdBySlug) {
-        const createdAt = latestCreatedAtByLaneId.get(laneId);
-        const ageHours = createdAt ? (Date.now() - new Date(createdAt).getTime()) / (60 * 60 * 1000) : Infinity;
-        if (ageHours < CACHE_FRESHNESS_HOURS) freshBySlug.add(slug);
-      }
-    }
-
-    // Assign the new-artist budget in input order, exactly like
-    // scoreManualArtists: already-tracked names never compete for it.
-    let budgetRemaining = MAX_NEW_ARTISTS_PER_BATCH;
-    const pending: string[] = [];
-    const toProcess: { artistName: string; isNewArtist: boolean; expectCacheHit: boolean }[] = [];
-    for (const name of artistNames) {
-      const slug = normalizeLaneSlug(name);
-      const isNewArtist = !slug || !laneIdBySlug.has(slug);
-      if (isNewArtist) {
-        if (budgetRemaining <= 0) {
-          pending.push(name);
-          continue;
-        }
-        budgetRemaining -= 1;
-      }
-      toProcess.push({ artistName: name, isNewArtist, expectCacheHit: !isNewArtist && freshBySlug.has(slug) });
-    }
-
-    // Once a genuinely new (never-analyzed, no cache to fall back to) lane
-    // hits exhausted quota, the day's budget is gone — stop attempting
-    // further new-lane analyses for the rest of this batch instead of
-    // burning a reserveQuota round-trip on each one just to get the same
-    // "no" back. Cached lookups are unaffected and keep running.
+    // Once quota genuinely runs out (getNicheData returns null — nothing
+    // cacheable to fall back to for this specific month), stop attempting
+    // further analyses for the rest of this batch instead of burning a
+    // reserveQuota round-trip on each remaining name just to get the same
+    // "no" back.
     let quotaExhausted = false;
     const quotaExceeded: string[] = [];
     let newlyAnalyzedCount = 0;
+    let noDataCount = 0;
 
-    const outcomes = await mapWithConcurrency(toProcess, CONCURRENCY_LIMIT, async ({ artistName, isNewArtist, expectCacheHit }) => {
-      if (isNewArtist && quotaExhausted) {
+    const items = artistNames.map((artistName) => {
+      const slug = normalizeLaneSlug(artistName);
+      const isNewArtist = !slug || !existingSlugSet.has(slug);
+      return { artistName, isNewArtist };
+    });
+
+    const outcomes = await mapWithConcurrency(items, CONCURRENCY_LIMIT, async ({ artistName, isNewArtist }) => {
+      if (quotaExhausted) {
         quotaExceeded.push(artistName);
         return null;
       }
-      // Only a brand-new lane gets the genre hint as its starting
-      // classification — an already-tracked lane keeps whatever it was
-      // actually classified with (same rule as scoreManualArtists / Step 10
-      // niche candidates in channelAnalyzer.ts).
-      const nicheResult = await getNicheData(supabase, artistName, isNewArtist ? genre : null, {});
+      // Fix 3 — forceRefresh: true always. Fix 4 — month/year always set.
+      // getNicheData's month-scoped branch is unconditionally live anyway
+      // (there's no cache concept for one specific past month), so
+      // forceRefresh is a documented no-op there — passed regardless for
+      // fidelity with "always force refresh" and in case month scoping is
+      // ever bypassed for this route in the future.
+      const nicheResult = await getNicheData(supabase, artistName, isNewArtist ? genre : null, {
+        forceRefresh: true,
+        month,
+        year,
+      });
       if (!nicheResult) {
-        if (isNewArtist) quotaExhausted = true;
+        quotaExhausted = true;
         quotaExceeded.push(artistName);
         return null;
       }
-      if (!expectCacheHit) newlyAnalyzedCount += 1;
-      return buildScoreResult(artistName, nicheResult.analysis, expectCacheHit);
+      if (nicheResult.noData) {
+        noDataCount += 1;
+        const noDataResult: NoDataArtist = { artistName, subKScore: null, reason: "No data for this period" };
+        return noDataResult;
+      }
+      newlyAnalyzedCount += 1;
+      return buildScoreResult(artistName, nicheResult.analysis, isNewArtist);
     });
 
     const results = outcomes
       .filter((r): r is ArtistScoreResult => r !== null)
-      .sort((a, b) => b.subKScore - a.subKScore);
+      .sort((a, b) => {
+        // No-data rows always sort to the bottom, regardless of score.
+        if (a.subKScore === null && b.subKScore === null) return 0;
+        if (a.subKScore === null) return 1;
+        if (b.subKScore === null) return -1;
+        return b.subKScore - a.subKScore;
+      });
 
     console.log(
-      `[admin/scores/batch] scored ${results.length}/${artistNames.length} artist(s) — ` +
-      `${newlyAnalyzedCount} newly analyzed, ${results.length - newlyAnalyzedCount} cache-warm, ` +
-      `${quotaExceeded.length} quota-blocked, ${pending.length} pending (new-artist cap reached)`
+      `[admin/scores/batch] scored ${results.length}/${artistNames.length} artist(s) for ${month}/${year} — ` +
+      `${newlyAnalyzedCount} analyzed, ${noDataCount} no-data, ${quotaExceeded.length} quota-blocked`
     );
 
-    const response: BatchResponse = { results, pending, quotaExceeded };
+    const response: BatchResponse = { results, quotaExceeded };
     return NextResponse.json(response);
   } catch (err) {
     console.error("[admin/scores/batch] failed:", err);

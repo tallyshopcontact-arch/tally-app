@@ -5,7 +5,7 @@
 // self-contained HTML string the client can preview in an iframe and download.
 import { NextRequest, NextResponse } from "next/server";
 import type { ChannelAnalysis, Diagnosis, DetectedNiche, NicheCandidate, NicheScore, RecentUpload } from "@/lib/reports/channelAnalyzer";
-import { monthLabel } from "@/lib/reports/channelAnalyzer";
+import { monthLabel } from "@/lib/lanes/dateRange";
 import { findSmallChannelExample } from "@/lib/lanes/nicheMatch";
 import { createServerClient } from "@/lib/supabase";
 

@@ -48,20 +48,36 @@ export interface SearchResult {
 }
 
 /** search.list, type=video. Used for both the recency scan (order=date, ~saturation)
- * and the top-performer scan (order=viewCount, ~demand/winnability/patterns source). */
+ * and the top-performer scan (order=viewCount, ~demand/winnability/patterns source).
+ *
+ * Two window shapes: `publishedAfterDays` (relative to now — the normal
+ * rolling-window analysis every caller but the scores batch scorer uses), or
+ * an explicit `publishedAfter`/`publishedBefore` ISO pair (a specific
+ * calendar month — see lib/lanes/pipeline.ts's analyzeLaneForMonth). The
+ * absolute pair bounds the query itself, not just a client-side filter of
+ * the results, so pageInfo.totalResults (the saturation/upload-competition
+ * signal) reflects real counts for that exact window instead of "everything
+ * since the window start through today." */
 export async function searchVideos(
   query: string,
-  opts: { order: "date" | "viewCount"; publishedAfterDays: number; maxResults: number }
+  opts:
+    | { order: "date" | "viewCount"; publishedAfterDays: number; maxResults: number }
+    | { order: "date" | "viewCount"; publishedAfter: string; publishedBefore: string; maxResults: number }
 ): Promise<SearchResult> {
   const params = new URLSearchParams({
     part: "snippet",
     type: "video",
     order: opts.order,
     q: query,
-    publishedAfter: isoDaysAgo(opts.publishedAfterDays),
     maxResults: String(opts.maxResults),
     key: KEY,
   });
+  if ("publishedAfterDays" in opts) {
+    params.set("publishedAfter", isoDaysAgo(opts.publishedAfterDays));
+  } else {
+    params.set("publishedAfter", opts.publishedAfter);
+    params.set("publishedBefore", opts.publishedBefore);
+  }
   const res = await fetch(`${YT}/search?${params.toString()}`);
   if (!res.ok) throw new Error(`YouTube search.list failed (order=${opts.order}): ${res.status}`);
   const data = await res.json();
