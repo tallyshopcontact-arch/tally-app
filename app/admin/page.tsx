@@ -1437,6 +1437,12 @@ interface AdminTool {
 
 const ADMIN_TOOLS: AdminTool[] = [
   {
+    key: "scores",
+    name: "Scores",
+    description: "Batch artist scorer — paste up to 50 names, get every one ranked by SubK Score.",
+    href: "/admin/scores",
+  },
+  {
     key: "insights",
     name: "Insights",
     description: "Lane insight extractor — copy-friendly market intel per lane.",
