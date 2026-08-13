@@ -141,6 +141,19 @@ export default function PrivacyPage() {
               { name: "Resend", desc: "transactional email delivery (account, billing, and Upload Kit notifications)." },
               { name: "Supabase", desc: "our database provider." },
               { name: "Vercel Analytics", desc: "anonymous, aggregate usage tracking. This does not identify you personally." },
+              {
+                name: "Vercel",
+                desc: (
+                  <>
+                    our hosting provider. Vercel may use cookies or similar browser technologies to manage
+                    deployments and serve the application. See Vercel&apos;s privacy policy at{" "}
+                    <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className={link}>
+                      vercel.com/legal/privacy-policy
+                    </a>
+                    .
+                  </>
+                ),
+              },
             ].map((s) => (
               <li key={s.name} className="flex items-start gap-3 text-sm text-[#94a3b8]">
                 <span className="text-[#64748b] mt-px leading-none shrink-0">—</span>
@@ -170,6 +183,40 @@ export default function PrivacyPage() {
               tallyshop.contact@gmail.com
             </a>
             . We will process your request within 30 days and confirm deletion in writing.
+          </p>
+        </div>
+
+        {/* Cookies */}
+        <div className={section}>
+          <h2 className="font-semibold text-white mb-3">Cookies &amp; Browser Technologies</h2>
+          <p className={body}>
+            TALLY uses session cookies strictly to maintain your logged-in state while
+            using the application. We do not use advertising cookies, tracking pixels,
+            or third-party behavioral tracking. You may disable cookies in your browser
+            settings, but doing so will prevent you from staying logged in to your
+            account.
+          </p>
+        </div>
+
+        {/* Revoking YouTube access */}
+        <div className={section}>
+          <h2 className="font-semibold text-white mb-3">Revoking YouTube API Access</h2>
+          <p className={body}>
+            If you have connected any YouTube account data to TALLY, you may revoke our
+            access at any time by visiting your{" "}
+            <a
+              href="https://myaccount.google.com/connections?filters=3,4&hl=en"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={link}
+            >
+              Google security settings
+            </a>
+            . You may also request full deletion of your data by emailing{" "}
+            <a href="mailto:tallyshop.contact@gmail.com" className={link}>
+              tallyshop.contact@gmail.com
+            </a>
+            .
           </p>
         </div>
 
