@@ -29,7 +29,7 @@ export interface LaneAnalysis {
 }
 
 /** A specific calendar month's analysis for a lane — /admin/scores's
- * dedicated cache (supabase/scores-month-cache-migration.sql), deliberately
+ * dedicated cache (supabase/lane-month-analyses-migration.sql), deliberately
  * a SEPARATE table from lane_analyses: lane_analyses is "the current
  * rolling-window state of this lane" that report builder/expansion picks
  * read as the latest general answer, while a row here is a fixed historical

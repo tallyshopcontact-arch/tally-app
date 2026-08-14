@@ -470,7 +470,7 @@ function ScoresBuilder({ password }: { password: string }) {
       <div className="max-w-6xl mx-auto px-6 py-10">
         <h1 className="text-2xl font-bold mb-1">Scores</h1>
         <p className="text-[#94a3b8] text-sm mb-8">
-          Batch artist scorer — paste up to 50 names, get every one ranked by SubK Score for the selected month. Cached results within the last 7 days are free; check &quot;Force Fresh Data&quot; to re-analyze everything.
+          Paste up to 50 artists, pick a month, and score. Uses cached data by default — check Force Fresh for live analysis.
         </p>
 
         {/* Input */}
