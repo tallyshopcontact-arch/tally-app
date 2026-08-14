@@ -8,15 +8,17 @@
 // Two-tier lookup per artist:
 //   1. lane_analyses.top_videos already on file (zero quota) — only useful
 //      when the selected month happens to fall inside whatever window that
-//      row's own analysis covered, since /admin/scores's month-scoped
-//      analyses (lib/lanes/pipeline.ts's analyzeLaneForMonth) are
-//      deliberately never persisted (see that file's header comment) —
-//      still worth checking first since it's free.
-//   2. A live, month-scoped re-analysis (getNicheData's month/year branch —
-//      the same one the batch scorer uses) when tier 1 comes up empty. This
-//      is the "follow-up channels.list call per video" the brief describes:
-//      analyzeLaneForMonth already makes that call as part of computing
-//      topVideos, so there's no separate lighter-weight fetch to write.
+//      row's own rolling-window analysis covered; still worth checking
+//      first since it's free.
+//   2. getNicheData's month-scoped branch — itself cache-aware
+//      (lane_month_analyses, 7-day freshness, same forceRefresh flag the
+//      batch scorer's "Force Fresh Data" checkbox drives) — so this is
+//      "zero quota if that exact month was already checked recently"
+//      before falling all the way through to a real live re-analysis. This
+//      is also the "follow-up channels.list call per video" the brief
+//      describes: analyzeLaneForMonth already makes that call as part of
+//      computing topVideos, so there's no separate lighter-weight fetch to
+//      write for the live case.
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeLaneSlug, getLatestAnalysis } from "@/lib/lanes/db";
 import { monthBounds } from "@/lib/lanes/dateRange";
@@ -55,7 +57,7 @@ export interface OutlierResult {
   artistName: string;
   outlier: OutlierVideo | null;
   reason: string | null;
-  source: "stored" | "live" | null;
+  source: "stored" | "month-cache" | "live" | null;
 }
 
 /** Strictly filters to sub-1K channels published within [start, end], then
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => null)) as
-    | { artistNames?: string[]; month?: number; year?: number }
+    | { artistNames?: string[]; month?: number; year?: number; forceRefresh?: boolean }
     | null;
   if (!body?.artistNames?.length) {
     return NextResponse.json({ error: "Missing artistNames" }, { status: 400 });
@@ -115,6 +117,7 @@ export async function POST(req: NextRequest) {
   if (!artistNames.length) {
     return NextResponse.json({ error: `Provide at least one artist name (up to ${MAX_OUTLIER_ARTISTS}).` }, { status: 400 });
   }
+  const forceRefresh = body.forceRefresh === true;
 
   try {
     const supabase = createServerClient();
@@ -138,9 +141,10 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Tier 2 — live, month-scoped fallback (real quota spend, logged
-        // via getNicheData's own reserveQuota call).
-        const nicheResult = await getNicheData(supabase, artistName, null, { forceRefresh: true, month, year });
+        // Tier 2 — getNicheData's month-scoped branch: a zero-quota hit if
+        // this exact month was already cached within 7 days (e.g. a Score
+        // All run moments ago), a real live analysis otherwise.
+        const nicheResult = await getNicheData(supabase, artistName, null, { forceRefresh, month, year });
         if (!nicheResult) {
           return { artistName, outlier: null, reason: "Quota exhausted — retry tomorrow", source: null };
         }
@@ -151,16 +155,16 @@ export async function POST(req: NextRequest) {
         if (!outlier) {
           return { artistName, outlier: null, reason: "No sub-1K video found in this window", source: null };
         }
-        return { artistName, outlier: toOutlierVideo(outlier), reason: null, source: "live" };
+        return { artistName, outlier: toOutlierVideo(outlier), reason: null, source: nicheResult.fromCache ? "month-cache" : "live" };
       })
     );
 
-    const storedCount = results.filter((r) => r.source === "stored").length;
+    const storedCount = results.filter((r) => r.source === "stored" || r.source === "month-cache").length;
     const liveCount = results.filter((r) => r.source === "live").length;
     const foundCount = results.filter((r) => r.outlier).length;
     console.log(
-      `[admin/scores/outliers] extracted ${foundCount}/${results.length} outlier(s) for ${month}/${year} — ` +
-      `${storedCount} from stored data (zero quota), ${liveCount} live (quota spent)`
+      `[admin/scores/outliers] extracted ${foundCount}/${results.length} outlier(s) for ${month}/${year} ` +
+      `(forceRefresh=${forceRefresh}) — ${storedCount} from cache (zero quota), ${liveCount} live (quota spent)`
     );
 
     return NextResponse.json({ results });

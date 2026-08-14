@@ -13,11 +13,15 @@
 // lib/lanes/db.ts's isLaneFresh (14 days) — that's a different product's
 // cache policy (lane-check's own re-analysis cadence); the report builder
 // wants its own, tighter freshness bar without touching that unrelated
-// threshold.
+// threshold. The same 168h window is reused for the month-scoped branch
+// below (lane_month_analyses) for consistency.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Lane, LaneAnalysis } from "@/lib/lanes/types";
-import { getOrCreateLane, getLatestAnalysis, reserveQuota, ESTIMATED_UNITS_PER_ANALYSIS } from "@/lib/lanes/db";
+import type { Lane, LaneAnalysis, LaneMonthAnalysis } from "@/lib/lanes/types";
+import {
+  getOrCreateLane, getLatestAnalysis, reserveQuota, ESTIMATED_UNITS_PER_ANALYSIS,
+  getMonthAnalysis, upsertMonthAnalysis,
+} from "@/lib/lanes/db";
 import { analyzeLane, analyzeLaneForMonth } from "@/lib/lanes/pipeline";
 
 const DEFAULT_MAX_AGE_HOURS = 168; // 7 days
@@ -33,26 +37,31 @@ export interface NicheDataResult {
    * videos published in that window — `analysis` is an all-zero placeholder
    * in that case, never to be scored or displayed as real data. */
   noData?: boolean;
+  /** True when this result came from a cached row within the freshness
+   * window and cost zero YouTube quota — false whenever a real analysis
+   * ran (fresh, forced, or the cache was empty/stale). Callers that need to
+   * report quota spend (the /admin/scores batch scorer) key off this rather
+   * than re-deriving it. */
+  fromCache: boolean;
 }
 
 export interface GetNicheDataOptions {
   maxAgeHours?: number;
-  /** Demand dead-current data for this specific niche regardless of the
-   * cached row's age — still degrades to the stale cached row if quota's
-   * exhausted, same as a normal expiry would. Ignored (always effectively
-   * true) when month/year are set — see below. */
+  /** Bypasses the freshness cache and always performs a real re-analysis. */
   forceRefresh?: boolean;
   /** Scopes the analysis to one calendar month (1-12) + year — used by
-   * /admin/scores's batch scorer, which is explicitly for fresh, dated
-   * research, never a general "current state" read. Both must be set
-   * together to take effect. When set, this bypasses the freshness cache
-   * entirely (there's no meaningful "cached row" for one specific past
-   * month in a cache that stores one row per lane) and always performs a
-   * live, UNPERSISTED analysis bounded to that month via
-   * lib/lanes/pipeline.ts's analyzeLaneForMonth — nothing is written to
-   * lane_analyses or lanes.last_analyzed_at, so a month-scoped research run
-   * can never overwrite the shared cache every other caller (report
-   * builder, expansion picks) reads from. */
+   * /admin/scores's batch scorer, which does dated, historical research
+   * rather than a general "current state" read. Both must be set together
+   * to take effect. When set, reads/writes a dedicated cache
+   * (lane_month_analyses, via lib/lanes/db.ts's getMonthAnalysis/
+   * upsertMonthAnalysis) instead of lane_analyses — a month-scoped result,
+   * fresh or newly analyzed, is NEVER written to lane_analyses or
+   * lanes.last_analyzed_at, so a historical month's snapshot can never
+   * become "the latest state" every other caller (report builder,
+   * expansion picks) reads. Respects maxAgeHours/forceRefresh exactly like
+   * the normal path: unchecked "Force Fresh Data" on the scores page means
+   * a month analyzed within the last 7 days is served from this cache at
+   * zero quota cost. */
   month?: number;
   year?: number;
 }
@@ -61,9 +70,9 @@ function ageHours(createdAt: string): number {
   return (Date.now() - new Date(createdAt).getTime()) / (60 * 60 * 1000);
 }
 
-/** Synthesized, never-persisted "empty" analysis row for a month-scoped
- * request that genuinely found zero videos — callers key off `noData` and
- * should treat this as unscoreable, not as a real (if quiet) niche. */
+/** Synthesized "empty" analysis row for a month-scoped request confirmed to
+ * have zero videos — callers key off `noData` and should treat this as
+ * unscoreable, not as a real (if quiet) niche. */
 function emptyMonthAnalysis(lane: Lane, month: number, year: number): LaneAnalysis {
   return {
     id: `empty:${lane.id}:${year}-${String(month).padStart(2, "0")}`,
@@ -81,6 +90,96 @@ function emptyMonthAnalysis(lane: Lane, month: number, year: number): LaneAnalys
   };
 }
 
+function monthAnalysisToLaneAnalysis(row: LaneMonthAnalysis): LaneAnalysis {
+  return {
+    id: row.id,
+    lane_id: row.lane_id,
+    demand: row.demand,
+    saturation: row.saturation,
+    winnability: row.winnability,
+    opportunity: row.opportunity,
+    momentum: null, // a month snapshot has no "prior row" comparison, same as a live one
+    raw_metrics: row.raw_metrics,
+    patterns: row.patterns,
+    winner_videos: row.winner_videos,
+    top_videos: row.top_videos,
+    created_at: row.created_at,
+  };
+}
+
+/** Month-scoped branch of getNicheData — see GetNicheDataOptions.month's
+ * doc comment for the cache/persistence contract. */
+async function getMonthScopedNicheData(
+  supabase: SupabaseClient,
+  artist: string,
+  lane: Lane,
+  month: number,
+  year: number,
+  maxAgeHours: number,
+  forceRefresh: boolean
+): Promise<NicheDataResult | null> {
+  const cachedMonth = await getMonthAnalysis(supabase, lane.id, month, year);
+  const isFresh = cachedMonth ? ageHours(cachedMonth.created_at) < maxAgeHours : false;
+
+  if (cachedMonth && isFresh && !forceRefresh) {
+    if (cachedMonth.no_data) {
+      return { lane, analysis: emptyMonthAnalysis(lane, month, year), stale: false, noData: true, fromCache: true };
+    }
+    return { lane, analysis: monthAnalysisToLaneAnalysis(cachedMonth), stale: false, fromCache: true };
+  }
+
+  // Needs a refresh (missing, stale, or forced) — the YouTube calls have to
+  // actually run, same reserve-then-check budget guard every other inline
+  // YouTube spend in this codebase uses.
+  const allowed = await reserveQuota(supabase, ESTIMATED_UNITS_PER_ANALYSIS);
+  if (!allowed) {
+    if (cachedMonth) {
+      if (cachedMonth.no_data) {
+        return { lane, analysis: emptyMonthAnalysis(lane, month, year), stale: true, noData: true, fromCache: false };
+      }
+      return { lane, analysis: monthAnalysisToLaneAnalysis(cachedMonth), stale: true, fromCache: false };
+    }
+    return null; // never analyzed AND quota's gone — genuinely nothing to return
+  }
+
+  try {
+    const result = await analyzeLaneForMonth(supabase, lane, month, year);
+    if (!result) {
+      await upsertMonthAnalysis(supabase, {
+        lane_id: lane.id, month, year, no_data: true,
+        demand: 0, saturation: 0, winnability: 0, opportunity: 0,
+        raw_metrics: { monthScoped: { month, year }, topPerformerCount: 0 },
+        patterns: {}, winner_videos: [], top_videos: [],
+      });
+      return { lane, analysis: emptyMonthAnalysis(lane, month, year), stale: false, noData: true, fromCache: false };
+    }
+    const saved = await upsertMonthAnalysis(supabase, {
+      lane_id: lane.id,
+      month,
+      year,
+      no_data: false,
+      demand: result.analysisRow.demand,
+      saturation: result.analysisRow.saturation,
+      winnability: result.analysisRow.winnability,
+      opportunity: result.analysisRow.opportunity,
+      raw_metrics: result.analysisRow.raw_metrics,
+      patterns: result.analysisRow.patterns,
+      winner_videos: result.analysisRow.winner_videos,
+      top_videos: result.analysisRow.top_videos,
+    });
+    return { lane, analysis: monthAnalysisToLaneAnalysis(saved), stale: false, fromCache: false };
+  } catch (err) {
+    console.error(`[nicheCache] analyzeLaneForMonth failed for "${artist}" (${month}/${year}):`, err);
+    if (cachedMonth) {
+      if (cachedMonth.no_data) {
+        return { lane, analysis: emptyMonthAnalysis(lane, month, year), stale: true, noData: true, fromCache: false };
+      }
+      return { lane, analysis: monthAnalysisToLaneAnalysis(cachedMonth), stale: true, fromCache: false };
+    }
+    return null;
+  }
+}
+
 /** Read-through cache for one niche's analysis, keyed by artist name (+
  * optional genre for disambiguation on first creation) rather than a laneId
  * the caller might not have yet — mirrors getOrCreateLane's own contract,
@@ -95,32 +194,18 @@ export async function getNicheData(
   genre: string | null,
   opts: GetNicheDataOptions = {}
 ): Promise<NicheDataResult | null> {
+  const maxAgeHours = opts.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS;
   const { lane } = await getOrCreateLane(supabase, artist, genre);
 
   if (opts.month && opts.year) {
-    // Month-scoped requests always spend a real reservation — the YouTube
-    // calls have to actually run to find out whether there's data for that
-    // window at all, same as any other cache miss.
-    const allowed = await reserveQuota(supabase, ESTIMATED_UNITS_PER_ANALYSIS);
-    if (!allowed) return null; // quota exhausted — genuinely nothing to return
-    try {
-      const result = await analyzeLaneForMonth(supabase, lane, opts.month, opts.year);
-      if (!result) {
-        return { lane, analysis: emptyMonthAnalysis(lane, opts.month, opts.year), stale: false, noData: true };
-      }
-      return { lane, analysis: result.analysisRow, stale: false };
-    } catch (err) {
-      console.error(`[nicheCache] analyzeLaneForMonth failed for "${artist}" (${opts.month}/${opts.year}):`, err);
-      return null; // no persisted fallback makes sense for a specific month
-    }
+    return getMonthScopedNicheData(supabase, artist, lane, opts.month, opts.year, maxAgeHours, !!opts.forceRefresh);
   }
 
-  const maxAgeHours = opts.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS;
   const cached = await getLatestAnalysis(supabase, lane.id);
   const isFresh = cached ? ageHours(cached.created_at) < maxAgeHours : false;
 
   if (cached && isFresh && !opts.forceRefresh) {
-    return { lane, analysis: cached, stale: false };
+    return { lane, analysis: cached, stale: false, fromCache: true };
   }
 
   // Needs a refresh (missing, stale, or forced) — spend quota for a real
@@ -128,16 +213,16 @@ export async function getNicheData(
   // inline YouTube spend in this codebase uses.
   const allowed = await reserveQuota(supabase, ESTIMATED_UNITS_PER_ANALYSIS);
   if (!allowed) {
-    if (cached) return { lane, analysis: cached, stale: true };
+    if (cached) return { lane, analysis: cached, stale: true, fromCache: false };
     return null; // never analyzed AND quota's gone — genuinely nothing to return
   }
 
   try {
     const result = await analyzeLane(supabase, lane);
-    return { lane, analysis: result.analysisRow, stale: false };
+    return { lane, analysis: result.analysisRow, stale: false, fromCache: false };
   } catch (err) {
     console.error(`[nicheCache] analyzeLane failed for "${artist}", falling back to cache:`, err);
-    if (cached) return { lane, analysis: cached, stale: true };
+    if (cached) return { lane, analysis: cached, stale: true, fromCache: false };
     return null;
   }
 }

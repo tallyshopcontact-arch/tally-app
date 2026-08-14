@@ -2,19 +2,28 @@
 // pick a calendar month, and get every one ranked by a SubK Score (how
 // winnable the niche was for a sub-1,000-subscriber producer THAT month),
 // computed through lib/reports/nicheCache.ts's getNicheData in its
-// month-scoped, always-live mode (see that file and lib/lanes/pipeline.ts's
-// analyzeLaneForMonth) — this route is explicitly for fresh, dated research,
-// so every artist gets a live re-analysis on every run, never a cache hit.
+// month-scoped mode (see that file and lib/lanes/pipeline.ts's
+// analyzeLaneForMonth).
 //
-// No new-artist cap: every artist in the batch is analyzed on demand,
-// bounded only by the real daily YouTube quota budget (lib/lanes/db.ts's
-// reserveQuota) — a 50-artist batch at ~205 units/artist can legitimately
-// exhaust an 8,000-unit daily budget partway through, which is exactly what
-// the quotaExceeded short-circuit below handles.
+// Force Fresh Data (forceRefresh, default OFF): unchecked, an artist+month
+// analyzed within the last 7 days is served from lane_month_analyses at
+// zero YouTube quota cost — routine exploration shouldn't burn quota just
+// to re-look-up something already checked recently. Checked, every artist
+// gets a real re-analysis regardless of cache age — for the monthly brief
+// production run that explicitly wants dead-current numbers. Previously
+// this route always force-refreshed unconditionally, which burned 5,000+
+// units in a single 30-artist run; that's what this flag fixes.
+//
+// No new-artist cap: every artist in the batch is analyzed on demand (when
+// not cache-served), bounded only by the real daily YouTube quota budget
+// (lib/lanes/db.ts's reserveQuota) — a large force-refreshed batch at
+// ~205 units/artist can legitimately exhaust the daily budget partway
+// through, which is exactly what the quotaExceeded short-circuit below
+// handles.
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LaneAnalysis } from "@/lib/lanes/types";
-import { normalizeLaneSlug } from "@/lib/lanes/db";
+import { normalizeLaneSlug, ESTIMATED_UNITS_PER_ANALYSIS } from "@/lib/lanes/db";
 import { viewsPerDay, SCORE_CALIBRATION } from "@/lib/lanes/scoring";
 import { getNicheData } from "@/lib/reports/nicheCache";
 import { createServerClient } from "@/lib/supabase";
@@ -58,6 +67,9 @@ export interface ScoredArtist {
   verdict: string;
   /** True when this artist had no lane on file before this request. */
   isNewArtist: boolean;
+  /** True when this result was served from the 7-day month cache at zero
+   * quota cost, rather than a fresh YouTube analysis this run. */
+  cached: boolean;
   /** The credibility paragraph for the expanded row. */
   summary: string;
 }
@@ -76,6 +88,12 @@ interface BatchResponse {
    * ran out mid-batch — try again tomorrow. Never the old artificial cap
    * (removed) — real exhaustion only. */
   quotaExceeded: string[];
+  /** Real YouTube quota this run actually spent (analyzed count ×
+   * ESTIMATED_UNITS_PER_ANALYSIS) — distinct from the client's pre-run
+   * estimate, which assumes every artist is a miss. */
+  quotaUnitsUsed: number;
+  cachedCount: number;
+  analyzedCount: number;
 }
 
 // ── Scoring ───────────────────────────────────────────────────────────────
@@ -122,7 +140,7 @@ function demandLabel(demand: number): "Low" | "Moderate" | "High" {
   return "High";
 }
 
-function buildScoreResult(artistName: string, analysis: LaneAnalysis, isNewArtist: boolean): ScoredArtist {
+function buildScoreResult(artistName: string, analysis: LaneAnalysis, isNewArtist: boolean, cached: boolean): ScoredArtist {
   const topVideos = (analysis.top_videos ?? []) as TopVideoRow[];
   const smallChannelVideos = topVideos.filter(
     (v) => typeof v.subscriberCount === "number" && v.subscriberCount < SUBK_CHANNEL_THRESHOLD
@@ -174,6 +192,7 @@ function buildScoreResult(artistName: string, analysis: LaneAnalysis, isNewArtis
     topCoMention,
     verdict,
     isNewArtist,
+    cached,
     summary,
   };
 }
@@ -205,7 +224,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = (await req.json().catch(() => null)) as
-    | { artistNames?: string[]; genre?: string | null; month?: number; year?: number }
+    | { artistNames?: string[]; genre?: string | null; month?: number; year?: number; forceRefresh?: boolean }
     | null;
   if (!body?.artistNames) {
     return NextResponse.json({ error: "Missing artistNames" }, { status: 400 });
@@ -235,6 +254,7 @@ export async function POST(req: NextRequest) {
   }
 
   const genre = typeof body.genre === "string" && body.genre.trim() ? body.genre.trim() : null;
+  const forceRefresh = body.forceRefresh === true;
 
   try {
     const supabase: SupabaseClient = createServerClient();
@@ -263,7 +283,8 @@ export async function POST(req: NextRequest) {
     // "no" back.
     let quotaExhausted = false;
     const quotaExceeded: string[] = [];
-    let newlyAnalyzedCount = 0;
+    let analyzedCount = 0;
+    let cachedCount = 0;
     let noDataCount = 0;
 
     const items = artistNames.map((artistName) => {
@@ -277,14 +298,8 @@ export async function POST(req: NextRequest) {
         quotaExceeded.push(artistName);
         return null;
       }
-      // Fix 3 — forceRefresh: true always. Fix 4 — month/year always set.
-      // getNicheData's month-scoped branch is unconditionally live anyway
-      // (there's no cache concept for one specific past month), so
-      // forceRefresh is a documented no-op there — passed regardless for
-      // fidelity with "always force refresh" and in case month scoping is
-      // ever bypassed for this route in the future.
       const nicheResult = await getNicheData(supabase, artistName, isNewArtist ? genre : null, {
-        forceRefresh: true,
+        forceRefresh,
         month,
         year,
       });
@@ -293,13 +308,14 @@ export async function POST(req: NextRequest) {
         quotaExceeded.push(artistName);
         return null;
       }
+      if (nicheResult.fromCache) cachedCount += 1;
+      else analyzedCount += 1;
       if (nicheResult.noData) {
         noDataCount += 1;
         const noDataResult: NoDataArtist = { artistName, subKScore: null, reason: "No data for this period" };
         return noDataResult;
       }
-      newlyAnalyzedCount += 1;
-      return buildScoreResult(artistName, nicheResult.analysis, isNewArtist);
+      return buildScoreResult(artistName, nicheResult.analysis, isNewArtist, nicheResult.fromCache);
     });
 
     const results = outcomes
@@ -312,12 +328,14 @@ export async function POST(req: NextRequest) {
         return b.subKScore - a.subKScore;
       });
 
+    const quotaUnitsUsed = analyzedCount * ESTIMATED_UNITS_PER_ANALYSIS;
     console.log(
-      `[admin/scores/batch] scored ${results.length}/${artistNames.length} artist(s) for ${month}/${year} — ` +
-      `${newlyAnalyzedCount} analyzed, ${noDataCount} no-data, ${quotaExceeded.length} quota-blocked`
+      `[admin/scores/batch] scored ${results.length}/${artistNames.length} artist(s) for ${month}/${year} ` +
+      `(forceRefresh=${forceRefresh}) — ${analyzedCount} analyzed (${quotaUnitsUsed} units), ` +
+      `${cachedCount} cached (zero quota), ${noDataCount} no-data, ${quotaExceeded.length} quota-blocked`
     );
 
-    const response: BatchResponse = { results, quotaExceeded };
+    const response: BatchResponse = { results, quotaExceeded, quotaUnitsUsed, cachedCount, analyzedCount };
     return NextResponse.json(response);
   } catch (err) {
     console.error("[admin/scores/batch] failed:", err);

@@ -3,13 +3,19 @@
 // Admin batch artist scorer. Paste up to 50 artist names, pick a calendar
 // month, and get every one ranked by a SubK Score (how winnable the niche
 // was for a sub-1,000-subscriber producer that month) — same shared-secret
-// admin auth pattern as every other /admin/* tool. Every run is a live,
-// force-refreshed, month-scoped analysis (see app/api/admin/scores/batch) —
-// this page is explicitly for fresh research, never a cached read.
+// admin auth pattern as every other /admin/* tool.
+//
+// "Force Fresh Data" (default OFF) — unchecked, an artist+month analyzed
+// within the last 7 days is served from cache at zero YouTube quota cost,
+// so routine exploration doesn't burn quota. Checked, every artist gets a
+// real re-analysis regardless of cache age — for a monthly brief production
+// run that explicitly wants dead-current numbers. This used to force-
+// refresh unconditionally, which could burn 5,000+ units in one run.
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { ArtistScoreResult, ScoredArtist } from "@/app/api/admin/scores/batch/route";
 import type { OutlierResult } from "@/app/api/admin/scores/outliers/route";
+import { ESTIMATED_UNITS_PER_ANALYSIS } from "@/lib/lanes/db";
 
 // ── Login gate — same shared-secret pattern as every other /admin/* tool ──
 
@@ -177,6 +183,10 @@ function ResultRow({ result, rank, expanded, onToggle, selected, onSelectToggle,
           {result.isNewArtist && (
             <span className="ml-2 text-[9px] text-[#60a5fa] bg-[#60a5fa]/10 px-1.5 py-0.5 align-middle">New</span>
           )}
+          <span
+            className={`ml-2 w-1.5 h-1.5 rounded-full inline-block align-middle ${result.cached ? "bg-[#4ade80]" : "bg-[#fbbf24]"}`}
+            title={result.cached ? "Served from cache — zero quota spent" : "Freshly analyzed this run"}
+          />
         </td>
         <td className="px-5 py-4 cursor-pointer" onClick={onToggle}>
           <span className={`inline-flex items-center justify-center w-14 h-9 text-lg font-bold ${scoreBg(result.subKScore)}`}
@@ -259,7 +269,7 @@ function OutlierCard({ result }: { result: OutlierResult }) {
         <h3 className="text-sm font-semibold text-white">{result.artistName}</h3>
         {result.source && (
           <span className="text-[9px] text-[#94a3b8] uppercase tracking-widest">
-            {result.source === "stored" ? "Zero-quota (cached)" : "Live fetch"}
+            {result.source === "live" ? "Live fetch" : "Zero-quota (cached)"}
           </span>
         )}
       </div>
@@ -306,10 +316,12 @@ function ScoresBuilder({ password }: { password: string }) {
   const defaultMonthYear = useMemo(() => getDefaultMonthYear(), []);
   const [month, setMonth] = useState(defaultMonthYear.month);
   const [year, setYear] = useState(defaultMonthYear.year);
+  const [forceFreshData, setForceFreshData] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [results, setResults] = useState<ArtistScoreResult[]>([]);
   const [quotaExceeded, setQuotaExceeded] = useState<string[]>([]);
+  const [lastRunQuota, setLastRunQuota] = useState<{ quotaUnitsUsed: number; cachedCount: number; analyzedCount: number } | null>(null);
   const [expandedName, setExpandedName] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("subKScore");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -322,6 +334,10 @@ function ScoresBuilder({ password }: { password: string }) {
   const parsedNames = useMemo(() => parseArtistNames(namesInput), [namesInput]);
   const overLimit = parsedNames.length > MAX_ARTISTS;
   const monthYearValid = Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(year);
+  // Worst-case estimate — every artist is a cache miss. Accurate when
+  // "Force Fresh Data" is checked (every artist really is re-analyzed);
+  // an upper bound otherwise, since cached artists cost nothing.
+  const quotaEstimate = parsedNames.length * ESTIMATED_UNITS_PER_ANALYSIS;
 
   const handleScoreAll = async () => {
     if (!parsedNames.length || overLimit || !monthYearValid) return;
@@ -329,6 +345,7 @@ function ScoresBuilder({ password }: { password: string }) {
     setError("");
     setResults([]);
     setQuotaExceeded([]);
+    setLastRunQuota(null);
     setSelected(new Set());
     setOutliers(null);
     setOutlierError("");
@@ -336,7 +353,7 @@ function ScoresBuilder({ password }: { password: string }) {
       const res = await fetch("/api/admin/scores/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-password": password },
-        body: JSON.stringify({ artistNames: parsedNames, genre: genre || null, month, year }),
+        body: JSON.stringify({ artistNames: parsedNames, genre: genre || null, month, year, forceRefresh: forceFreshData }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -345,6 +362,11 @@ function ScoresBuilder({ password }: { password: string }) {
       }
       setResults(data.results ?? []);
       setQuotaExceeded(data.quotaExceeded ?? []);
+      setLastRunQuota({
+        quotaUnitsUsed: data.quotaUnitsUsed ?? 0,
+        cachedCount: data.cachedCount ?? 0,
+        analyzedCount: data.analyzedCount ?? 0,
+      });
     } catch {
       setError("Network error.");
     } finally {
@@ -411,7 +433,7 @@ function ScoresBuilder({ password }: { password: string }) {
       const res = await fetch("/api/admin/scores/outliers", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-password": password },
-        body: JSON.stringify({ artistNames: [...selected], month, year }),
+        body: JSON.stringify({ artistNames: [...selected], month, year, forceRefresh: forceFreshData }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -448,7 +470,7 @@ function ScoresBuilder({ password }: { password: string }) {
       <div className="max-w-6xl mx-auto px-6 py-10">
         <h1 className="text-2xl font-bold mb-1">Scores</h1>
         <p className="text-[#94a3b8] text-sm mb-8">
-          Batch artist scorer — paste up to 50 names, get every one ranked by SubK Score for the selected month. Every run is a live, force-refreshed analysis — never cached.
+          Batch artist scorer — paste up to 50 names, get every one ranked by SubK Score for the selected month. Cached results within the last 7 days are free; check &quot;Force Fresh Data&quot; to re-analyze everything.
         </p>
 
         {/* Input */}
@@ -519,10 +541,39 @@ function ScoresBuilder({ password }: { password: string }) {
               {loading ? "Scoring..." : "Score All"}
             </button>
           </div>
+
+          {/* Force refresh + quota estimate */}
+          <div className="mt-5 pt-4 border-t border-[#111]">
+            <label className="flex items-center gap-2.5 cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                checked={forceFreshData}
+                onChange={(e) => setForceFreshData(e.target.checked)}
+                className="w-3.5 h-3.5 accent-[#f87171]"
+              />
+              <span className="text-sm text-white">Force Fresh Data</span>
+              <span className="text-[10px] text-[#94a3b8]">
+                — re-analyze every artist, ignoring the 7-day cache
+              </span>
+            </label>
+            {parsedNames.length > 0 && (
+              <p className={`text-[10px] mt-2 ${forceFreshData ? "text-[#fbbf24]" : "text-[#475569]"}`}>
+                {forceFreshData
+                  ? `This will use approximately ${quotaEstimate.toLocaleString()} units (${parsedNames.length} artist${parsedNames.length === 1 ? "" : "s"} × ~${ESTIMATED_UNITS_PER_ANALYSIS} units, forced fresh).`
+                  : `Up to ~${quotaEstimate.toLocaleString()} units — artists analyzed within the last 7 days are served from cache at zero cost.`}
+              </p>
+            )}
+          </div>
+
           {error && <p className="text-[#f87171] text-sm mt-4">{error}</p>}
         </div>
 
         {/* Notices */}
+        {lastRunQuota && (
+          <p className="text-xs text-[#94a3b8] bg-[#111] px-4 py-2.5 mb-6">
+            Last run: {lastRunQuota.analyzedCount} analyzed ({lastRunQuota.quotaUnitsUsed.toLocaleString()} units spent), {lastRunQuota.cachedCount} served from cache (free).
+          </p>
+        )}
         {quotaExceeded.length > 0 && (
           <p className="text-xs text-[#f87171] bg-[#f87171]/10 px-4 py-2.5 mb-6">
             Quota exhausted — retry tomorrow: {quotaExceeded.join(", ")}

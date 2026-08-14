@@ -28,6 +28,34 @@ export interface LaneAnalysis {
   created_at: string;
 }
 
+/** A specific calendar month's analysis for a lane — /admin/scores's
+ * dedicated cache (supabase/scores-month-cache-migration.sql), deliberately
+ * a SEPARATE table from lane_analyses: lane_analyses is "the current
+ * rolling-window state of this lane" that report builder/expansion picks
+ * read as the latest general answer, while a row here is a fixed historical
+ * month's snapshot — letting one write to the other would let an old
+ * month's data become "the latest state" for callers expecting current
+ * data. See lib/reports/nicheCache.ts's month-scoped branch. */
+export interface LaneMonthAnalysis {
+  id: string;
+  lane_id: string;
+  month: number;
+  year: number;
+  /** True when this month was confirmed to have zero matching videos —
+   * demand/saturation/etc. are meaningless zeroes in that case, cached only
+   * so a repeated non-force check doesn't re-spend quota rediscovering it. */
+  no_data: boolean;
+  demand: number;
+  saturation: number;
+  winnability: number;
+  opportunity: number;
+  raw_metrics: Record<string, unknown>;
+  patterns: Record<string, unknown>;
+  winner_videos: unknown[];
+  top_videos: unknown[];
+  created_at: string;
+}
+
 export type LaneJobStatus = "queued" | "running" | "done" | "failed";
 
 export interface LaneJob {

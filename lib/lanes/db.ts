@@ -4,7 +4,7 @@
 // from plain `node scripts/*.ts` (no "@/..." aliases — see lib/lanes/types.ts).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Lane, LaneAnalysis, LaneJob } from "./types";
+import type { Lane, LaneAnalysis, LaneJob, LaneMonthAnalysis } from "./types";
 
 const LANE_FRESHNESS_DAYS = 14;
 
@@ -97,6 +97,41 @@ export async function getPriorAnalysis(
     .range(1, 1);
   if (error) throw new Error(`getPriorAnalysis query failed: ${error.message}`);
   return ((data as LaneAnalysis[] | null) ?? [])[0] ?? null;
+}
+
+/** The cached row for one specific (lane, month, year), or null if that
+ * exact month has never been analyzed — see lib/lanes/types.ts's
+ * LaneMonthAnalysis and lib/reports/nicheCache.ts's month-scoped branch. */
+export async function getMonthAnalysis(
+  supabase: SupabaseClient,
+  laneId: string,
+  month: number,
+  year: number
+): Promise<LaneMonthAnalysis | null> {
+  const { data, error } = await supabase
+    .from("lane_month_analyses")
+    .select("*")
+    .eq("lane_id", laneId)
+    .eq("month", month)
+    .eq("year", year)
+    .maybeSingle();
+  if (error) throw new Error(`getMonthAnalysis query failed: ${error.message}`);
+  return (data as LaneMonthAnalysis) ?? null;
+}
+
+/** One row per (lane, month, year) — a re-analysis replaces the prior one
+ * (see the migration's unique index) rather than accumulating history. */
+export async function upsertMonthAnalysis(
+  supabase: SupabaseClient,
+  row: Omit<LaneMonthAnalysis, "id" | "created_at">
+): Promise<LaneMonthAnalysis> {
+  const { data, error } = await supabase
+    .from("lane_month_analyses")
+    .upsert({ ...row, created_at: new Date().toISOString() }, { onConflict: "lane_id,month,year" })
+    .select("*")
+    .single();
+  if (error) throw new Error(`upsertMonthAnalysis failed: ${error.message}`);
+  return data as LaneMonthAnalysis;
 }
 
 export async function hasPendingJob(supabase: SupabaseClient, laneId: string): Promise<boolean> {
