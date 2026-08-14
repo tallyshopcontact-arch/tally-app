@@ -90,11 +90,21 @@ export function isTypeBeatTitle(title: string): boolean {
 /** Filter 2 — the target artist's own (cleanArtistName-normalized) name
  * must appear in the title, not just a co-mentioned artist's — prevents
  * cross-niche contamination where a video ranks/counts for this lane
- * purely because it co-mentions the artist in passing. */
+ * purely because it co-mentions the artist in passing.
+ *
+ * Whole-phrase containment (containsPhrase, below), NOT a raw substring
+ * check — a short artist name like "Mike" is a substring of plenty of
+ * unrelated names ("FunnyMike," "Mikey," "Nikemike"), and a naive
+ * `.includes()` here matched exactly that in production (an
+ * /admin/scores outlier request for "MIKE" resolved to an unrelated
+ * Louisiana artist's video purely because "mike" sits inside
+ * "funnymike"). Same fix as this file's own genre-word/banned-phrase
+ * rejection just below, which solved the identical "soul" vs. "soulja
+ * boy" problem. */
 export function titleContainsArtist(title: string, artistName: string): boolean {
   const normalizedArtist = cleanArtistName(artistName);
   if (!normalizedArtist) return false;
-  return title.toLowerCase().includes(normalizedArtist);
+  return containsPhrase(title, normalizedArtist);
 }
 
 // ── Co-mention hard-reject filter ────────────────────────────────────────

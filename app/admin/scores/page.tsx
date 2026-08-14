@@ -360,6 +360,7 @@ function ScoresBuilder({ password }: { password: string }) {
   const [outlierLoading, setOutlierLoading] = useState(false);
   const [outlierError, setOutlierError] = useState("");
   const [outliers, setOutliers] = useState<OutlierResult[] | null>(null);
+  const [outlierQuotaUsed, setOutlierQuotaUsed] = useState<number | null>(null);
 
   const parsedNames = useMemo(() => parseArtistNames(namesInput), [namesInput]);
   const overLimit = parsedNames.length > MAX_ARTISTS;
@@ -459,11 +460,12 @@ function ScoresBuilder({ password }: { password: string }) {
     setOutlierLoading(true);
     setOutlierError("");
     setOutliers(null);
+    setOutlierQuotaUsed(null);
     try {
       const res = await fetch("/api/admin/scores/outliers", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-password": password },
-        body: JSON.stringify({ artistNames: [...selected], month, year, forceRefresh: forceFreshData }),
+        body: JSON.stringify({ artistNames: [...selected], month, year }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -471,6 +473,7 @@ function ScoresBuilder({ password }: { password: string }) {
         return;
       }
       setOutliers(data.results ?? []);
+      setOutlierQuotaUsed(data.quotaUnitsUsed ?? 0);
     } catch {
       setOutlierError("Network error.");
     } finally {
@@ -613,7 +616,7 @@ function ScoresBuilder({ password }: { password: string }) {
         {/* Results */}
         {results.length > 0 && (
           <>
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
               <p className="text-xs text-[#94a3b8]">
                 {scoredCount} scored{noDataCount > 0 ? ` · ${noDataCount} no data` : ""} for {MONTH_NAMES[month - 1]} {year}
               </p>
@@ -625,6 +628,11 @@ function ScoresBuilder({ password }: { password: string }) {
                 {outlierLoading ? "Extracting..." : `Extract Outliers (${selected.size}/${MAX_OUTLIER_ARTISTS})`}
               </button>
             </div>
+            {selected.size > 0 && (
+              <p className="text-[10px] text-[#fbbf24] text-right mb-3">
+                Always runs a live view-count check per artist, regardless of Force Fresh Data — up to ~{(selected.size * 100).toLocaleString()} units.
+              </p>
+            )}
             <div className="border border-[#1a1a1a] overflow-x-auto">
               <table className="w-full text-sm min-w-[900px]">
                 <thead>
@@ -666,9 +674,14 @@ function ScoresBuilder({ password }: { password: string }) {
         {(outlierError || outliers) && (
           <div className="mt-8">
             <h2 className="text-lg font-bold mb-1">Outlier Videos</h2>
-            <p className="text-[#94a3b8] text-xs mb-4">
+            <p className="text-[#94a3b8] text-xs mb-1">
               Highest-performing sub-1K-subscriber video per selected artist, strictly within {MONTH_NAMES[month - 1]} {year}.
             </p>
+            {outlierQuotaUsed !== null && (
+              <p className="text-[#94a3b8] text-[10px] mb-4">
+                Live view-count check: {outlierQuotaUsed.toLocaleString()} units spent this run.
+              </p>
+            )}
             {outlierError && <p className="text-[#f87171] text-sm mb-4">{outlierError}</p>}
             {outliers && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
