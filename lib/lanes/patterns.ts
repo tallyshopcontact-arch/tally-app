@@ -71,6 +71,32 @@ export function cleanArtistName(raw: string): string {
   return normalizeArtistName(primaryCoMentionName(raw));
 }
 
+// ── Type-beat video validation ───────────────────────────────────────────
+// Shared by app/api/admin/scores/outliers/route.ts (outlier video
+// detection) and analyzeLaneForMonth in lib/lanes/pipeline.ts (the
+// /admin/scores batch scorer's own metrics) — both need "is this actually a
+// producer's type-beat upload naming this artist," and both must agree on
+// what that means, so this lives in exactly one place rather than being
+// reimplemented per caller.
+
+/** Filter 1 — a real producer type-beat upload, not an artist's own
+ * release, a remake, or a sample flip that merely surfaced in search
+ * results. Deliberately does NOT match "instrumental"/"inst." — those
+ * catch far more non-type-beat videos than they exclude. */
+export function isTypeBeatTitle(title: string): boolean {
+  return /type\s?beat/i.test(title);
+}
+
+/** Filter 2 — the target artist's own (cleanArtistName-normalized) name
+ * must appear in the title, not just a co-mentioned artist's — prevents
+ * cross-niche contamination where a video ranks/counts for this lane
+ * purely because it co-mentions the artist in passing. */
+export function titleContainsArtist(title: string, artistName: string): boolean {
+  const normalizedArtist = cleanArtistName(artistName);
+  if (!normalizedArtist) return false;
+  return title.toLowerCase().includes(normalizedArtist);
+}
+
 // ── Co-mention hard-reject filter ────────────────────────────────────────
 // A raw CO_MENTION_RE capture is frequently not a real artist at all: a
 // genre/style word used as if it were one ("x West Coast Type Beat"), a

@@ -22,7 +22,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeLaneSlug, getLatestAnalysis } from "@/lib/lanes/db";
 import { monthBounds } from "@/lib/lanes/dateRange";
-import { cleanArtistName } from "@/lib/lanes/patterns";
+import { isTypeBeatTitle, titleContainsArtist } from "@/lib/lanes/patterns";
 import { getNicheData } from "@/lib/reports/nicheCache";
 import { createServerClient } from "@/lib/supabase";
 
@@ -61,29 +61,12 @@ export interface OutlierResult {
   source: "stored" | "month-cache" | "live" | null;
 }
 
-// Filter 1 — must actually be a producer's type-beat/instrumental upload,
-// not an artist's own release that merely got swept into topVideos (e.g.
-// via a co-mention in a different video's title/tags).
-const TYPE_BEAT_TERMS = ["type beat", "typebeat", "instrumental", "inst."];
+// Filter 1 (isTypeBeatTitle) and Filter 2 (titleContainsArtist) now live in
+// lib/lanes/patterns.ts — shared with lib/lanes/pipeline.ts's
+// analyzeLaneForMonth, which applies the exact same checks to the videos it
+// scores from (see that file), rather than reimplementing them here.
 
-function isTypeBeatTitle(title: string): boolean {
-  const lower = title.toLowerCase();
-  return TYPE_BEAT_TERMS.some((term) => lower.includes(term));
-}
-
-// Filter 2 — the target artist's own name must appear in the title, not
-// just a co-mentioned artist's. Normalizes the ARTIST NAME (not the whole
-// title — cleanArtistName also chain-collapses on " x ", which would wrongly
-// truncate a multi-artist title) through the same helper the rest of the
-// codebase uses for artist-identity comparisons, so casing/prefix
-// differences ("The Alchemist" vs "Alchemist") don't cause a false miss.
-function titleContainsArtist(title: string, artistName: string): boolean {
-  const normalizedArtist = cleanArtistName(artistName);
-  if (!normalizedArtist) return false;
-  return title.toLowerCase().includes(normalizedArtist);
-}
-
-/** Filters to (1) a real type-beat/instrumental title, (2) the target
+/** Filters to (1) a real type-beat title, (2) the target
  * artist's own name present in that title, (3) a sub-1K-subscriber channel
  * — strictly, before any ranking happens — published within [start, end],
  * THEN picks the single highest-total-view survivor. "Highest-performing"

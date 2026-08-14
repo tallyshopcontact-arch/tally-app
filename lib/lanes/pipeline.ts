@@ -26,7 +26,7 @@ import {
   computeStatus, computeMomentum, viewsPerDay, SCORE_CALIBRATION, type DemandResult, type SaturationResult,
   type WinnabilityResult, type LaneStatus,
 } from "./scoring.ts";
-import { analyzePatterns, type PatternStats } from "./patterns.ts";
+import { analyzePatterns, isTypeBeatTitle, titleContainsArtist, type PatternStats } from "./patterns.ts";
 import { monthBounds } from "./dateRange.ts";
 
 export interface GalleryVideo {
@@ -98,10 +98,24 @@ interface PipelineCore {
  * analyzeLaneForMonth — everything after "we have a recency scan and a
  * top-performer scan" is identical regardless of which window produced
  * them. Returns null when the union of both scans has zero videos (nothing
- * to score) or zero survive the top-performer re-rank — the "no data"
- * case both callers need to handle (differently: analyzeLane's caller has
- * never seen this happen since its rolling window is always "now," but
- * analyzeLaneForMonth's callers hit it routinely for quiet/older months). */
+ * to score) or zero survive the top-performer re-rank (and, when
+ * titleFilter is set, zero survive that too) — the "no data" case both
+ * callers need to handle (differently: analyzeLane's caller has never seen
+ * this happen since its rolling window is always "now," but
+ * analyzeLaneForMonth's callers hit it routinely for quiet/older months).
+ *
+ * titleFilter — when provided, applied to BOTH scans' video titles before
+ * anything is computed from them: the top-performer pool (which becomes
+ * topVideos/winnerVideos and drives small-channel win rate + velocity
+ * ceiling downstream) and the recency scan (whose filtered item count
+ * replaces uploadsCount as the saturation/upload-competition input,
+ * capped at that scan's maxResults rather than YouTube's real
+ * pageInfo.totalResults — the accuracy tradeoff for "only count videos
+ * that are actually type-beat uploads naming this artist"). Only
+ * analyzeLaneForMonth passes one — analyzeLane (report builder, expansion
+ * picks) is intentionally unaffected, since narrowing its already-live
+ * scoring pool wasn't asked for and risks regressing callers well beyond
+ * /admin/scores. */
 async function runCorePipeline(
   supabase: SupabaseClient,
   lane: Lane,
@@ -109,7 +123,8 @@ async function runCorePipeline(
   recent: SearchWindow,
   topByViews: SearchWindow,
   uploadsCount: number,
-  extraRawMetrics: Record<string, unknown>
+  extraRawMetrics: Record<string, unknown>,
+  titleFilter?: (title: string) => boolean
 ): Promise<PipelineCore | null> {
   const allIds = [...new Set([...recent.items.map((v) => v.videoId), ...topByViews.items.map((v) => v.videoId)])];
   if (!allIds.length) return null;
@@ -121,10 +136,20 @@ async function runCorePipeline(
   // now should outrank an older video that's merely accumulated more total
   // views. YouTube's own order=viewCount search just supplies the candidate
   // pool; this re-rank is what "top performer" actually means here.
-  const topPerformerDetails = topByViews.items
+  let topPerformerDetails = topByViews.items
     .map((v) => detailsById.get(v.videoId))
     .filter((v): v is VideoDetails => !!v)
     .sort((a, b) => viewsPerDay(b) - viewsPerDay(a));
+
+  let effectiveUploadsCount = uploadsCount;
+  if (titleFilter) {
+    topPerformerDetails = topPerformerDetails.filter((v) => titleFilter(v.title));
+    const recentFiltered = recent.items
+      .map((v) => detailsById.get(v.videoId))
+      .filter((v): v is VideoDetails => !!v)
+      .filter((v) => titleFilter(v.title));
+    effectiveUploadsCount = recentFiltered.length;
+  }
   if (!topPerformerDetails.length) return null;
 
   const channelInfo = await getChannelSubCounts(
@@ -138,7 +163,7 @@ async function runCorePipeline(
   }));
 
   const demand = computeDemand(topPerformersWithSubs);
-  const saturation = computeSaturation(uploadsCount);
+  const saturation = computeSaturation(effectiveUploadsCount);
   const winnability = computeWinnability(topPerformersWithSubs);
   const opportunity = computeOpportunity(demand.score, winnability.score, saturation.score);
   const status = computeStatus(opportunity);
@@ -163,7 +188,7 @@ async function runCorePipeline(
 
   const rawMetrics = {
     query,
-    uploadsLast30d: uploadsCount,
+    uploadsLast30d: effectiveUploadsCount,
     demandMedianViewsPerDay: demand.medianViewsPerDay,
     topPerformerCount: topPerformersWithSubs.length,
     smallChannelCount: winnability.smallChannelCount,
@@ -299,9 +324,17 @@ export async function analyzeLaneForMonth(
   ]);
   const uploadsInMonth = recent.totalResults;
 
+  // Same Filter 1 (isTypeBeatTitle) + Filter 2 (titleContainsArtist) the
+  // outlier detector applies (app/api/admin/scores/outliers/route.ts) —
+  // reused here, not reimplemented, so both agree on what counts as a real
+  // type-beat upload for this artist. Keeps artist releases, remakes, and
+  // cross-niche co-mentions out of the pool that win rate, velocity
+  // ceiling, and upload competition are computed from.
+  const titleFilter = (title: string) => isTypeBeatTitle(title) && titleContainsArtist(title, lane.display_name);
+
   const core = await runCorePipeline(supabase, lane, query, recent, topByViews, uploadsInMonth, {
     monthScoped: { month, year },
-  });
+  }, titleFilter);
   if (!core) return null;
 
   // Belt-and-suspenders — the search itself is already bounded to
