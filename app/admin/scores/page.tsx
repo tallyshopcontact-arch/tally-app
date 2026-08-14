@@ -272,14 +272,6 @@ function ResultRow({ result, rank, expanded, onToggle, selected, onSelectToggle,
 }
 
 function OutlierCard({ result }: { result: OutlierResult }) {
-  const [copied, setCopied] = useState(false);
-  const copyTags = () => {
-    if (!result.outlier) return;
-    navigator.clipboard.writeText(result.outlier.tags.join(", "));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
   return (
     <div className="border border-[#1a1a1a] bg-[#0d0d0d] p-5">
       <div className="flex items-center justify-between mb-3">
@@ -315,23 +307,22 @@ function OutlierCard({ result }: { result: OutlierResult }) {
             <span>{result.outlier.viewCount.toLocaleString()} views</span>
             <span>{result.outlier.subscriberCount.toLocaleString()} subs</span>
           </div>
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest">Tags ({result.outlier.tags.length})</p>
-              <button onClick={copyTags} className="text-[10px] text-[#94a3b8] hover:text-white border border-[#1a1a1a] px-2 py-0.5 hover:border-[#333] transition-colors">
-                {copied ? "Copied!" : "Copy all"}
-              </button>
+          {result.timing && (
+            <div className="pt-2 border-t border-[#1a1a1a]">
+              <p className="text-[9px] text-[#94a3b8] uppercase tracking-widest mb-1.5">Upload Timing</p>
+              {result.timing.insufficientData ? (
+                <p className="text-[#475569] text-xs">
+                  Insufficient data for timing analysis ({result.timing.sampleSize} video{result.timing.sampleSize === 1 ? "" : "s"}).
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-xs text-[#e2e8f0]">Best days: {result.timing.bestDays.join(", ")}</p>
+                  <p className="text-xs text-[#e2e8f0]">Best window: {result.timing.bestTimeWindow}</p>
+                  <p className="text-[10px] text-[#475569]">Based on {result.timing.sampleSize} videos.</p>
+                </div>
+              )}
             </div>
-            {result.outlier.tags.length === 0 ? (
-              <p className="text-[#475569] text-xs">No tags on this video.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {result.outlier.tags.map((tag, i) => (
-                  <span key={i} className="text-[10px] text-[#e2e8f0] bg-[#111] border border-[#1e1e1e] px-2 py-0.5">{tag}</span>
-                ))}
-              </div>
-            )}
-          </div>
+          )}
         </div>
       )}
     </div>

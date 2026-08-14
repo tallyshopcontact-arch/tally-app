@@ -2,8 +2,10 @@
 // to 5 selected artists, finds the single highest-performing (by total view
 // count) video that both (a) published within the selected calendar month
 // and (b) came from a channel under 1,000 subscribers — the real proof-point
-// the brief's title-framework section is built from, full tags array
-// included.
+// the brief's title-framework section is built from — plus upload-timing
+// patterns (best day(s)/time window) computed across the FULL qualifying
+// pool, not just that one winner (a single video's publish time is noise;
+// a pattern across a dozen winners is signal).
 //
 // Candidate pool per artist, all merged together before picking one winner:
 //   1. lane_analyses.top_videos already on file (zero quota) — only useful
@@ -48,13 +50,16 @@ const SUBK_CHANNEL_THRESHOLD = 1_000;
 // one search.list; the videos.list/channels.list follow-ups are ~1-2 units
 // each and channels.list is often free via channels_cache.
 const OUTLIER_LIVE_SEARCH_UNITS = 100;
+// Below this many qualifying videos, a "best day"/"best window" claim is
+// just noise from 1-2 data points — report "insufficient data" instead of
+// a fabricated-looking pattern.
+const MIN_TIMING_SAMPLE_SIZE = 5;
 
 type OutlierSource = "stored" | "month-cache" | "live";
 
 interface TopVideoRow {
   videoId?: string;
   title?: string;
-  tags?: string[];
   viewCount?: number;
   subscriberCount?: number;
   publishedAt?: string;
@@ -66,15 +71,33 @@ interface TaggedVideo extends TopVideoRow {
 
 export interface OutlierVideo {
   title: string;
-  tags: string[];
   viewCount: number;
   subscriberCount: number;
   videoUrl: string;
 }
 
+export interface UploadTiming {
+  /** Top 2 days of the week by upload frequency across the qualifying
+   * pool, e.g. ["Friday", "Saturday"] — empty when insufficientData. */
+  bestDays: string[];
+  /** The single busiest of the four UTC time-of-day slots, e.g.
+   * "Evening (6-11pm UTC)" — null when insufficientData. */
+  bestTimeWindow: string | null;
+  /** How many qualifying videos this pattern is based on — always
+   * present, even when insufficientData, so the UI can say so plainly. */
+  sampleSize: number;
+  /** True when sampleSize < MIN_TIMING_SAMPLE_SIZE — bestDays/
+   * bestTimeWindow are not meaningful and shouldn't be displayed. */
+  insufficientData: boolean;
+}
+
 export interface OutlierResult {
   artistName: string;
   outlier: OutlierVideo | null;
+  /** Null only when nothing could be checked at all (quota exhausted AND
+   * no cached candidates) — otherwise always present, even when
+   * insufficientData is true. */
+  timing: UploadTiming | null;
   reason: string | null;
   source: OutlierSource | null;
 }
@@ -84,15 +107,14 @@ export interface OutlierResult {
 // analyzeLaneForMonth, which applies the exact same checks to the videos it
 // scores from, rather than reimplementing them here.
 
-/** Filters to (1) a real type-beat title, (2) the target artist's own name
- * present in that title, (3) a sub-1K-subscriber channel — strictly,
- * before any ranking happens — published within [start, end], THEN picks
- * the single highest-total-view survivor across every candidate pool
- * combined. "Highest-performing" read as the biggest real breakout hit
- * (the strongest proof point for a title framework), not merely the
- * fastest-currently-climbing one. */
-function pickOutlier(candidates: TaggedVideo[], artistName: string, start: Date, end: Date): TaggedVideo | null {
-  const qualifying = candidates.filter((v) => {
+/** Filters candidates to (1) a real type-beat title, (2) the target
+ * artist's own name present in that title, (3) a sub-1K-subscriber channel
+ * — strictly, before any ranking happens — published within [start, end].
+ * This is "the winner pool" — every video that qualifies, not just the
+ * single highest-viewed one — used both to pick the outlier and to compute
+ * upload timing across the whole set. */
+function filterQualifying(candidates: TaggedVideo[], artistName: string, start: Date, end: Date): TaggedVideo[] {
+  return candidates.filter((v) => {
     // Filter 3 first, strictly — a video from a 1,200-sub channel is
     // rejected before its view count or title are even considered.
     if (typeof v.subscriberCount !== "number" || v.subscriberCount >= SUBK_CHANNEL_THRESHOLD) return false;
@@ -106,6 +128,13 @@ function pickOutlier(candidates: TaggedVideo[], artistName: string, start: Date,
     if (!titleContainsArtist(v.title, artistName)) return false;
     return true;
   });
+}
+
+/** The single highest-total-view video in the qualifying pool.
+ * "Highest-performing" read as the biggest real breakout hit (the
+ * strongest proof point for a title framework), not merely the
+ * fastest-currently-climbing one. */
+function pickBest(qualifying: TaggedVideo[]): TaggedVideo | null {
   if (!qualifying.length) return null;
   return qualifying.reduce((best, v) => ((v.viewCount as number) > (best.viewCount as number) ? v : best));
 }
@@ -113,11 +142,50 @@ function pickOutlier(candidates: TaggedVideo[], artistName: string, start: Date,
 function toOutlierVideo(v: TopVideoRow): OutlierVideo {
   return {
     title: v.title ?? "",
-    tags: v.tags ?? [],
     viewCount: v.viewCount ?? 0,
     subscriberCount: v.subscriberCount ?? 0,
     videoUrl: `https://www.youtube.com/watch?v=${v.videoId ?? ""}`,
   };
+}
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+// Four UTC time-of-day slots — explicitly UTC, not the server's or any
+// viewer's local time, since publishedAt from YouTube is UTC and mixing in
+// an implicit local-time interpretation would silently mislabel every slot.
+const TIME_SLOTS: { label: string; test: (hourUTC: number) => boolean }[] = [
+  { label: "Morning (6am-12pm UTC)", test: (h) => h >= 6 && h < 12 },
+  { label: "Afternoon (12-6pm UTC)", test: (h) => h >= 12 && h < 18 },
+  { label: "Evening (6-11pm UTC)", test: (h) => h >= 18 && h < 23 },
+  { label: "Late Night (11pm-6am UTC)", test: (h) => h >= 23 || h < 6 },
+];
+
+/** Upload-timing pattern across the FULL qualifying pool (not just the
+ * single picked outlier) — a lone video's publish time is noise, a
+ * pattern across several winners is signal. */
+function computeUploadTiming(qualifying: TaggedVideo[]): UploadTiming {
+  const sampleSize = qualifying.length;
+  if (sampleSize < MIN_TIMING_SAMPLE_SIZE) {
+    return { bestDays: [], bestTimeWindow: null, sampleSize, insufficientData: true };
+  }
+
+  const dayCounts = new Map<number, number>();
+  const slotCounts = new Map<string, number>();
+  for (const v of qualifying) {
+    const d = new Date(v.publishedAt as string);
+    dayCounts.set(d.getUTCDay(), (dayCounts.get(d.getUTCDay()) ?? 0) + 1);
+    const hour = d.getUTCHours();
+    const slot = TIME_SLOTS.find((s) => s.test(hour));
+    if (slot) slotCounts.set(slot.label, (slotCounts.get(slot.label) ?? 0) + 1);
+  }
+
+  const bestDays = [...dayCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([day]) => DAY_NAMES[day]);
+  const bestSlotEntry = [...slotCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  return { bestDays, bestTimeWindow: bestSlotEntry ? bestSlotEntry[0] : null, sampleSize, insufficientData: false };
 }
 
 /** The dedicated live supplement — one search.list call, order=viewCount,
@@ -150,7 +218,6 @@ async function liveOutlierSearch(
   return details.map((v) => ({
     videoId: v.videoId,
     title: v.title,
-    tags: v.tags,
     viewCount: v.viewCount,
     subscriberCount: channelInfo.get(v.channelId)?.subscriberCount ?? 0,
     publishedAt: v.publishedAt,
@@ -226,14 +293,29 @@ export async function POST(req: NextRequest) {
           candidates.push(...liveResults);
         }
 
-        const winner = pickOutlier(candidates, artistName, start, end);
+        // The same real video can legitimately appear in more than one
+        // source pool (stored + month-cache + live) — dedupe by videoId
+        // before anything downstream, since the winner pick is idempotent
+        // to duplicates but the timing analysis is NOT: an unduped video
+        // would have its single publish timestamp counted 2-3x, skewing
+        // the day/time-slot frequency distribution.
+        const dedupedById = new Map<string, TaggedVideo>();
+        for (const v of candidates) {
+          if (v.videoId && !dedupedById.has(v.videoId)) dedupedById.set(v.videoId, v);
+        }
+        const deduped = [...dedupedById.values()];
+
+        const qualifying = filterQualifying(deduped, artistName, start, end);
+        const winner = pickBest(qualifying);
+
+        if (!qualifying.length && quotaExhausted && !candidates.length) {
+          return { artistName, outlier: null, timing: null, reason: "Quota exhausted — retry tomorrow", source: null };
+        }
+        const timing = computeUploadTiming(qualifying);
         if (winner) {
-          return { artistName, outlier: toOutlierVideo(winner), reason: null, source: winner._source };
+          return { artistName, outlier: toOutlierVideo(winner), timing, reason: null, source: winner._source };
         }
-        if (quotaExhausted && !candidates.length) {
-          return { artistName, outlier: null, reason: "Quota exhausted — retry tomorrow", source: null };
-        }
-        return { artistName, outlier: null, reason: "No qualifying outlier found", source: null };
+        return { artistName, outlier: null, timing, reason: "No qualifying outlier found", source: null };
       })
     );
 
