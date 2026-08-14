@@ -46,6 +46,18 @@ const CONCURRENCY_LIMIT = 5;
 // winnability threshold the rest of the app uses.
 const SUBK_CHANNEL_THRESHOLD = 1_000;
 
+// Ghost town kill switch — the additive formula alone can hand a niche a
+// misleadingly decent 50-65 purely from a high small-channel win rate and
+// low competition, even when almost nobody is searching for it and #1
+// still only pulls single-digit views/day. Either signal being this low
+// means the niche is dead regardless of how easy it'd be to "win" it.
+const GHOST_TOWN_DEMAND_THRESHOLD = 25; // demandScore (0-100, normalized)
+const GHOST_TOWN_VELOCITY_RAW_THRESHOLD = 20; // raw median views/day, NOT velocityCeiling's normalized score
+// More aggressive than a typical 0.6x — deliberately caps a ghost town
+// around ~35/100 regardless of its base score, so it can never visually
+// blend into the "Moderate" band next to a niche with real traffic.
+const GHOST_TOWN_PENALTY_MULTIPLIER = 0.55;
+
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface TopVideoRow {
@@ -70,6 +82,10 @@ export interface ScoredArtist {
   /** True when this result was served from the 7-day month cache at zero
    * quota cost, rather than a fresh YouTube analysis this run. */
   cached: boolean;
+  /** True when the ghost town penalty fired (demandScore < 25 or raw median
+   * views/day < 20) — subKScore already reflects the 0.55x multiplier;
+   * this just tells the UI to render the warning badge/explanation. */
+  isGhostTown: boolean;
   /** The credibility paragraph for the expanded row. */
   summary: string;
 }
@@ -122,10 +138,10 @@ function titleCase(s: string): string {
 }
 
 function verdictFor(subKScore: number): string {
-  if (subKScore >= 70) return "Strong window for sub-1K producers";
+  if (subKScore >= 65) return "Strong window — real traffic available";
   if (subKScore >= 50) return "Moderate — competitive but winnable";
-  if (subKScore >= 30) return "Tough — large channels dominating";
-  return "Avoid — locked by incumbents";
+  if (subKScore >= 35) return "Tough — limited opportunity";
+  return "Avoid — ghost town or locked by incumbents";
 }
 
 function competitionLabel(saturation: number): "Low" | "Moderate" | "High" {
@@ -164,9 +180,20 @@ function buildScoreResult(artistName: string, analysis: LaneAnalysis, isNewArtis
   // at 25%. Prevents an empty/dead niche (100% win rate simply because
   // nothing but small channels ever posted there, near-zero views, zero
   // search demand) from outranking a genuinely active one.
-  const subKScore = Math.round(
+  let subKScore = Math.round(
     smallChannelWinRate * 0.25 + saturationScore * 0.25 + demand * 0.3 + velocityCeiling * 0.2
   );
+
+  // Ghost town kill switch — the additive formula alone still isn't enough:
+  // a niche with a high win rate and low competition but almost no one
+  // searching for it (or #1 pulling single-digit views/day) can land in
+  // the 50-65 "Moderate" band on the additive score alone. Either raw
+  // signal being this weak means the niche is dead regardless of how easy
+  // it'd be to win, so the final score gets capped hard.
+  const isGhostTown = demand < GHOST_TOWN_DEMAND_THRESHOLD || medianViewsPerDay < GHOST_TOWN_VELOCITY_RAW_THRESHOLD;
+  if (isGhostTown) {
+    subKScore = Math.round(subKScore * GHOST_TOWN_PENALTY_MULTIPLIER);
+  }
 
   const patterns = (analysis.patterns ?? {}) as { topCoMentions?: { artist: string }[] };
   const topCoMention = patterns.topCoMentions?.[0]?.artist ? titleCase(patterns.topCoMentions[0].artist) : null;
@@ -193,6 +220,7 @@ function buildScoreResult(artistName: string, analysis: LaneAnalysis, isNewArtis
     verdict,
     isNewArtist,
     cached,
+    isGhostTown,
     summary,
   };
 }

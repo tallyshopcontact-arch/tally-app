@@ -99,17 +99,19 @@ function parseArtistNames(raw: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+// Matches verdictFor's thresholds (app/api/admin/scores/batch/route.ts) so a
+// score's color band never disagrees with its verdict text.
 function scoreColor(score: number): string {
-  if (score >= 70) return "#4ade80";
+  if (score >= 65) return "#4ade80";
   if (score >= 50) return "#fbbf24";
-  if (score >= 30) return "#fb923c";
+  if (score >= 35) return "#fb923c";
   return "#f87171";
 }
 
 function scoreBg(score: number): string {
-  if (score >= 70) return "bg-[#4ade80]/10";
+  if (score >= 65) return "bg-[#4ade80]/10";
   if (score >= 50) return "bg-[#fbbf24]/10";
-  if (score >= 30) return "bg-[#fb923c]/10";
+  if (score >= 35) return "bg-[#fb923c]/10";
   return "bg-[#f87171]/10";
 }
 
@@ -189,10 +191,20 @@ function ResultRow({ result, rank, expanded, onToggle, selected, onSelectToggle,
           />
         </td>
         <td className="px-5 py-4 cursor-pointer" onClick={onToggle}>
-          <span className={`inline-flex items-center justify-center w-14 h-9 text-lg font-bold ${scoreBg(result.subKScore)}`}
-            style={{ color: scoreColor(result.subKScore) }}>
-            {result.subKScore}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center justify-center w-14 h-9 text-lg font-bold ${scoreBg(result.subKScore)}`}
+              style={{ color: scoreColor(result.subKScore) }}>
+              {result.subKScore}
+            </span>
+            {result.isGhostTown && (
+              <span
+                className="text-[9px] font-semibold text-[#fb923c] bg-[#fb923c]/10 border border-[#fb923c]/30 px-1.5 py-0.5 whitespace-nowrap"
+                title="Search demand or velocity too low to generate meaningful traffic — score penalized"
+              >
+                ⚠️ Ghost Town
+              </span>
+            )}
+          </div>
         </td>
         <td className="px-5 py-4 cursor-pointer" onClick={onToggle}>
           <div className="flex items-center gap-0.5">
@@ -243,6 +255,11 @@ function ResultRow({ result, rank, expanded, onToggle, selected, onSelectToggle,
                 display={`${result.medianViewsPerDay} views/day`}
                 weight={20}
               />
+              {result.isGhostTown && (
+                <p className="text-[#fb923c] text-xs leading-relaxed bg-[#fb923c]/10 border border-[#fb923c]/30 px-3 py-2 mt-1">
+                  ⚠️ Ghost Town — search demand is too low to generate meaningful traffic even if you rank. Score penalized.
+                </p>
+              )}
               <p className="text-[#cbd5e1] text-xs leading-relaxed pt-2 border-t border-[#1a1a1a] mt-3">
                 {result.summary}
               </p>
