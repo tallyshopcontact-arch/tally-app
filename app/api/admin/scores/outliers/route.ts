@@ -22,6 +22,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeLaneSlug, getLatestAnalysis } from "@/lib/lanes/db";
 import { monthBounds } from "@/lib/lanes/dateRange";
+import { cleanArtistName } from "@/lib/lanes/patterns";
 import { getNicheData } from "@/lib/reports/nicheCache";
 import { createServerClient } from "@/lib/supabase";
 
@@ -60,17 +61,48 @@ export interface OutlierResult {
   source: "stored" | "month-cache" | "live" | null;
 }
 
-/** Strictly filters to sub-1K channels published within [start, end], then
- * picks the single highest-total-view video — "highest-performing" read as
- * the biggest real breakout hit (the strongest proof point for a title
- * framework), not merely the fastest-currently-climbing one. */
-function pickOutlier(topVideos: TopVideoRow[], start: Date, end: Date): TopVideoRow | null {
+// Filter 1 — must actually be a producer's type-beat/instrumental upload,
+// not an artist's own release that merely got swept into topVideos (e.g.
+// via a co-mention in a different video's title/tags).
+const TYPE_BEAT_TERMS = ["type beat", "typebeat", "instrumental", "inst."];
+
+function isTypeBeatTitle(title: string): boolean {
+  const lower = title.toLowerCase();
+  return TYPE_BEAT_TERMS.some((term) => lower.includes(term));
+}
+
+// Filter 2 — the target artist's own name must appear in the title, not
+// just a co-mentioned artist's. Normalizes the ARTIST NAME (not the whole
+// title — cleanArtistName also chain-collapses on " x ", which would wrongly
+// truncate a multi-artist title) through the same helper the rest of the
+// codebase uses for artist-identity comparisons, so casing/prefix
+// differences ("The Alchemist" vs "Alchemist") don't cause a false miss.
+function titleContainsArtist(title: string, artistName: string): boolean {
+  const normalizedArtist = cleanArtistName(artistName);
+  if (!normalizedArtist) return false;
+  return title.toLowerCase().includes(normalizedArtist);
+}
+
+/** Filters to (1) a real type-beat/instrumental title, (2) the target
+ * artist's own name present in that title, (3) a sub-1K-subscriber channel
+ * — strictly, before any ranking happens — published within [start, end],
+ * THEN picks the single highest-total-view survivor. "Highest-performing"
+ * read as the biggest real breakout hit (the strongest proof point for a
+ * title framework), not merely the fastest-currently-climbing one. */
+function pickOutlier(topVideos: TopVideoRow[], artistName: string, start: Date, end: Date): TopVideoRow | null {
   const qualifying = topVideos.filter((v) => {
+    // Filter 3 first, strictly — a video from a 1,200-sub channel is
+    // rejected before its view count or title are even considered.
     if (typeof v.subscriberCount !== "number" || v.subscriberCount >= SUBK_CHANNEL_THRESHOLD) return false;
     if (typeof v.viewCount !== "number" || typeof v.title !== "string") return false;
     if (typeof v.publishedAt !== "string") return false;
     const t = new Date(v.publishedAt).getTime();
-    return t >= start.getTime() && t <= end.getTime();
+    if (t < start.getTime() || t > end.getTime()) return false;
+    // Filter 1
+    if (!isTypeBeatTitle(v.title)) return false;
+    // Filter 2
+    if (!titleContainsArtist(v.title, artistName)) return false;
+    return true;
   });
   if (!qualifying.length) return null;
   return qualifying.reduce((best, v) => ((v.viewCount as number) > (best.viewCount as number) ? v : best));
@@ -133,7 +165,7 @@ export async function POST(req: NextRequest) {
           if (existingLane) {
             const stored = await getLatestAnalysis(supabase, existingLane.id as string);
             if (stored) {
-              const outlier = pickOutlier((stored.top_videos ?? []) as TopVideoRow[], start, end);
+              const outlier = pickOutlier((stored.top_videos ?? []) as TopVideoRow[], artistName, start, end);
               if (outlier) {
                 return { artistName, outlier: toOutlierVideo(outlier), reason: null, source: "stored" };
               }
@@ -151,9 +183,9 @@ export async function POST(req: NextRequest) {
         if (nicheResult.noData) {
           return { artistName, outlier: null, reason: "No data for this period", source: null };
         }
-        const outlier = pickOutlier((nicheResult.analysis.top_videos ?? []) as TopVideoRow[], start, end);
+        const outlier = pickOutlier((nicheResult.analysis.top_videos ?? []) as TopVideoRow[], artistName, start, end);
         if (!outlier) {
-          return { artistName, outlier: null, reason: "No sub-1K video found in this window", source: null };
+          return { artistName, outlier: null, reason: "No qualifying outlier found", source: null };
         }
         return { artistName, outlier: toOutlierVideo(outlier), reason: null, source: nicheResult.fromCache ? "month-cache" : "live" };
       })

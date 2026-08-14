@@ -291,7 +291,20 @@ function OutlierCard({ result }: { result: OutlierResult }) {
         )}
       </div>
       {!result.outlier ? (
-        <p className="text-[#f87171] text-xs">{result.reason}</p>
+        // "No qualifying outlier" / "No data for this period" are valid,
+        // expected results (some niches genuinely have no sub-1K type-beat
+        // outlier that month) — styled neutral, not as an error. Only real
+        // failures (quota exhausted) get the red warning treatment.
+        result.reason === "No qualifying outlier found" || result.reason === "No data for this period" ? (
+          <div>
+            <span className="inline-block px-2 py-0.5 bg-[#1a1a1a] text-[#94a3b8] text-xs mb-1.5">No qualifying outlier found</span>
+            <p className="text-[#475569] text-[11px] leading-relaxed">
+              No sub-1K-subscriber type-beat video for {result.artistName} passed every filter this month — that&apos;s valid data, not an error.
+            </p>
+          </div>
+        ) : (
+          <p className="text-[#f87171] text-xs">{result.reason}</p>
+        )
       ) : (
         <div className="space-y-3">
           <a href={result.outlier.videoUrl} target="_blank" rel="noopener noreferrer"
