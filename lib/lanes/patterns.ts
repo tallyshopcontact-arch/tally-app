@@ -107,6 +107,25 @@ export function titleContainsArtist(title: string, artistName: string): boolean 
   return containsPhrase(title, normalizedArtist);
 }
 
+/** Filter 4 — Shorts (under 60s) are excluded from scoring and outlier
+ * detection: they behave completely differently from a regular upload in
+ * search, discovery, and algorithm treatment, so a producer can't
+ * replicate a Short's performance with a standard video. */
+export const MIN_TYPE_BEAT_DURATION_SECONDS = 60;
+
+/** `durationSeconds` is `undefined` only for legacy cached rows persisted
+ * before this field existed (see lib/lanes/pipeline.ts's GalleryVideo) —
+ * treated as "unknown, don't reject" rather than assumed-Short, so
+ * existing cached candidates aren't silently wiped out until they're next
+ * refreshed. A freshly-fetched video always has a real number here
+ * (lib/lanes/youtube.ts's getVideoDetails always parses contentDetails.duration),
+ * including a genuine 0 for missing/malformed duration data — which
+ * correctly fails the check, unlike the `undefined` case. */
+export function meetsMinDuration(durationSeconds: number | undefined): boolean {
+  if (durationSeconds === undefined) return true;
+  return durationSeconds >= MIN_TYPE_BEAT_DURATION_SECONDS;
+}
+
 // ── Co-mention hard-reject filter ────────────────────────────────────────
 // A raw CO_MENTION_RE capture is frequently not a real artist at all: a
 // genre/style word used as if it were one ("x West Coast Type Beat"), a

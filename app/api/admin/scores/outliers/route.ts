@@ -24,12 +24,15 @@
 //      one in the window. Runs regardless of whether the cache already
 //      found something, so the picked winner is verified against real
 //      current data, not just whatever happened to be cached.
-// Filters 1-3 (isTypeBeatTitle, titleContainsArtist, strict sub-1K) apply
-// identically to every candidate regardless of which pool it came from.
+// Filters 1-4 (isTypeBeatTitle, titleContainsArtist, strict sub-1K,
+// meetsMinDuration) apply identically to every candidate regardless of
+// which pool it came from — a Short can never be an outlier video
+// regardless of view count, since a type beat producer can't replicate a
+// Short's performance with a standard upload.
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeLaneSlug, getLatestAnalysis, getMonthAnalysis, reserveQuota } from "@/lib/lanes/db";
 import { monthBounds } from "@/lib/lanes/dateRange";
-import { isTypeBeatTitle, titleContainsArtist } from "@/lib/lanes/patterns";
+import { isTypeBeatTitle, titleContainsArtist, meetsMinDuration } from "@/lib/lanes/patterns";
 import { searchVideos, getVideoDetails, getChannelSubCounts } from "@/lib/lanes/youtube";
 import { createServerClient } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -63,6 +66,10 @@ interface TopVideoRow {
   viewCount?: number;
   subscriberCount?: number;
   publishedAt?: string;
+  /** Undefined for legacy cached rows persisted before this field existed
+   * — meetsMinDuration treats that as "unknown, don't reject" rather than
+   * assumed-Short. Always a real number for freshly-fetched candidates. */
+  durationSeconds?: number;
 }
 
 interface TaggedVideo extends TopVideoRow {
@@ -108,11 +115,12 @@ export interface OutlierResult {
 // scores from, rather than reimplementing them here.
 
 /** Filters candidates to (1) a real type-beat title, (2) the target
- * artist's own name present in that title, (3) a sub-1K-subscriber channel
- * — strictly, before any ranking happens — published within [start, end].
- * This is "the winner pool" — every video that qualifies, not just the
- * single highest-viewed one — used both to pick the outlier and to compute
- * upload timing across the whole set. */
+ * artist's own name present in that title, (3) a sub-1K-subscriber channel,
+ * (4) at least 60 seconds long (not a Short) — strictly, before any ranking
+ * happens — published within [start, end]. This is "the winner pool" —
+ * every video that qualifies, not just the single highest-viewed one —
+ * used both to pick the outlier and to compute upload timing across the
+ * whole set. */
 function filterQualifying(candidates: TaggedVideo[], artistName: string, start: Date, end: Date): TaggedVideo[] {
   return candidates.filter((v) => {
     // Filter 3 first, strictly — a video from a 1,200-sub channel is
@@ -122,6 +130,8 @@ function filterQualifying(candidates: TaggedVideo[], artistName: string, start: 
     if (typeof v.publishedAt !== "string") return false;
     const t = new Date(v.publishedAt).getTime();
     if (t < start.getTime() || t > end.getTime()) return false;
+    // Filter 4 — a Short can never be an outlier regardless of view count.
+    if (!meetsMinDuration(v.durationSeconds)) return false;
     // Filter 1
     if (!isTypeBeatTitle(v.title)) return false;
     // Filter 2
@@ -194,7 +204,16 @@ function computeUploadTiming(qualifying: TaggedVideo[]): UploadTiming {
  * view-count-ranked search meant to surface the single true outlier, not a
  * representative sample for demand/saturation scoring). Returns null only
  * when quota couldn't be reserved at all; an empty array is a legitimate
- * "the search ran and found nothing." */
+ * "the search ran and found nothing."
+ *
+ * Deliberately NO videoDuration param. YouTube's "short" bucket (< 4 min)
+ * contains both real Shorts AND the bulk of legitimate type-beat uploads
+ * (commonly 1-4 minutes) — confirmed against real data: for one artist,
+ * restricting to videoDuration=medium dropped the query from 1,290 total
+ * matches to 74, and 37 of the unfiltered top 50 vanished entirely. Maximum
+ * live-search coverage matters more here than trimming a few extra
+ * videos.list entries — meetsMinDuration in filterQualifying, applied
+ * after fetching, is what actually guarantees no Short ever wins. */
 async function liveOutlierSearch(
   supabase: SupabaseClient,
   artistName: string,
@@ -221,6 +240,7 @@ async function liveOutlierSearch(
     viewCount: v.viewCount,
     subscriberCount: channelInfo.get(v.channelId)?.subscriberCount ?? 0,
     publishedAt: v.publishedAt,
+    durationSeconds: v.durationSeconds,
     _source: "live" as const,
   }));
 }

@@ -34,7 +34,13 @@ function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function parseDurationSecs(iso: string): number {
+/** ISO 8601 duration (YouTube's contentDetails.duration, e.g. "PT3M42S") to
+ * whole seconds. Exported — shared by lib/lanes/pipeline.ts and
+ * app/api/admin/scores/outliers/route.ts's Shorts filter (see
+ * lib/lanes/patterns.ts's meetsMinDuration) rather than each re-parsing
+ * contentDetails.duration itself; both actually just read the already-
+ * parsed VideoDetails.durationSeconds this function produces below. */
+export function parseDurationSecs(iso: string): number {
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   if (!m) return 0;
   return parseInt(m[1] ?? "0") * 3600 + parseInt(m[2] ?? "0") * 60 + parseInt(m[3] ?? "0");
@@ -57,12 +63,18 @@ export interface SearchResult {
  * absolute pair bounds the query itself, not just a client-side filter of
  * the results, so pageInfo.totalResults (the saturation/upload-competition
  * signal) reflects real counts for that exact window instead of "everything
- * since the window start through today." */
+ * since the window start through today."
+ *
+ * `videoDuration` (optional) — YouTube's own coarse pre-filter ("short" <
+ * 4min, "medium" 4-20min, "long" > 20min). Approximate and NOT a substitute
+ * for a real duration check on the fetched results (see
+ * lib/lanes/patterns.ts's meetsMinDuration) — it just trims obvious Shorts
+ * from the result set before spending a videos.list call on their details. */
 export async function searchVideos(
   query: string,
   opts:
-    | { order: "date" | "viewCount"; publishedAfterDays: number; maxResults: number }
-    | { order: "date" | "viewCount"; publishedAfter: string; publishedBefore: string; maxResults: number }
+    | { order: "date" | "viewCount"; publishedAfterDays: number; maxResults: number; videoDuration?: "short" | "medium" | "long" }
+    | { order: "date" | "viewCount"; publishedAfter: string; publishedBefore: string; maxResults: number; videoDuration?: "short" | "medium" | "long" }
 ): Promise<SearchResult> {
   const params = new URLSearchParams({
     part: "snippet",
@@ -78,6 +90,7 @@ export async function searchVideos(
     params.set("publishedAfter", opts.publishedAfter);
     params.set("publishedBefore", opts.publishedBefore);
   }
+  if (opts.videoDuration) params.set("videoDuration", opts.videoDuration);
   const res = await fetch(`${YT}/search?${params.toString()}`);
   if (!res.ok) throw new Error(`YouTube search.list failed (order=${opts.order}): ${res.status}`);
   const data = await res.json();

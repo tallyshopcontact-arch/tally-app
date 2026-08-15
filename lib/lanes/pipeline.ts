@@ -26,7 +26,7 @@ import {
   computeStatus, computeMomentum, viewsPerDay, SCORE_CALIBRATION, type DemandResult, type SaturationResult,
   type WinnabilityResult, type LaneStatus,
 } from "./scoring.ts";
-import { analyzePatterns, isTypeBeatTitle, titleContainsArtist, type PatternStats } from "./patterns.ts";
+import { analyzePatterns, isTypeBeatTitle, titleContainsArtist, meetsMinDuration, type PatternStats } from "./patterns.ts";
 import { monthBounds } from "./dateRange.ts";
 
 export interface GalleryVideo {
@@ -38,6 +38,12 @@ export interface GalleryVideo {
   subscriberCount: number;
   viewCount: number;
   publishedAt: string;
+  /** Whole seconds, from contentDetails.duration (already fetched as part
+   * of the same videos.list call — see lib/lanes/youtube.ts's
+   * getVideoDetails, no extra quota cost). Lets a candidate pool built from
+   * this stored data (e.g. /admin/scores's outlier detector) re-apply the
+   * Shorts filter without a live re-fetch. */
+  durationSeconds: number;
   /** Raw YouTube Studio tags — source data for the gallery-based title/tag
    * generator in lib/lanes/titles.ts. */
   tags: string[];
@@ -72,6 +78,7 @@ function toGalleryVideo(v: VideoDetails & { subscriberCount: number; channelPubl
     subscriberCount: v.subscriberCount,
     viewCount: v.viewCount,
     publishedAt: v.publishedAt,
+    durationSeconds: v.durationSeconds,
     tags: v.tags,
     channelPublishedAt: v.channelPublishedAt,
   };
@@ -104,18 +111,18 @@ interface PipelineCore {
  * this happen since its rolling window is always "now," but
  * analyzeLaneForMonth's callers hit it routinely for quiet/older months).
  *
- * titleFilter — when provided, applied to BOTH scans' video titles before
- * anything is computed from them: the top-performer pool (which becomes
+ * videoFilter — when provided, applied to BOTH scans' videos (title,
+ * artist name, duration — whatever the predicate checks) before anything
+ * is computed from them: the top-performer pool (which becomes
  * topVideos/winnerVideos and drives small-channel win rate + velocity
  * ceiling downstream) and the recency scan (whose filtered item count
  * replaces uploadsCount as the saturation/upload-competition input,
  * capped at that scan's maxResults rather than YouTube's real
  * pageInfo.totalResults — the accuracy tradeoff for "only count videos
- * that are actually type-beat uploads naming this artist"). Only
- * analyzeLaneForMonth passes one — analyzeLane (report builder, expansion
- * picks) is intentionally unaffected, since narrowing its already-live
- * scoring pool wasn't asked for and risks regressing callers well beyond
- * /admin/scores. */
+ * that actually qualify"). Only analyzeLaneForMonth passes one —
+ * analyzeLane (report builder, expansion picks) is intentionally
+ * unaffected, since narrowing its already-live scoring pool wasn't asked
+ * for and risks regressing callers well beyond /admin/scores. */
 async function runCorePipeline(
   supabase: SupabaseClient,
   lane: Lane,
@@ -124,7 +131,7 @@ async function runCorePipeline(
   topByViews: SearchWindow,
   uploadsCount: number,
   extraRawMetrics: Record<string, unknown>,
-  titleFilter?: (title: string) => boolean
+  videoFilter?: (v: VideoDetails) => boolean
 ): Promise<PipelineCore | null> {
   const allIds = [...new Set([...recent.items.map((v) => v.videoId), ...topByViews.items.map((v) => v.videoId)])];
   if (!allIds.length) return null;
@@ -142,12 +149,12 @@ async function runCorePipeline(
     .sort((a, b) => viewsPerDay(b) - viewsPerDay(a));
 
   let effectiveUploadsCount = uploadsCount;
-  if (titleFilter) {
-    topPerformerDetails = topPerformerDetails.filter((v) => titleFilter(v.title));
+  if (videoFilter) {
+    topPerformerDetails = topPerformerDetails.filter(videoFilter);
     const recentFiltered = recent.items
       .map((v) => detailsById.get(v.videoId))
       .filter((v): v is VideoDetails => !!v)
-      .filter((v) => titleFilter(v.title));
+      .filter(videoFilter);
     effectiveUploadsCount = recentFiltered.length;
   }
   if (!topPerformerDetails.length) return null;
@@ -324,17 +331,21 @@ export async function analyzeLaneForMonth(
   ]);
   const uploadsInMonth = recent.totalResults;
 
-  // Same Filter 1 (isTypeBeatTitle) + Filter 2 (titleContainsArtist) the
-  // outlier detector applies (app/api/admin/scores/outliers/route.ts) —
-  // reused here, not reimplemented, so both agree on what counts as a real
-  // type-beat upload for this artist. Keeps artist releases, remakes, and
-  // cross-niche co-mentions out of the pool that win rate, velocity
-  // ceiling, and upload competition are computed from.
-  const titleFilter = (title: string) => isTypeBeatTitle(title) && titleContainsArtist(title, lane.display_name);
+  // Same Filters 1, 2 & 4 (isTypeBeatTitle, titleContainsArtist,
+  // meetsMinDuration) the outlier detector applies
+  // (app/api/admin/scores/outliers/route.ts) — reused here, not
+  // reimplemented, so both agree on what counts as a real type-beat
+  // upload for this artist. Keeps artist releases, remakes, cross-niche
+  // co-mentions, AND Shorts (which behave completely differently in
+  // search/discovery and can't be replicated by a standard upload) out of
+  // the pool that win rate, velocity ceiling, and upload competition are
+  // computed from.
+  const videoFilter = (v: VideoDetails) =>
+    isTypeBeatTitle(v.title) && titleContainsArtist(v.title, lane.display_name) && meetsMinDuration(v.durationSeconds);
 
   const core = await runCorePipeline(supabase, lane, query, recent, topByViews, uploadsInMonth, {
     monthScoped: { month, year },
-  }, titleFilter);
+  }, videoFilter);
   if (!core) return null;
 
   // Belt-and-suspenders — the search itself is already bounded to
